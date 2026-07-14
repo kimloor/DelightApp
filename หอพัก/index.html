@@ -430,11 +430,11 @@
     .inv-docno{font-family:'Fraunces',serif;font-size:15px;font-weight:600;text-align:right;}
 
     .inv-body{width:100%;}
-    .inv-meta{width:100%;border-collapse:collapse;margin-bottom:0;margin-top:0;}
-    .inv-meta td{border:1px solid #999;padding:3px 5px;font-size:9.5px;vertical-align:top;}
-    .inv-meta td.k{width:16%;color:#555;white-space:nowrap;}
-    .inv-meta td.v{width:34%;font-weight:600;}
-    .inv-items{width:100%;border-collapse:collapse;margin-top:6px;}
+    .inv-meta{width:100%;border-collapse:collapse;margin-bottom:0;margin-top:0;table-layout:fixed;}
+    .inv-meta td{border:1px solid #999;padding:3px 5px;font-size:9.5px;vertical-align:middle;}
+    .inv-meta td.k{color:#555;font-size:8.5px;text-align:center;line-height:1.3;background:#f7f5f0;}
+    .inv-meta td.v{font-weight:600;}
+    .inv-items{width:100%;border-collapse:collapse;margin-top:6px;table-layout:fixed;}
     .inv-items th{background:#efefef;border:1px solid #999;padding:3px;font-size:9px;text-align:center;}
     .inv-items td{border:1px solid #999;padding:3px 5px;font-size:9.5px;}
     .inv-items td.c{text-align:center;}
@@ -737,6 +737,38 @@ function currentBills(){
   return bills.filter(b=>ids.has(b.roomId));
 }
 
+/* สร้างเลขที่บิล/ใบแจ้งหนี้ขึ้นเองแบบไม่ซ้ำ — เป็นเลขรันต่อเนื่องทั้งระบบ (ทุกอพาร์ทเมนท์ ทุกเดือนรวมกัน)
+   รูปแบบ: INV-{ปีเดือน}-{เลขรัน 4 หลัก} เช่น INV-256907-0012
+   ตรวจสอบกับเลขที่มีอยู่แล้วทั้งหมดเสมอ ถ้าเลขที่คำนวณได้ดันซ้ำ (กรณีแก้ไขข้อมูลเอง) จะรันเลขถัดไปให้อัตโนมัติ */
+function genInvoiceNo(month){
+  const ym = (month || thisMonth()).replace('-','');
+  const existing = new Set(bills.map(b=>b.invoiceNo).filter(Boolean));
+  let seq = 0;
+  existing.forEach(no=>{
+    const m = /-(\d+)$/.exec(no);
+    if(m){ const n = parseInt(m[1],10); if(n>seq) seq = n; }
+  });
+  seq++;
+  let candidate = `INV-${ym}-${String(seq).padStart(4,'0')}`;
+  while(existing.has(candidate)){
+    seq++;
+    candidate = `INV-${ym}-${String(seq).padStart(4,'0')}`;
+  }
+  return candidate;
+}
+
+/* ย้อนกลับไปเติมเลขที่บิลให้บิลเก่าที่ยังไม่มี (ก่อนมีฟีเจอร์นี้) */
+function assignMissingInvoiceNos(){
+  let changed = false;
+  bills.slice().sort((a,b)=> (a.month>b.month?1:-1)).forEach(b=>{
+    if(!b.invoiceNo){
+      b.invoiceNo = genInvoiceNo(b.month);
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 async function loadData(){
   if (sheetUrl) {
     try{
@@ -763,7 +795,8 @@ async function loadData(){
   }
 
   const migrated = migratePropertyScoping();
-  if(migrated){
+  const invoicesAssigned = assignMissingInvoiceNos();
+  if(migrated || invoicesAssigned){
     await Promise.all([saveRooms(), saveTenants(), saveBills(), saveProperties()]);
   }
 
@@ -1791,11 +1824,16 @@ function thaiBuddhistDate(d){
   return `${day}/${month}/${year}`;
 }
 
+/* คอลัมน์เดียวกันเป๊ะๆ ใช้ร่วมกันทั้งตารางข้อมูลผู้เช่า/เลขที่/วันที่ และตารางรายการด้านล่าง
+   เพื่อให้เส้นตารางแนวตั้งของทั้งสองตารางตรงกันตลอดทั้งใบแจ้งหนี้ */
+const INV_COLGROUP = `<colgroup><col style="width:8%"><col style="width:46%"><col style="width:12%"><col style="width:17%"><col style="width:17%"></colgroup>`;
+
 function invoiceHtml(bill){
   const room = rooms.find(r=>r.id===bill.roomId);
   const tenant = tenants.find(t=>t.roomId===bill.roomId);
   const property = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId)) || {};
-  const invoiceNo = 'INV-' + bill.month.replace('-','') + '-' + (room?room.number:'');
+  if(!bill.invoiceNo){ bill.invoiceNo = genInvoiceNo(bill.month); saveBills(); }
+  const invoiceNo = bill.invoiceNo;
 
   const waterUnits = Math.max((Number(bill.waterCurr)||0)-(Number(bill.waterPrev)||0),0);
   const electricUnits = Math.max((Number(bill.electricCurr)||0)-(Number(bill.electricPrev)||0),0);
@@ -1840,23 +1878,25 @@ function invoiceHtml(bill){
       </div>
       <div class="inv-body">
         <table class="inv-meta">
+          ${INV_COLGROUP}
           <tr>
-            <td class="k">ชื่อผู้เช่า Name</td><td class="v">${tenant?tenant.name:'-'}</td>
-            <td class="k">เลขที่ No.</td><td class="v">${invoiceNo}</td>
+            <td class="k">ชื่อผู้เช่า<br>Name</td><td class="v">${tenant?tenant.name:'-'}</td>
+            <td class="k">เลขที่<br>No.</td><td class="v" colspan="2">${invoiceNo}</td>
           </tr>
           <tr>
-            <td class="k">ห้องพัก Room</td><td class="v">${room?('ห้อง '+room.number+(room.floor?' ชั้น '+room.floor:'')):'-'}</td>
-            <td class="k">วันที่ Date</td><td class="v">${thaiBuddhistDate()}</td>
+            <td class="k">ห้องพัก<br>Room</td><td class="v">${room?('ห้อง '+room.number+(room.floor?' ชั้น '+room.floor:'')):'-'}</td>
+            <td class="k">วันที่<br>Date</td><td class="v" colspan="2">${thaiBuddhistDate()}</td>
           </tr>
         </table>
         <table class="inv-items">
+          ${INV_COLGROUP}
           <thead>
             <tr>
-              <th style="width:8%;">ลำดับ<br>Item</th>
+              <th>ลำดับ<br>Item</th>
               <th>รายการ<br>Description</th>
-              <th style="width:12%;">จำนวนหน่วย<br>Qty</th>
-              <th style="width:16%;">ราคาต่อหน่วย<br>Unit Price</th>
-              <th style="width:16%;">จำนวนเงิน<br>Amount</th>
+              <th>จำนวนหน่วย<br>Qty</th>
+              <th>ราคาต่อหน่วย<br>Unit Price</th>
+              <th>จำนวนเงิน<br>Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -2155,6 +2195,7 @@ async function generateBills(){
     const electricPrev = prev ? Number(prev.electricCurr||0) : 0;
     bills.push({
       id, roomId:room.id, month,
+      invoiceNo: genInvoiceNo(month),
       rent:Number(room.rent)||0,
       waterPrev, waterCurr:waterPrev, water:0,
       electricPrev, electricCurr:electricPrev, electric:0,
