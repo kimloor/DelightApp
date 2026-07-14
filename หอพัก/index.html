@@ -444,12 +444,12 @@
     .inv-items tfoot td.label{text-align:right;color:#555;white-space:nowrap;}
     .inv-items tfoot td.amount{text-align:right;font-weight:700;font-family:'IBM Plex Mono',monospace;font-size:11px;}
 
-    .inv-bottom{display:flex;justify-content:space-between;align-items:flex-end;margin-top:8px;gap:10px;}
+    .inv-bottom{display:flex;justify-content:space-between;align-items:flex-start;margin-top:8px;gap:10px;}
     .inv-notes{font-size:9px;color:#333;line-height:1.4;white-space:pre-line;}
     .inv-notes .label{font-weight:600;}
     .inv-qr{flex:none;text-align:center;}
-    .inv-qr img{width:62px;height:62px;object-fit:contain;border:1px solid #999;padding:2px;}
-    .inv-qr .qr-label{font-size:8px;color:#333;margin-top:2px;}
+    .inv-qr img{width:104px;height:104px;object-fit:contain;border:1px solid #999;padding:3px;background:#fff;}
+    .inv-qr .qr-label{font-size:9px;color:#333;margin-top:3px;}
     .inv-sign{margin-top:12px;text-align:right;font-size:9.5px;padding-right:8px;}
     .inv-sign .line{margin-bottom:4px;}
   }
@@ -625,7 +625,7 @@ const formatThaiDate = (iso) => {
 /* ค่าเริ่มต้น: ลิงก์ Google Sheets ของคุณ ฝังไว้ในไฟล์นี้เลย
    เพื่อให้เชื่อมต่อได้ทันทีทุกครั้งที่เปิด โดยไม่ต้องพึ่ง localStorage
    (ซึ่งบางเบราว์เซอร์ไม่บันทึกให้เมื่อเปิดไฟล์แบบ file://) */
-const DEFAULT_SHEET_URL = 'https://script.google.com/macros/s/AKfycbyYI4PgIUw-uTmYVRB484xmNk2xM4iuTVgm57qdcPktiHn4l2ZAHxPEypC5IOkyBCrJ/exec';
+const DEFAULT_SHEET_URL = 'https://script.google.com/macros/s/AKfycbxD9bQkCdI1uVDKxUgrdtMbcJj737oHiHaCbZgY61-ckVIBekgi8vwGnTle6MKwjQDl/exec';
 
 let sheetUrl = DEFAULT_SHEET_URL;
 try{
@@ -1923,19 +1923,37 @@ function invoiceHtml(bill){
   `;
 }
 
-function printInvoice(bill){
-  document.getElementById('printArea').innerHTML = invoiceHtml(bill);
+/* รอให้รูปภาพ (เช่น QR) โหลด/แสดงผลเสร็จก่อนค่อยเปิดหน้าต่างพิมพ์
+   ป้องกันปัญหารูปไม่ขึ้นตอนพิมพ์บิลหลายใบพร้อมกัน (เบราว์เซอร์ยังวาดรูปไม่ทันตอน print ถูกเรียก) */
+function waitForImages(container){
+  const imgs = Array.from(container.querySelectorAll('img'));
+  if(imgs.length === 0) return Promise.resolve();
+  return Promise.all(imgs.map(img=>{
+    if(img.complete && img.naturalWidth > 0) return Promise.resolve();
+    return new Promise(resolve=>{
+      img.addEventListener('load', resolve, {once:true});
+      img.addEventListener('error', resolve, {once:true});
+    });
+  }));
+}
+
+async function printInvoice(bill){
+  const area = document.getElementById('printArea');
+  area.innerHTML = invoiceHtml(bill);
+  await waitForImages(area);
   window.print();
 }
 
-function printInvoices(billList){
+async function printInvoices(billList){
   if(!billList.length) return;
   const sorted = billList.slice().sort((a,b)=>{
     const ra = rooms.find(r=>r.id===a.roomId), rb = rooms.find(r=>r.id===b.roomId);
     return (ra?ra.number:'').localeCompare(rb?rb.number:'', 'th', {numeric:true});
   });
   const html = sorted.map(b=>`<div class="invoice-page">${invoiceHtml(b)}</div>`).join('');
-  document.getElementById('printArea').innerHTML = html;
+  const area = document.getElementById('printArea');
+  area.innerHTML = html;
+  await waitForImages(area);
   window.print();
 }
 
