@@ -439,11 +439,10 @@
     .inv-items td{border:1px solid #999;padding:3px 5px;font-size:9.5px;}
     .inv-items td.c{text-align:center;}
     .inv-items td.r{text-align:right;font-family:'IBM Plex Mono',monospace;}
-    .inv-total-row{width:100%;border-collapse:collapse;margin-top:6px;}
-    .inv-total-row td{border:1px solid #999;padding:4px 6px;font-size:9.5px;}
-    .inv-total-row td.words{width:70%;font-weight:600;}
-    .inv-total-row td.label{width:15%;text-align:right;color:#555;}
-    .inv-total-row td.amount{width:15%;text-align:right;font-weight:700;font-family:'IBM Plex Mono',monospace;font-size:10.5px;}
+    .inv-items tfoot td{border:1px solid #999;padding:5px 6px;font-size:9.5px;background:#f7f5f0;}
+    .inv-items tfoot td.words{font-weight:600;}
+    .inv-items tfoot td.label{text-align:right;color:#555;white-space:nowrap;}
+    .inv-items tfoot td.amount{text-align:right;font-weight:700;font-family:'IBM Plex Mono',monospace;font-size:11px;}
 
     .inv-bottom{display:flex;justify-content:space-between;align-items:flex-end;margin-top:8px;gap:10px;}
     .inv-notes{font-size:9px;color:#333;line-height:1.4;white-space:pre-line;}
@@ -1863,13 +1862,13 @@ function invoiceHtml(bill){
           <tbody>
             ${itemRowsHtml}
           </tbody>
-        </table>
-        <table class="inv-total-row">
-          <tr>
-            <td class="words">(${bahtText(bill.total)})</td>
-            <td class="label">จำนวนเงินรวม</td>
-            <td class="amount">${THB(bill.total)}</td>
-          </tr>
+          <tfoot>
+            <tr>
+              <td class="words" colspan="3">(${bahtText(bill.total)})</td>
+              <td class="label">จำนวนเงินรวม</td>
+              <td class="amount">${THB(bill.total)}</td>
+            </tr>
+          </tfoot>
         </table>
         ${(property.notes || property.qrImage) ? `
         <div class="inv-bottom">
