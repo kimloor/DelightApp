@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@800&amp;display=swap');
+      .en-text { font-family: 'Baloo 2', 'Fredoka', sans-serif; font-weight: 800; }
+    </style>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="#2A231D"/>
+
+  <!-- simple roof accent to nod to "Place" -->
+  <path d="M256 90 L382 177 L130 177 Z" fill="#2E8FE0"/>
+
+  <!-- letter shadow -->
+  <text x="262" y="437" text-anchor="middle" class="en-text" font-size="340" fill="#00000030">D</text>
+
+  <!-- white halo -->
+  <text x="256" y="430" text-anchor="middle" class="en-text" font-size="340" fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linejoin="round">D</text>
+
+  <!-- fill -->
+  <text x="256" y="430" text-anchor="middle" class="en-text" font-size="340" fill="#F6A23A">D</text>
+
+  <!-- dark outline -->
+  <text x="256" y="430" text-anchor="middle" class="en-text" font-size="340" fill="none" stroke="#3B2A1E" stroke-width="5" stroke-linejoin="round">D</text>
+</svg>
