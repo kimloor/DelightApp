@@ -411,52 +411,74 @@
     font-family:inherit;font-size:13.5px;background:var(--bg);color:var(--ink);
   }
 
-  /* ---------- Print ---------- */
+  /* ---------- Print / เอกสาร (ใบแจ้งหนี้ ใบรับมัดจำ) ----------
+     สไตล์เหล่านี้เปิดใช้งานตลอด (ไม่ได้ผูกกับ @media print เท่านั้น)
+     เพราะต้องใช้ตอน export PDF ด้วย (วาดลงกล่องนอกจอแล้วแคปเจอร์เป็นรูป/PDF
+     ซึ่งเบราว์เซอร์ไม่ได้จำลอง print media ให้ระหว่างนั้น) */
   #printArea{display:none;}
+  .pdf-render-box{position:fixed;left:-10000px;top:0;background:#fff;}
+  .invoice-page{page-break-after:always;}
+  .invoice-page:last-child{page-break-after:auto;}
+  .invoice{font-family:'IBM Plex Sans Thai', sans-serif;color:#1a1a1a;font-size:10.5px;background:#fff;}
+  .invoice h1{font-family:'Fraunces',serif;font-size:16px;margin:0 0 3px;}
+  .invoice p{margin:1px 0;font-size:10.5px;}
+  .invoice table{width:100%;border-collapse:collapse;margin-top:7px;}
+  .invoice td, .invoice th{border:1px solid #999;padding:4px;text-align:left;font-size:10px;}
+
+  .inv-topbar{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1a1a1a;padding-bottom:5px;margin-bottom:6px;}
+  .inv-topbar .inv-brand{display:flex;align-items:center;gap:6px;}
+  .inv-logo{width:26px;height:26px;flex:none;}
+  .inv-shop-name{font-family:'Fraunces',serif;font-size:12.5px;font-weight:600;margin:0;}
+  .inv-shop-address{font-size:9px;color:#444;margin:1px 0 0;max-width:260px;}
+  .inv-doctitle{font-size:9.5px;font-weight:700;letter-spacing:0.06em;color:#555;margin-bottom:2px;}
+  .inv-docno{font-family:'Fraunces',serif;font-size:15px;font-weight:600;text-align:right;}
+
+  .inv-body{width:100%;}
+  .inv-meta{width:100%;border-collapse:collapse;margin-bottom:0;margin-top:0;table-layout:fixed;}
+  .inv-meta td{border:1px solid #999;padding:3px 5px;font-size:9.5px;vertical-align:middle;}
+  .inv-meta td.k{color:#555;font-size:8.5px;text-align:center;line-height:1.3;background:#f7f5f0;}
+  .inv-meta td.v{font-weight:600;}
+  .inv-items{width:100%;border-collapse:collapse;margin-top:6px;table-layout:fixed;}
+  .inv-items th{background:#efefef;border:1px solid #999;padding:3px;font-size:9px;text-align:center;}
+  .inv-items td{border:1px solid #999;padding:3px 5px;font-size:9.5px;}
+  .inv-items td.c{text-align:center;}
+  .inv-items td.r{text-align:right;font-family:'IBM Plex Mono',monospace;}
+  .inv-items tfoot td{border:1px solid #999;padding:5px 6px;font-size:9.5px;background:#f7f5f0;}
+  .inv-items tfoot td.words{font-weight:600;}
+  .inv-items tfoot td.label{text-align:right;color:#555;white-space:nowrap;}
+  .inv-items tfoot td.amount{text-align:right;font-weight:700;font-family:'IBM Plex Mono',monospace;font-size:11px;}
+
+  .inv-bottom{display:flex;justify-content:space-between;align-items:flex-start;margin-top:8px;gap:10px;}
+  .inv-notes{font-size:9px;color:#333;line-height:1.4;white-space:pre-line;}
+  .inv-notes .label{font-weight:600;}
+  .inv-qr{flex:none;text-align:center;}
+  .inv-qr img{width:104px;height:104px;object-fit:contain;border:1px solid #999;padding:3px;background:#fff;}
+  .inv-qr .qr-label{font-size:9px;color:#333;margin-top:3px;}
+  .inv-sign{margin-top:12px;text-align:right;font-size:9.5px;padding-right:8px;}
+  .inv-sign .line{margin-bottom:4px;}
+
+  /* ใบรับเงินมัดจำ: ไม่มี QR/หมายเหตุ/ช่องลงชื่อ เนื้อหาน้อยกว่าใบแจ้งหนี้ปกติ
+     จึงขยายฟอนต์และระยะห่างให้ใหญ่ขึ้น เพื่อให้เต็มพอดีกับกระดาษ A5 แนวนอน */
+  .dep-receipt{font-size:13px;}
+  .dep-receipt .inv-logo{width:36px;height:36px;}
+  .dep-receipt .inv-shop-name{font-size:16px;}
+  .dep-receipt .inv-shop-address{font-size:11px;max-width:320px;}
+  .dep-receipt .inv-doctitle{font-size:12px;letter-spacing:0.08em;}
+  .dep-receipt .inv-docno{font-size:20px;}
+  .dep-receipt .inv-topbar{padding-bottom:12px;margin-bottom:18px;}
+  .dep-receipt .inv-meta td{padding:12px 14px;font-size:13px;}
+  .dep-receipt .inv-meta td.k{font-size:11px;}
+  .dep-receipt .inv-items{margin-top:14px;}
+  .dep-receipt .inv-items th{padding:11px;font-size:12px;}
+  .dep-receipt .inv-items td{padding:34px 14px;font-size:14px;}
+  .dep-receipt .inv-items tfoot td{padding:16px 14px;font-size:14px;}
+  .dep-receipt .inv-items tfoot td.amount{font-size:20px;}
+
   @media print{
     @page{ size: A5 landscape; margin: 8mm; }
     body *{visibility:hidden;}
     #printArea, #printArea *{visibility:visible;}
     #printArea{display:block;position:absolute;top:0;left:0;width:100%;padding:0;}
-    .invoice-page{page-break-after:always;}
-    .invoice-page:last-child{page-break-after:auto;}
-    .invoice{font-family:'IBM Plex Sans Thai', sans-serif;color:#1a1a1a;font-size:10.5px;}
-    .invoice h1{font-family:'Fraunces',serif;font-size:16px;margin:0 0 3px;}
-    .invoice p{margin:1px 0;font-size:10.5px;}
-    .invoice table{width:100%;border-collapse:collapse;margin-top:7px;}
-    .invoice td, .invoice th{border:1px solid #999;padding:4px;text-align:left;font-size:10px;}
-
-    .inv-topbar{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1a1a1a;padding-bottom:5px;margin-bottom:6px;}
-    .inv-topbar .inv-brand{display:flex;align-items:center;gap:6px;}
-    .inv-logo{width:26px;height:26px;flex:none;}
-    .inv-shop-name{font-family:'Fraunces',serif;font-size:12.5px;font-weight:600;margin:0;}
-    .inv-shop-address{font-size:9px;color:#444;margin:1px 0 0;max-width:260px;}
-    .inv-doctitle{font-size:9.5px;font-weight:700;letter-spacing:0.06em;color:#555;margin-bottom:2px;}
-    .inv-docno{font-family:'Fraunces',serif;font-size:15px;font-weight:600;text-align:right;}
-
-    .inv-body{width:100%;}
-    .inv-meta{width:100%;border-collapse:collapse;margin-bottom:0;margin-top:0;table-layout:fixed;}
-    .inv-meta td{border:1px solid #999;padding:3px 5px;font-size:9.5px;vertical-align:middle;}
-    .inv-meta td.k{color:#555;font-size:8.5px;text-align:center;line-height:1.3;background:#f7f5f0;}
-    .inv-meta td.v{font-weight:600;}
-    .inv-items{width:100%;border-collapse:collapse;margin-top:6px;table-layout:fixed;}
-    .inv-items th{background:#efefef;border:1px solid #999;padding:3px;font-size:9px;text-align:center;}
-    .inv-items td{border:1px solid #999;padding:3px 5px;font-size:9.5px;}
-    .inv-items td.c{text-align:center;}
-    .inv-items td.r{text-align:right;font-family:'IBM Plex Mono',monospace;}
-    .inv-items tfoot td{border:1px solid #999;padding:5px 6px;font-size:9.5px;background:#f7f5f0;}
-    .inv-items tfoot td.words{font-weight:600;}
-    .inv-items tfoot td.label{text-align:right;color:#555;white-space:nowrap;}
-    .inv-items tfoot td.amount{text-align:right;font-weight:700;font-family:'IBM Plex Mono',monospace;font-size:11px;}
-
-    .inv-bottom{display:flex;justify-content:space-between;align-items:flex-start;margin-top:8px;gap:10px;}
-    .inv-notes{font-size:9px;color:#333;line-height:1.4;white-space:pre-line;}
-    .inv-notes .label{font-weight:600;}
-    .inv-qr{flex:none;text-align:center;}
-    .inv-qr img{width:104px;height:104px;object-fit:contain;border:1px solid #999;padding:3px;background:#fff;}
-    .inv-qr .qr-label{font-size:9px;color:#333;margin-top:3px;}
-    .inv-sign{margin-top:12px;text-align:right;font-size:9.5px;padding-right:8px;}
-    .inv-sign .line{margin-bottom:4px;}
   }
 
   @media (max-width: 760px){
@@ -491,6 +513,8 @@
 </style>
 </head>
 <body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <div class="app">
   <header class="topbar">
     <div class="topbar-brand">
@@ -964,11 +988,32 @@ function attachModalEvents(){
   if(deleteTenantBtn) deleteTenantBtn.onclick = onDeleteTenant;
 
   const saveDepositBtn = document.getElementById('saveDepositBtn');
-  if(saveDepositBtn) saveDepositBtn.onclick = ()=> onSaveDeposit(saveDepositBtn.dataset.tenantId);
+  if(saveDepositBtn) saveDepositBtn.onclick = ()=> onSaveDeposit(saveDepositBtn.dataset.tenantId, false);
+  const saveAndPrintDepositBtn = document.getElementById('saveAndPrintDepositBtn');
+  if(saveAndPrintDepositBtn) saveAndPrintDepositBtn.onclick = ()=> onSaveDeposit(saveAndPrintDepositBtn.dataset.tenantId, true);
+  const depositPickerSearch = document.getElementById('depositPickerSearch');
+  if(depositPickerSearch){
+    depositPickerSearch.oninput = (e)=>{
+      const val = e.target.value;
+      const wrap = document.getElementById('modalBody');
+      if(wrap){
+        wrap.innerHTML = depositPickerModalHtml(val);
+        attachModalEvents();
+        const input = document.getElementById('depositPickerSearch');
+        if(input){ input.focus(); input.setSelectionRange(val.length, val.length); }
+      }
+    };
+  }
   document.querySelectorAll('.print-deposit').forEach(el=>{
     el.onclick = ()=>{
       const dep = deposits.find(d=>d.id===el.dataset.id);
       if(dep) printDepositReceipt(dep);
+    };
+  });
+  document.querySelectorAll('.export-deposit-pdf').forEach(el=>{
+    el.onclick = ()=>{
+      const dep = deposits.find(d=>d.id===el.dataset.id);
+      if(dep) exportDepositPdf(dep);
     };
   });
   document.querySelectorAll('.delete-deposit').forEach(el=>{
@@ -1324,7 +1369,10 @@ function renderTenants(){
     <div class="card">
       <div class="card-head">
         <h3>รายชื่อผู้เช่า</h3>
-        <input id="tenantSearch" class="toolbar-input" style="width:220px;" placeholder="ค้นหาชื่อหรือเลขห้อง…" value="${query.replace(/"/g,'&quot;')}">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="tenantSearch" class="toolbar-input" style="width:220px;" placeholder="ค้นหาชื่อหรือเลขห้อง…" value="${query.replace(/"/g,'&quot;')}">
+          <button class="btn ghost small" id="printDepositPickerBtn">🖨 พิมพ์ใบรับมัดจำ</button>
+        </div>
       </div>
       <div id="tenantTableWrap">${tenantTableHtml(list)}</div>
     </div>
@@ -1719,14 +1767,17 @@ function renderReports(){
         <p class="sub">สรุปยอดรายเดือน ค่าน้ำ และค่าไฟ เลือกเดือนหรือช่วงเดือนที่ต้องการดูได้</p>
       </div>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:16px;">
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
       <button class="btn ${tab==='monthly'?'':'ghost'} small" data-report-tab="monthly">สรุปยอดรายเดือน</button>
       <button class="btn ${tab==='water'?'':'ghost'} small" data-report-tab="water">สรุปค่าน้ำ</button>
       <button class="btn ${tab==='electric'?'':'ghost'} small" data-report-tab="electric">สรุปค่าไฟ</button>
+      <button class="btn ghost small" id="exportReportPdfBtn" style="margin-left:auto;">📄 บันทึกเป็น PDF</button>
     </div>
-    ${tab==='monthly' ? renderMonthlyReport(monthsDesc) : ''}
-    ${tab==='water' ? renderRangeReport('water', months) : ''}
-    ${tab==='electric' ? renderRangeReport('electric', months) : ''}
+    <div id="reportPrintArea">
+      ${tab==='monthly' ? renderMonthlyReport(monthsDesc) : ''}
+      ${tab==='water' ? renderRangeReport('water', months) : ''}
+      ${tab==='electric' ? renderRangeReport('electric', months) : ''}
+    </div>
   `;
 }
 
@@ -1885,6 +1936,7 @@ function renderBills(){
             ${months.map(m=>`<option value="${m}" ${m===activeMonth?'selected':''}>${monthLabel(m)}</option>`).join('')}
           </select>
           <button class="btn ghost small" id="printSelectedBtn" ${selectedCount===0?'disabled':''}>🖨 พิมพ์บิลที่เลือก (${selectedCount})</button>
+          <button class="btn ghost small" id="exportSelectedPdfBtn" ${selectedCount===0?'disabled':''}>📄 บันทึกเป็น PDF (${selectedCount})</button>
           <button class="btn ghost small" id="printReportBtn" ${monthBills.length===0?'disabled':''}>🖨 พิมพ์รายงานเดือนนี้</button>
         </div>
       </div>
@@ -1914,7 +1966,7 @@ function renderBills(){
                   <option value="paid" ${b.status==='paid'?'selected':''}>ชำระแล้ว</option>
                 </select>
               </td>
-              <td class="actions-cell"><button class="btn ghost small print-bill" data-id="${b.id}">🖨 พิมพ์บิล</button></td>
+              <td class="actions-cell"><button class="btn ghost small print-bill" data-id="${b.id}">🖨 พิมพ์บิล</button><button class="btn ghost small export-bill-pdf" data-id="${b.id}">📄 PDF</button></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -2066,6 +2118,105 @@ async function printInvoices(billList){
   window.print();
 }
 
+/* ============ Export PDF ============
+   ใช้ html2canvas + jsPDF (โหลดจาก CDN) แปลงเอกสาร (ใบแจ้งหนี้ / ใบรับมัดจำ)
+   เป็นไฟล์ PDF ให้ดาวน์โหลดได้โดยตรง โดยไม่ต้องผ่านหน้าต่างพิมพ์ของเบราว์เซอร์
+   วาดเอกสารลงกล่องที่ซ่อนไว้นอกจอ (.pdf-render-box) แล้วแคปเจอร์ทีละใบ
+   ต่อกันเป็น PDF หลายหน้าได้ (แต่ละใบ = 1 หน้ากระดาษ A5 แนวนอน) */
+function pdfLibsReady(){
+  return !!(window.jspdf && window.jspdf.jsPDF && window.html2canvas);
+}
+
+async function exportDocsAsPdf(items, htmlFn, filenameBase){
+  if(!items || items.length===0) return;
+  if(!pdfLibsReady()){
+    showToast('ไลบรารีสร้าง PDF ยังโหลดไม่เสร็จ หรือไม่มีอินเทอร์เน็ต ลองใหม่อีกครั้ง');
+    return;
+  }
+  showToast('กำลังสร้างไฟล์ PDF…');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'a5' });
+  const RENDER_WIDTH_PX = 750; // ความกว้างกล่องที่ใช้วาดเอกสารนอกจอ ก่อนแปลงสัดส่วนลงหน้ากระดาษ A5
+  const container = document.createElement('div');
+  container.className = 'pdf-render-box';
+  container.style.width = RENDER_WIDTH_PX + 'px';
+  document.body.appendChild(container);
+
+  try{
+    for(let i=0;i<items.length;i++){
+      container.innerHTML = htmlFn(items[i]);
+      await waitForImages(container);
+      if(i>0) doc.addPage('a5','landscape');
+      await new Promise((resolve, reject)=>{
+        doc.html(container, {
+          x:5, y:5, width:200, windowWidth:RENDER_WIDTH_PX,
+          html2canvas:{ scale:2, useCORS:true, backgroundColor:'#ffffff' },
+          callback: ()=> resolve()
+        });
+      });
+    }
+    const filename = (filenameBase || 'document').replace(/[\\/:*?"<>|]/g,'-') + '.pdf';
+    doc.save(filename);
+    showToast('บันทึกไฟล์ PDF แล้ว: ' + filename);
+  }catch(err){
+    console.error('PDF export error', err);
+    showToast('สร้างไฟล์ PDF ไม่สำเร็จ ลองใหม่อีกครั้ง');
+  }finally{
+    document.body.removeChild(container);
+  }
+}
+
+function exportInvoicePdf(bill){
+  return exportDocsAsPdf([bill], invoiceHtml, bill.invoiceNo || ('บิล-'+bill.id));
+}
+
+function exportInvoicesPdf(billList){
+  if(!billList.length) return;
+  const sorted = billList.slice().sort((a,b)=>{
+    const ra = rooms.find(r=>r.id===a.roomId), rb = rooms.find(r=>r.id===b.roomId);
+    return (ra?ra.number:'').localeCompare(rb?rb.number:'', 'th', {numeric:true});
+  });
+  const label = sorted.length===1 ? (sorted[0].invoiceNo||'บิล') : ('บิลรวม-'+sorted.length+'ใบ-'+(renderBills._month||thisMonth()));
+  return exportDocsAsPdf(sorted, invoiceHtml, label);
+}
+
+function exportDepositPdf(deposit){
+  return exportDocsAsPdf([deposit], depositReceiptHtml, deposit.receiptNo || ('มัดจำ-'+deposit.id));
+}
+
+/* Export รายงานสรุป เป็น PDF — ต่างจากใบแจ้งหนี้/ใบรับมัดจำตรงที่เนื้อหาอยู่ในหน้าเว็บอยู่แล้ว
+   (ไม่ได้ซ่อนอยู่หลัง @media print) จึงแคปเจอร์จาก DOM ที่แสดงอยู่ตรงๆ ได้เลย
+   ใช้ขนาดกระดาษ A4 แนวตั้งเพราะเป็นตารางข้อมูล ไม่ใช่เอกสารฟอร์มสั้นแบบ A5 */
+async function exportReportPdf(){
+  if(!pdfLibsReady()){
+    showToast('ไลบรารีสร้าง PDF ยังโหลดไม่เสร็จ หรือไม่มีอินเทอร์เน็ต ลองใหม่อีกครั้ง');
+    return;
+  }
+  const el = document.getElementById('reportPrintArea');
+  if(!el) return;
+  showToast('กำลังสร้างไฟล์ PDF…');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+  try{
+    await new Promise((resolve)=>{
+      doc.html(el, {
+        x:8, y:8, width:194, windowWidth: el.scrollWidth || 800,
+        html2canvas:{ scale:2, useCORS:true, backgroundColor:'#ffffff' },
+        autoPaging:'text',
+        callback: ()=> resolve()
+      });
+    });
+    const tab = renderReports._tab;
+    const tabLabel = tab==='monthly' ? ('รายเดือน-'+(renderReports._month||'')) : (tab==='water' ? 'สรุปค่าน้ำ' : 'สรุปค่าไฟ');
+    const filename = ('รายงานสรุป-'+tabLabel).replace(/[\\/:*?"<>|]/g,'-') + '.pdf';
+    doc.save(filename);
+    showToast('บันทึกไฟล์ PDF แล้ว: '+filename);
+  }catch(err){
+    console.error('PDF export error', err);
+    showToast('สร้างไฟล์ PDF ไม่สำเร็จ ลองใหม่อีกครั้ง');
+  }
+}
+
 function printMonthReport(month){
   const list = currentBills().filter(b=>b.month===month);
   const property = properties.find(p=>p.id===currentPropertyId);
@@ -2131,11 +2282,15 @@ function attachPageEvents(){
       }
     };
   }
+  const printDepositPickerBtn = document.getElementById('printDepositPickerBtn');
+  if(printDepositPickerBtn) printDepositPickerBtn.onclick = ()=> openModal(depositPickerModalHtml(''), {wide:true});
 
   // Reports
   document.querySelectorAll('[data-report-tab]').forEach(btn=>{
     btn.onclick = ()=>{ renderReports._tab = btn.dataset.reportTab; render(); };
   });
+  const exportReportPdfBtn = document.getElementById('exportReportPdfBtn');
+  if(exportReportPdfBtn) exportReportPdfBtn.onclick = exportReportPdf;
   const reportMonthSelect = document.getElementById('reportMonthSelect');
   if(reportMonthSelect) reportMonthSelect.onchange = (e)=>{ renderReports._month = e.target.value; render(); };
   const reportWaterFrom = document.getElementById('reportWaterFrom');
@@ -2158,6 +2313,11 @@ function attachPageEvents(){
   if(printSelectedBtn) printSelectedBtn.onclick = ()=>{
     const selected = bills.filter(b=>renderBills._selected.has(b.id));
     printInvoices(selected);
+  };
+  const exportSelectedPdfBtn = document.getElementById('exportSelectedPdfBtn');
+  if(exportSelectedPdfBtn) exportSelectedPdfBtn.onclick = ()=>{
+    const selected = bills.filter(b=>renderBills._selected.has(b.id));
+    exportInvoicesPdf(selected);
   };
   const selectAllBills = document.getElementById('selectAllBills');
   if(selectAllBills) selectAllBills.onchange = (e)=>{
@@ -2189,6 +2349,12 @@ function attachPageEvents(){
     el.onclick = ()=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
       if(bill) printInvoice(bill);
+    };
+  });
+  document.querySelectorAll('.export-bill-pdf').forEach(el=>{
+    el.onclick = ()=>{
+      const bill = bills.find(b=>b.id===el.dataset.id);
+      if(bill) exportInvoicePdf(bill);
     };
   });
   document.querySelectorAll('.bill-status').forEach(el=>{
@@ -2319,6 +2485,54 @@ function depositsForRoom(roomId){
   return deposits.filter(d=>d.roomId===roomId).slice().sort((a,b)=> (a.date<b.date?1:-1));
 }
 
+/* รายการใบรับมัดจำทั้งหมดของอพาร์ทเมนท์ปัจจุบัน เรียงจากล่าสุดไปเก่าสุด
+   ใช้สำหรับหน้าต่าง "พิมพ์ใบรับมัดจำ" ที่เลือกพิมพ์ได้ทันทีโดยไม่ต้องเปิดหาห้องก่อน */
+function allDepositsForCurrentProperty(){
+  const roomIds = new Set(currentRooms().map(r=>r.id));
+  return deposits.filter(d=>roomIds.has(d.roomId)).slice().sort((a,b)=> (a.date<b.date?1:-1));
+}
+
+function depositPickerModalHtml(query){
+  const q = (query||'').trim().toLowerCase();
+  let list = allDepositsForCurrentProperty();
+  if(q){
+    list = list.filter(d=>{
+      const room = rooms.find(r=>r.id===d.roomId);
+      const tenant = tenants.find(t=>t.id===d.tenantId) || tenants.find(t=>t.roomId===d.roomId);
+      const roomNum = room ? room.number.toLowerCase() : '';
+      const name = tenant ? tenantDisplayName(tenant).toLowerCase() : '';
+      return roomNum.includes(q) || name.includes(q) || (d.receiptNo||'').toLowerCase().includes(q);
+    });
+  }
+  return `
+    <h3>พิมพ์ใบรับมัดจำ</h3>
+    <input id="depositPickerSearch" class="toolbar-input" style="width:100%;margin-bottom:14px;" placeholder="ค้นหาเลขห้อง ชื่อผู้เช่า หรือเลขที่ใบรับ…" value="${(query||'').replace(/"/g,'&quot;')}">
+    ${list.length===0 ? `<div class="empty" style="padding:24px 10px;"><div class="big">🧾</div>ไม่พบใบรับมัดจำที่ตรงกับคำค้นหา</div>` : `
+    <div style="max-height:52vh;overflow-y:auto;border:1px solid var(--line);border-radius:8px;">
+      <table>
+        <thead><tr><th>ห้อง</th><th>ผู้เช่า</th><th>เลขที่ใบรับ</th><th>วันที่</th><th>จำนวนเงิน</th><th></th></tr></thead>
+        <tbody>
+          ${list.map(d=>{
+            const room = rooms.find(r=>r.id===d.roomId);
+            const tenant = tenants.find(t=>t.id===d.tenantId) || tenants.find(t=>t.roomId===d.roomId);
+            return `<tr>
+              <td style="font-weight:600;">${room?room.number:'—'}</td>
+              <td class="muted">${tenant?tenantDisplayName(tenant):'-'}</td>
+              <td class="mono">${d.receiptNo}</td>
+              <td class="muted">${formatThaiDate(d.date)}</td>
+              <td class="mono" style="font-weight:600;">${THB(d.amount)} บ.</td>
+              <td style="white-space:nowrap;"><button class="btn ghost small print-deposit" data-id="${d.id}">🖨 พิมพ์</button> <button class="btn ghost small export-deposit-pdf" data-id="${d.id}">📄 PDF</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`}
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ปิด</button>
+    </div>
+  `;
+}
+
 function depositModalHtml(tenant){
   const room = tenant ? rooms.find(r=>r.id===tenant.roomId) : null;
   const list = tenant ? depositsForRoom(tenant.roomId) : [];
@@ -2339,6 +2553,7 @@ function depositModalHtml(tenant){
             <td class="mono" style="font-weight:600;">${THB(d.amount)} บ.</td>
             <td style="white-space:nowrap;">
               <button class="btn ghost small print-deposit" data-id="${d.id}">🖨 พิมพ์ซ้ำ</button>
+              <button class="btn ghost small export-deposit-pdf" data-id="${d.id}">📄 PDF</button>
               <button class="btn ghost small delete-deposit" data-id="${d.id}">ลบ</button>
             </td>
           </tr>`).join('')}
@@ -2355,12 +2570,13 @@ function depositModalHtml(tenant){
 
     <div class="modal-actions">
       <button class="btn ghost" id="cancelBtn">ปิด</button>
-      <button class="btn" id="saveDepositBtn" data-tenant-id="${tenant?tenant.id:''}">บันทึกและพิมพ์ใบรับ</button>
+      <button class="btn ghost" id="saveDepositBtn" data-tenant-id="${tenant?tenant.id:''}">บันทึก</button>
+      <button class="btn" id="saveAndPrintDepositBtn" data-tenant-id="${tenant?tenant.id:''}">พิมพ์ใบรับ</button>
     </div>
   `;
 }
 
-async function onSaveDeposit(tenantId){
+async function onSaveDeposit(tenantId, alsoPrint){
   const tenant = tenants.find(t=>t.id===tenantId);
   if(!tenant){ showToast('ไม่พบข้อมูลผู้เช่า'); return; }
   const amount = Number(document.getElementById('f-dep-amount').value);
@@ -2378,10 +2594,17 @@ async function onSaveDeposit(tenantId){
   };
   deposits.push(deposit);
   await saveDeposits();
-  closeModal();
-  render();
-  showToast('บันทึกใบรับมัดจำแล้ว: '+deposit.receiptNo);
-  printDepositReceipt(deposit);
+
+  if(alsoPrint){
+    closeModal();
+    render();
+    showToast('บันทึกใบรับมัดจำแล้ว: '+deposit.receiptNo);
+    printDepositReceipt(deposit);
+  } else {
+    render();
+    openModal(depositModalHtml(tenant), {wide:true});
+    showToast('บันทึกใบรับมัดจำแล้ว: '+deposit.receiptNo);
+  }
 }
 
 async function onDeleteDeposit(depositId, tenantId){
@@ -2410,7 +2633,7 @@ function depositReceiptHtml(deposit){
     </tr>`;
 
   return `
-    <div class="invoice">
+    <div class="invoice dep-receipt">
       <div class="inv-topbar">
         <div class="inv-brand">
           <svg class="inv-logo" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
@@ -2465,14 +2688,6 @@ function depositReceiptHtml(deposit){
             </tr>
           </tfoot>
         </table>
-        ${(property.notes || property.qrImage) ? `
-        <div class="inv-bottom">
-          ${property.notes?`<div class="inv-notes"><span class="label">หมายเหตุ</span><br>${property.notes.replace(/</g,'&lt;')}</div>`:'<div></div>'}
-          ${property.qrImage?`<div class="inv-qr"><img src="${property.qrImage}" alt="QR ชำระเงิน"><div class="qr-label">สแกนเพื่อชำระเงิน</div></div>`:''}
-        </div>` : ''}
-        <div class="inv-sign">
-          <div class="line">ลงชื่อ ......................................... ผู้รับเงิน</div>
-        </div>
       </div>
     </div>
   `;
