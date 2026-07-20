@@ -305,6 +305,11 @@
   }
   tbody tr:last-child td{border-bottom:none;}
   tbody tr:hover{background:#FBF8F2;}
+  tbody tr.row-selected{background:#FBF2E1;}
+  .bill-select, #selectAllBills{
+    width:22px;height:22px;cursor:pointer;accent-color:var(--teal, #2E8B57);
+  }
+  td.select-cell{cursor:pointer;}
   .muted{color:var(--ink-soft);}
   .mono{font-family:'IBM Plex Mono',monospace;font-size:13px;}
 
@@ -462,6 +467,26 @@
     main{padding:24px 18px 50px;}
     .stat-row{grid-template-columns:repeat(2,1fr);}
     .field-row{grid-template-columns:1fr;}
+
+    #billsTable thead{display:none;}
+    #billsTable, #billsTable tbody, #billsTable tr, #billsTable td{display:block;width:100%;}
+    #billsTable tr{
+      border:1px solid var(--line);border-radius:10px;margin-bottom:10px;
+      padding:10px 4px;position:relative;background:var(--surface);
+    }
+    #billsTable tr.row-selected{background:#FBF2E1;border-color:#E3B96A;}
+    #billsTable td{border-bottom:none;padding:5px 14px;}
+    #billsTable td.select-cell{
+      position:absolute;top:8px;right:8px;padding:0;width:auto;
+    }
+    #billsTable td.select-cell .bill-select{width:26px;height:26px;}
+    #billsTable td[data-label]::before{
+      content:attr(data-label);display:block;font-size:11px;color:var(--ink-soft);
+      text-transform:uppercase;letter-spacing:0.03em;margin-bottom:2px;
+    }
+    #billsTable td.room-cell{font-size:17px;font-weight:700;padding-right:46px;cursor:pointer;}
+    #billsTable td.actions-cell{display:flex;gap:8px;padding-top:8px;}
+    #billsTable td.actions-cell button{flex:1;}
   }
 </style>
 </head>
@@ -732,6 +757,17 @@ function currentTenants(){
   const ids = new Set(currentRooms().map(r=>r.id));
   return tenants.filter(t=>ids.has(t.roomId));
 }
+
+/* ผู้เช่าบางคนอาจให้ไว้แค่เบอร์ติดต่อตอนเข้าพัก ยังไม่ได้แจ้งชื่อ-นามสกุล
+   แทนที่จะบันทึกคำว่า "ไม่ระบุ" ลงในข้อมูลจริง (ซึ่งจะงงเวลาแก้ไขทีหลัง)
+   ให้เก็บชื่อว่างไว้ตามจริง แล้วค่อยแสดงป้าย "ไม่ระบุ (ห้อง XXX)" ตอนแสดงผล/พิมพ์/รายงานแทน
+   วิธีนี้ทำให้จัดกลุ่มตามห้องได้ทันทีอยู่แล้ว (ผูกกับ roomId) และพอมีชื่อจริงมาทีหลังก็แก้ได้ง่าย */
+function tenantDisplayName(tenant){
+  if(tenant && tenant.name && tenant.name.trim()) return tenant.name.trim();
+  const room = tenant ? rooms.find(r=>r.id===tenant.roomId) : null;
+  return room ? `ไม่ระบุ (ห้อง ${room.number})` : 'ไม่ระบุ';
+}
+
 function currentBills(){
   const ids = new Set(currentRooms().map(r=>r.id));
   return bills.filter(b=>ids.has(b.roomId));
@@ -1186,7 +1222,7 @@ function filterTenants(query){
   return list.filter(t=>{
     const room = rooms.find(r=>r.id===t.roomId);
     const roomNum = room ? room.number.toLowerCase() : '';
-    return (t.name||'').toLowerCase().includes(q) || roomNum.includes(q);
+    return tenantDisplayName(t).toLowerCase().includes(q) || roomNum.includes(q);
   });
 }
 
@@ -1201,7 +1237,7 @@ function tenantTableHtml(list){
         ${list.map(t=>{
           const room = rooms.find(r=>r.id===t.roomId);
           return `<tr data-id="${t.id}">
-            <td>${t.name}</td>
+            <td>${t.name&&t.name.trim() ? t.name : `<span class="muted" style="font-style:italic;">${tenantDisplayName(t)}</span>`}</td>
             <td class="mono">${room?room.number:'—'}</td>
             <td class="muted">${t.phone||'—'}</td>
             <td class="muted">${formatThaiDate(t.moveIn)}</td>
@@ -1249,7 +1285,8 @@ function tenantFormHtml(tenant){
   const roomOptions = currentRooms().map(r=>`<option value="${r.id}" ${tenant&&tenant.roomId===r.id?'selected':''}>${r.number}${r.status==='occupied'&&(!tenant||tenant.roomId!==r.id)?' (มีผู้เช่าแล้ว)':''}</option>`).join('');
   return `
     <h3>${isEdit?'แก้ไขผู้เช่า':'เพิ่มผู้เช่า'}</h3>
-    <div class="field"><label>ชื่อ-นามสกุล</label><input id="f-name" value="${tenant?tenant.name:''}" placeholder="ชื่อผู้เช่า"></div>
+    <div class="field"><label>ชื่อ-นามสกุล</label><input id="f-name" value="${tenant?tenant.name:''}" placeholder="เว้นว่างได้ถ้ายังไม่ทราบชื่อ"></div>
+    <p class="sub" style="font-size:12px;margin-top:-10px;margin-bottom:14px;">ถ้าผู้เช่ายังไม่ได้แจ้งชื่อ (ให้แค่เบอร์ติดต่อ) เว้นชื่อว่างไว้ได้ — ระบบจะแสดงเป็น “ไม่ระบุ (ห้อง …)” ตามเลขห้องแทนให้อัตโนมัติ ทั้งในรายชื่อ ใบแจ้งหนี้ และรายงานสรุป</p>
     <div class="field-row">
       <div class="field"><label>ห้องพัก</label><select id="f-room"><option value="">— เลือกห้อง —</option>${roomOptions}</select></div>
       <div class="field"><label>เบอร์โทร</label><input id="f-phone" value="${tenant?(tenant.phone||''):''}" placeholder="08x-xxx-xxxx"></div>
@@ -1562,6 +1599,20 @@ function wireBulkMeterLiveCalc(){
   });
 }
 
+async function bulkSetBillStatus(status){
+  const ids = renderBills._selected || new Set();
+  if(ids.size===0) return;
+  let updated = 0;
+  bills.forEach(b=>{
+    if(ids.has(b.id) && b.status!==status){ b.status = status; updated++; }
+  });
+  if(updated>0) await saveBills();
+  render();
+  showToast(status==='paid'
+    ? `ทำเครื่องหมายว่าชำระแล้ว ${ids.size} ห้อง`
+    : `ทำเครื่องหมายว่าค้างชำระ ${ids.size} ห้อง`);
+}
+
 async function onSaveBulkMeter(){
   const prop = currentProperty() || {};
   const waterRate = Number(prop.waterRate)||0;
@@ -1786,32 +1837,39 @@ function renderBills(){
           <button class="btn ghost small" id="printReportBtn" ${monthBills.length===0?'disabled':''}>🖨 พิมพ์รายงานเดือนนี้</button>
         </div>
       </div>
+      ${selectedCount>0?`
+      <div style="display:flex;gap:8px;align-items:center;background:#FBF2E1;border:1px solid #E3B96A;border-radius:8px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap;">
+        <span style="font-weight:600;font-size:13.5px;">เลือกอยู่ ${selectedCount} ห้อง</span>
+        <button class="btn small" id="markPaidBtn" style="margin-left:auto;">✓ ทำเครื่องหมายว่าชำระแล้ว</button>
+        <button class="btn ghost small" id="markUnpaidBtn">ทำเครื่องหมายว่าค้างชำระ</button>
+      </div>`:''}
       ${monthBills.length===0 ? `<div class="empty"><div class="big">🧾</div>ยังไม่มีบิลของเดือนนี้ กด “สร้างบิลเดือนนี้” เพื่อสร้างบิลให้ทุกห้องที่มีผู้เช่า</div>` : `
-      <table>
+      <table id="billsTable">
         <thead><tr><th style="width:34px;"><input type="checkbox" id="selectAllBills" ${allSelected?'checked':''}></th><th>ห้อง</th><th>ค่าเช่า</th><th>ค่าน้ำ (เลขมิเตอร์)</th><th>ค่าไฟ (เลขมิเตอร์)</th><th>รวม</th><th>สถานะ</th><th></th></tr></thead>
         <tbody>
           ${monthBills.map(b=>{
             const room = rooms.find(r=>r.id===b.roomId);
-            return `<tr data-id="${b.id}">
-              <td><input type="checkbox" class="bill-select" data-id="${b.id}" ${renderBills._selected.has(b.id)?'checked':''}></td>
-              <td>${room?room.number:'—'}</td>
-              <td class="mono muted">${THB(b.rent)}</td>
-              <td class="edit-water" data-id="${b.id}" style="cursor:pointer;">${meterCellHtml(b,'water')}</td>
-              <td class="edit-electric" data-id="${b.id}" style="cursor:pointer;">${meterCellHtml(b,'electric')}</td>
-              <td class="mono" style="font-weight:600;">${THB(b.total)} บ.</td>
-              <td>
+            const isSel = renderBills._selected.has(b.id);
+            return `<tr data-id="${b.id}" class="${isSel?'row-selected':''}">
+              <td class="select-cell"><input type="checkbox" class="bill-select" data-id="${b.id}" ${isSel?'checked':''}></td>
+              <td class="room-cell" data-label="ห้อง">${room?room.number:'—'}</td>
+              <td class="mono muted" data-label="ค่าเช่า">${THB(b.rent)}</td>
+              <td class="edit-water" data-id="${b.id}" data-label="ค่าน้ำ" style="cursor:pointer;">${meterCellHtml(b,'water')}</td>
+              <td class="edit-electric" data-id="${b.id}" data-label="ค่าไฟ" style="cursor:pointer;">${meterCellHtml(b,'electric')}</td>
+              <td class="mono" data-label="รวม" style="font-weight:600;">${THB(b.total)} บ.</td>
+              <td data-label="สถานะ">
                 <select class="bill-status ${b.status==='paid'?'badge-paid':'badge-unpaid'}" data-id="${b.id}">
                   <option value="unpaid" ${b.status==='unpaid'?'selected':''}>ค้างชำระ</option>
                   <option value="paid" ${b.status==='paid'?'selected':''}>ชำระแล้ว</option>
                 </select>
               </td>
-              <td><button class="btn ghost small print-bill" data-id="${b.id}">🖨 พิมพ์บิล</button></td>
+              <td class="actions-cell"><button class="btn ghost small print-bill" data-id="${b.id}">🖨 พิมพ์บิล</button></td>
             </tr>`;
           }).join('')}
         </tbody>
       </table>`}
     </div>
-    <p class="sub" style="font-size:12.5px;">เคล็ดลับ: คลิกที่ช่อง “ค่าน้ำ” หรือ “ค่าไฟ” เพื่อจดเลขมิเตอร์ปัจจุบันของบิลนั้น ระบบจะคำนวณหน่วยที่ใช้และยอดเงินให้อัตโนมัติ · ติ๊กเลือกห้องที่ต้องการแล้วกด “พิมพ์บิลที่เลือก” เพื่อพิมพ์เฉพาะบิลที่ติ๊กไว้ (พิมพ์ทีละใบต่อหน้า) หรือติ๊กที่หัวตารางเพื่อเลือกทั้งหมด</p>
+    <p class="sub" style="font-size:12.5px;">เคล็ดลับ: คลิกที่ช่อง “ค่าน้ำ” หรือ “ค่าไฟ” เพื่อจดเลขมิเตอร์ปัจจุบันของบิลนั้น ระบบจะคำนวณหน่วยที่ใช้และยอดเงินให้อัตโนมัติ · แตะติ๊กที่ห้องที่ชำระแล้วได้หลายห้อง แล้วกด “ทำเครื่องหมายว่าชำระแล้ว” เพื่ออัปเดตพร้อมกันทีเดียว หรือติ๊กที่หัวตารางเพื่อเลือกทั้งหมด</p>
   `;
 }
 
@@ -1880,7 +1938,7 @@ function invoiceHtml(bill){
         <table class="inv-meta">
           ${INV_COLGROUP}
           <tr>
-            <td class="k">ชื่อผู้เช่า<br>Name</td><td class="v">${tenant?tenant.name:'-'}</td>
+            <td class="k">ชื่อผู้เช่า<br>Name</td><td class="v">${tenant?tenantDisplayName(tenant):'-'}</td>
             <td class="k">เลขที่<br>No.</td><td class="v" colspan="2">${invoiceNo}</td>
           </tr>
           <tr>
@@ -2065,6 +2123,17 @@ function attachPageEvents(){
       render();
     };
   });
+  document.querySelectorAll('#billsTable td.room-cell').forEach(el=>{
+    el.onclick = ()=>{
+      const tr = el.closest('tr');
+      const cb = tr.querySelector('.bill-select');
+      if(cb){ cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
+    };
+  });
+  const markPaidBtn = document.getElementById('markPaidBtn');
+  if(markPaidBtn) markPaidBtn.onclick = ()=> bulkSetBillStatus('paid');
+  const markUnpaidBtn = document.getElementById('markUnpaidBtn');
+  if(markUnpaidBtn) markUnpaidBtn.onclick = ()=> bulkSetBillStatus('unpaid');
   document.querySelectorAll('.print-bill').forEach(el=>{
     el.onclick = ()=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
@@ -2154,7 +2223,7 @@ async function onSaveTenant(){
   const roomId = document.getElementById('f-room').value;
   const phone = document.getElementById('f-phone').value.trim();
   const moveIn = document.getElementById('f-movein').value;
-  if(!name){ showToast('กรุณากรอกชื่อผู้เช่า'); return; }
+  if(!name && !phone){ showToast('กรุณากรอกอย่างน้อยชื่อ หรือเบอร์โทรติดต่อ'); return; }
   if(!roomId){ showToast('กรุณาเลือกห้องพัก'); return; }
 
   const editId = onSaveTenant._editId; // ถ้าแก้ไข: editId คือ roomId เดิม (เพราะ id ผู้เช่า = เลขห้อง)
