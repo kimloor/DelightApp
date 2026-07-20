@@ -571,6 +571,7 @@
 let rooms = [];
 let tenants = [];
 let bills = [];
+let deposits = [];
 let properties = [];
 let currentPropertyId = null;
 try{ currentPropertyId = localStorage.getItem('dorm:currentProperty') || null; }catch(e){}
@@ -712,6 +713,7 @@ function cacheLocally(){
     localStorage.setItem('dorm:tenants', JSON.stringify(tenants));
     localStorage.setItem('dorm:bills', JSON.stringify(bills));
     localStorage.setItem('dorm:properties', JSON.stringify(properties));
+    localStorage.setItem('dorm:deposits', JSON.stringify(deposits));
   }catch(e){}
 }
 function loadFromLocalCache(){
@@ -719,6 +721,7 @@ function loadFromLocalCache(){
   try{ tenants = JSON.parse(localStorage.getItem('dorm:tenants')||'[]'); }catch(e){ tenants=[]; }
   try{ bills = JSON.parse(localStorage.getItem('dorm:bills')||'[]'); }catch(e){ bills=[]; }
   try{ properties = JSON.parse(localStorage.getItem('dorm:properties')||'[]'); }catch(e){ properties=[]; }
+  try{ deposits = JSON.parse(localStorage.getItem('dorm:deposits')||'[]'); }catch(e){ deposits=[]; }
 }
 
 /* ย้ายข้อมูลเก่า (ก่อนมีฟีเจอร์หลายอพาร์ทเมนท์) ให้เข้าอพาร์ทเมนท์เริ่มต้นอัตโนมัติ */
@@ -805,6 +808,27 @@ function assignMissingInvoiceNos(){
   return changed;
 }
 
+/* เลขที่ใบรับเงินมัดจำ — เป็นคนละชุดเลขกับเลขที่บิล/ใบแจ้งหนี้ (INV-...) โดยสิ้นเชิง
+   เพราะเป็นเอกสารคนละประเภทกัน (ใบรับเงินมัดจำตอนเข้าพัก vs ใบแจ้งหนี้ค่าเช่ารายเดือน)
+   รูปแบบ: DEP-{ปีเดือนที่รับเงิน}-{เลขรัน 4 หลัก} เช่น DEP-256907-0001
+   รันแยกอิสระจาก genInvoiceNo() และตรวจสอบไม่ให้ซ้ำกับเลขที่มีอยู่แล้วเช่นเดียวกัน */
+function genDepositReceiptNo(dateStr){
+  const ym = (dateStr && /^\d{4}-\d{2}/.test(dateStr) ? dateStr.slice(0,7) : thisMonth()).replace('-','');
+  const existing = new Set(deposits.map(d=>d.receiptNo).filter(Boolean));
+  let seq = 0;
+  existing.forEach(no=>{
+    const m = /-(\d+)$/.exec(no);
+    if(m){ const n = parseInt(m[1],10); if(n>seq) seq = n; }
+  });
+  seq++;
+  let candidate = `DEP-${ym}-${String(seq).padStart(4,'0')}`;
+  while(existing.has(candidate)){
+    seq++;
+    candidate = `DEP-${ym}-${String(seq).padStart(4,'0')}`;
+  }
+  return candidate;
+}
+
 async function loadData(){
   if (sheetUrl) {
     try{
@@ -813,6 +837,7 @@ async function loadData(){
       tenants = data.tenants || [];
       bills = data.bills || [];
       properties = data.properties || [];
+      deposits = data.deposits || [];
       syncState = 'ok';
       cacheLocally();
     }catch(e){
@@ -821,11 +846,12 @@ async function loadData(){
       loadFromLocalCache();
     }
   } else if (window.storage) {
-    const [r,t,b,p] = await Promise.all([wsGet('dorm:rooms'), wsGet('dorm:tenants'), wsGet('dorm:bills'), wsGet('dorm:properties')]);
+    const [r,t,b,p,dep] = await Promise.all([wsGet('dorm:rooms'), wsGet('dorm:tenants'), wsGet('dorm:bills'), wsGet('dorm:properties'), wsGet('dorm:deposits')]);
     try{ rooms = r?JSON.parse(r):[]; }catch(e){ rooms=[]; }
     try{ tenants = t?JSON.parse(t):[]; }catch(e){ tenants=[]; }
     try{ bills = b?JSON.parse(b):[]; }catch(e){ bills=[]; }
     try{ properties = p?JSON.parse(p):[]; }catch(e){ properties=[]; }
+    try{ deposits = dep?JSON.parse(dep):[]; }catch(e){ deposits=[]; }
   } else {
     loadFromLocalCache();
   }
@@ -861,6 +887,7 @@ async function saveRooms(){ await saveTable('rooms', rooms); }
 async function saveTenants(){ await saveTable('tenants', tenants); }
 async function saveBills(){ await saveTable('bills', bills); }
 async function saveProperties(){ await saveTable('properties', properties); }
+async function saveDeposits(){ await saveTable('deposits', deposits); }
 
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -935,6 +962,21 @@ function attachModalEvents(){
   if(saveTenantBtn) saveTenantBtn.onclick = onSaveTenant;
   const deleteTenantBtn = document.getElementById('deleteTenantBtn');
   if(deleteTenantBtn) deleteTenantBtn.onclick = onDeleteTenant;
+
+  const saveDepositBtn = document.getElementById('saveDepositBtn');
+  if(saveDepositBtn) saveDepositBtn.onclick = ()=> onSaveDeposit(saveDepositBtn.dataset.tenantId);
+  document.querySelectorAll('.print-deposit').forEach(el=>{
+    el.onclick = ()=>{
+      const dep = deposits.find(d=>d.id===el.dataset.id);
+      if(dep) printDepositReceipt(dep);
+    };
+  });
+  document.querySelectorAll('.delete-deposit').forEach(el=>{
+    el.onclick = ()=>{
+      const dep = deposits.find(d=>d.id===el.dataset.id);
+      if(dep) onDeleteDeposit(dep.id, dep.tenantId);
+    };
+  });
 
   const saveMeterBtn = document.getElementById('saveMeterBtn');
   if(saveMeterBtn) saveMeterBtn.onclick = onSaveMeter;
@@ -1241,7 +1283,10 @@ function tenantTableHtml(list){
             <td class="mono">${room?room.number:'—'}</td>
             <td class="muted">${t.phone||'—'}</td>
             <td class="muted">${formatThaiDate(t.moveIn)}</td>
-            <td><button class="btn ghost small edit-tenant" data-id="${t.id}">แก้ไข</button></td>
+            <td>
+              <button class="btn ghost small edit-tenant" data-id="${t.id}">แก้ไข</button>
+              <button class="btn ghost small deposit-tenant" data-id="${t.id}">🧾 ใบรับมัดจำ</button>
+            </td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -1254,6 +1299,12 @@ function attachTenantRowEvents(){
       const tenant = tenants.find(t=>t.id===el.dataset.id);
       onSaveTenant._editId = tenant.id;
       openModal(tenantFormHtml(tenant));
+    };
+  });
+  document.querySelectorAll('.deposit-tenant').forEach(el=>{
+    el.onclick = ()=>{
+      const tenant = tenants.find(t=>t.id===el.dataset.id);
+      openModal(depositModalHtml(tenant), {wide:true});
     };
   });
 }
@@ -2261,6 +2312,177 @@ async function onDeleteTenant(){
   closeModal();
   render();
   showToast('ลบผู้เช่าแล้ว');
+}
+
+/* ============ ใบรับเงินมัดจำ ============ */
+function depositsForRoom(roomId){
+  return deposits.filter(d=>d.roomId===roomId).slice().sort((a,b)=> (a.date<b.date?1:-1));
+}
+
+function depositModalHtml(tenant){
+  const room = tenant ? rooms.find(r=>r.id===tenant.roomId) : null;
+  const list = tenant ? depositsForRoom(tenant.roomId) : [];
+  const today = new Date();
+  const todayIso = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+  return `
+    <h3>ใบรับเงินมัดจำ — ห้อง ${room?room.number:'—'}</h3>
+    <p class="sub" style="font-size:13px;margin-top:-6px;">ผู้เช่า: ${tenant?tenantDisplayName(tenant):'-'}</p>
+
+    ${list.length>0?`
+    <div style="max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:16px;">
+      <table>
+        <thead><tr><th>เลขที่ใบรับ</th><th>วันที่</th><th>จำนวนเงิน</th><th></th></tr></thead>
+        <tbody>
+          ${list.map(d=>`<tr data-dep-id="${d.id}">
+            <td class="mono">${d.receiptNo}</td>
+            <td class="muted">${formatThaiDate(d.date)}</td>
+            <td class="mono" style="font-weight:600;">${THB(d.amount)} บ.</td>
+            <td style="white-space:nowrap;">
+              <button class="btn ghost small print-deposit" data-id="${d.id}">🖨 พิมพ์ซ้ำ</button>
+              <button class="btn ghost small delete-deposit" data-id="${d.id}">ลบ</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : `<div class="empty" style="padding:24px 10px;"><div class="big">🧾</div>ยังไม่เคยออกใบรับมัดจำห้องนี้</div>`}
+
+    <h3 style="font-size:14px;margin-bottom:10px;">+ ออกใบรับมัดจำใหม่</h3>
+    <div class="field-row">
+      <div class="field"><label>จำนวนเงินมัดจำ (บาท)</label><input id="f-dep-amount" type="number" placeholder="เช่น 3500"></div>
+      <div class="field"><label>วันที่รับเงิน</label><input id="f-dep-date" type="date" value="${todayIso}"></div>
+    </div>
+    <div class="field"><label>หมายเหตุ (ถ้ามี)</label><input id="f-dep-note" placeholder="เช่น มัดจำ 1 เดือน"></div>
+
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ปิด</button>
+      <button class="btn" id="saveDepositBtn" data-tenant-id="${tenant?tenant.id:''}">บันทึกและพิมพ์ใบรับ</button>
+    </div>
+  `;
+}
+
+async function onSaveDeposit(tenantId){
+  const tenant = tenants.find(t=>t.id===tenantId);
+  if(!tenant){ showToast('ไม่พบข้อมูลผู้เช่า'); return; }
+  const amount = Number(document.getElementById('f-dep-amount').value);
+  const date = document.getElementById('f-dep-date').value;
+  const note = document.getElementById('f-dep-note').value.trim();
+  if(!amount || amount<=0){ showToast('กรุณากรอกจำนวนเงินมัดจำ'); return; }
+  if(!date){ showToast('กรุณาเลือกวันที่รับเงิน'); return; }
+
+  const deposit = {
+    id: 'dep_'+uid(),
+    roomId: tenant.roomId,
+    tenantId: tenant.id,
+    receiptNo: genDepositReceiptNo(date),
+    amount, date, note
+  };
+  deposits.push(deposit);
+  await saveDeposits();
+  closeModal();
+  render();
+  showToast('บันทึกใบรับมัดจำแล้ว: '+deposit.receiptNo);
+  printDepositReceipt(deposit);
+}
+
+async function onDeleteDeposit(depositId, tenantId){
+  if(!confirm('ลบใบรับมัดจำนี้? (เลขที่ใบรับจะไม่ถูกนำกลับมาใช้ซ้ำ)')) return;
+  deposits = deposits.filter(d=>d.id!==depositId);
+  await saveDeposits();
+  const tenant = tenants.find(t=>t.id===tenantId);
+  openModal(depositModalHtml(tenant), {wide:true});
+  showToast('ลบใบรับมัดจำแล้ว');
+}
+
+function depositReceiptHtml(deposit){
+  const room = rooms.find(r=>r.id===deposit.roomId);
+  const tenant = tenants.find(t=>t.id===deposit.tenantId) || tenants.find(t=>t.roomId===deposit.roomId);
+  const property = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId)) || {};
+  const receiptNo = deposit.receiptNo;
+  const dateObj = deposit.date ? new Date(deposit.date+'T00:00:00') : new Date();
+
+  const itemRowsHtml = `
+    <tr>
+      <td class="c">1</td>
+      <td>เงินมัดจำห้องพัก ห้อง ${room?room.number:'-'}${deposit.note?' ('+deposit.note.replace(/</g,'&lt;')+')':''}</td>
+      <td class="c">-</td>
+      <td class="r">-</td>
+      <td class="r">${THB(deposit.amount)}</td>
+    </tr>`;
+
+  return `
+    <div class="invoice">
+      <div class="inv-topbar">
+        <div class="inv-brand">
+          <svg class="inv-logo" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <rect width="512" height="512" rx="112" fill="#2A231D"/>
+            <path d="M256 90 L382 177 L130 177 Z" fill="#2E8FE0"/>
+            <text x="262" y="437" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="#00000030">D</text>
+            <text x="256" y="430" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linejoin="round">D</text>
+            <text x="256" y="430" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="#F6A23A">D</text>
+            <text x="256" y="430" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="none" stroke="#3B2A1E" stroke-width="5" stroke-linejoin="round">D</text>
+          </svg>
+          <div>
+            <p class="inv-shop-name">${property.name||''}</p>
+            ${property.address?`<p class="inv-shop-address">${property.address}</p>`:''}
+          </div>
+        </div>
+        <div class="inv-docno">
+          <div class="inv-doctitle">ใบรับเงินมัดจำ / DEPOSIT RECEIPT</div>
+          ${receiptNo}
+        </div>
+      </div>
+      <div class="inv-body">
+        <table class="inv-meta">
+          ${INV_COLGROUP}
+          <tr>
+            <td class="k">ชื่อผู้เช่า<br>Name</td><td class="v">${tenant?tenantDisplayName(tenant):'-'}</td>
+            <td class="k">เลขที่<br>No.</td><td class="v" colspan="2">${receiptNo}</td>
+          </tr>
+          <tr>
+            <td class="k">ห้องพัก<br>Room</td><td class="v">${room?('ห้อง '+room.number+(room.floor?' ชั้น '+room.floor:'')):'-'}</td>
+            <td class="k">วันที่<br>Date</td><td class="v" colspan="2">${thaiBuddhistDate(dateObj)}</td>
+          </tr>
+        </table>
+        <table class="inv-items">
+          ${INV_COLGROUP}
+          <thead>
+            <tr>
+              <th>ลำดับ<br>Item</th>
+              <th>รายการ<br>Description</th>
+              <th>จำนวนหน่วย<br>Qty</th>
+              <th>ราคาต่อหน่วย<br>Unit Price</th>
+              <th>จำนวนเงิน<br>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRowsHtml}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="words" colspan="3">(${bahtText(deposit.amount)})</td>
+              <td class="label">จำนวนเงินรวม</td>
+              <td class="amount">${THB(deposit.amount)}</td>
+            </tr>
+          </tfoot>
+        </table>
+        ${(property.notes || property.qrImage) ? `
+        <div class="inv-bottom">
+          ${property.notes?`<div class="inv-notes"><span class="label">หมายเหตุ</span><br>${property.notes.replace(/</g,'&lt;')}</div>`:'<div></div>'}
+          ${property.qrImage?`<div class="inv-qr"><img src="${property.qrImage}" alt="QR ชำระเงิน"><div class="qr-label">สแกนเพื่อชำระเงิน</div></div>`:''}
+        </div>` : ''}
+        <div class="inv-sign">
+          <div class="line">ลงชื่อ ......................................... ผู้รับเงิน</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function printDepositReceipt(deposit){
+  const area = document.getElementById('printArea');
+  area.innerHTML = depositReceiptHtml(deposit);
+  await waitForImages(area);
+  window.print();
 }
 
 function lastBillForRoom(roomId, beforeMonth){
