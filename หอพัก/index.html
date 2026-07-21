@@ -2119,12 +2119,48 @@ async function printInvoices(billList){
 }
 
 /* ============ Export PDF ============
-   ใช้ html2canvas + jsPDF (โหลดจาก CDN) แปลงเอกสาร (ใบแจ้งหนี้ / ใบรับมัดจำ)
+   ใช้ html2canvas + jsPDF (โหลดจาก CDN) แปลงเอกสาร (ใบแจ้งหนี้ / ใบรับมัดจำ / รายงาน)
    เป็นไฟล์ PDF ให้ดาวน์โหลดได้โดยตรง โดยไม่ต้องผ่านหน้าต่างพิมพ์ของเบราว์เซอร์
-   วาดเอกสารลงกล่องที่ซ่อนไว้นอกจอ (.pdf-render-box) แล้วแคปเจอร์ทีละใบ
-   ต่อกันเป็น PDF หลายหน้าได้ (แต่ละใบ = 1 หน้ากระดาษ A5 แนวนอน) */
+
+   หมายเหตุสำคัญ: ไม่ใช้ฟังก์ชัน doc.html() ของ jsPDF เพราะมันพยายามตีความ CSS เอง
+   (ฟอนต์ไทยที่โหลดผ่านเว็บ, flexbox, ตาราง) ซึ่งพลาดบ่อยทำให้หน้าตาเพี้ยนไปจากของจริง
+   แทนที่ด้วยการ "ถ่ายภาพหน้าจอ" ของ DOM จริงด้วย html2canvas (พิกเซลต่อพิกเซล ไม่ตีความ CSS ใหม่)
+   แล้วค่อยฝังรูปนั้นลง PDF ทีละหน้า — แม่นยำกว่ามาก */
 function pdfLibsReady(){
   return !!(window.jspdf && window.jspdf.jsPDF && window.html2canvas);
+}
+
+function ensureFontsReady(){
+  try{
+    if(document.fonts && document.fonts.ready) return document.fonts.ready;
+  }catch(e){}
+  return Promise.resolve();
+}
+
+/* วาดภาพ canvas ลง PDF โดยตัดแบ่งเป็นหลายหน้าอัตโนมัติถ้าเนื้อหาสูงเกิน 1 หน้ากระดาษ
+   reuseCurrentPage=true หมายถึงให้ใช้หน้าแรกที่ jsPDF สร้างมาให้ตอน new jsPDF() เลย
+   ไม่ต้องเรียก addPage() ก่อนวางภาพชิ้นแรก (ใช้ตอนเป็นเอกสารแรกสุดของไฟล์เท่านั้น) */
+function addCanvasToDoc(doc, canvas, marginMm, reuseCurrentPage){
+  const pageWidthMm = doc.internal.pageSize.getWidth();
+  const pageHeightMm = doc.internal.pageSize.getHeight();
+  const imgWidthMm = pageWidthMm - marginMm*2;
+  const pxPerMm = canvas.width / imgWidthMm;
+  const pageHeightPx = Math.max(1, Math.floor((pageHeightMm - marginMm*2) * pxPerMm));
+  let renderedHeight = 0;
+  let firstSlice = true;
+  while(renderedHeight < canvas.height){
+    const sliceHeight = Math.min(pageHeightPx, canvas.height - renderedHeight);
+    const pageCanvas = document.createElement('canvas');
+    pageCanvas.width = canvas.width;
+    pageCanvas.height = sliceHeight;
+    pageCanvas.getContext('2d').drawImage(canvas, 0, renderedHeight, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+    const imgData = pageCanvas.toDataURL('image/jpeg', 0.95);
+    const isVeryFirstPageOfDoc = reuseCurrentPage && firstSlice;
+    if(!isVeryFirstPageOfDoc) doc.addPage();
+    doc.addImage(imgData, 'JPEG', marginMm, marginMm, imgWidthMm, sliceHeight / pxPerMm);
+    renderedHeight += sliceHeight;
+    firstSlice = false;
+  }
 }
 
 async function exportDocsAsPdf(items, htmlFn, filenameBase){
@@ -2134,9 +2170,10 @@ async function exportDocsAsPdf(items, htmlFn, filenameBase){
     return;
   }
   showToast('กำลังสร้างไฟล์ PDF…');
+  await ensureFontsReady();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'a5' });
-  const RENDER_WIDTH_PX = 750; // ความกว้างกล่องที่ใช้วาดเอกสารนอกจอ ก่อนแปลงสัดส่วนลงหน้ากระดาษ A5
+  const RENDER_WIDTH_PX = 900; // ความกว้างกล่องที่ใช้วาดเอกสารนอกจอ ก่อนถ่ายภาพ ยิ่งกว้างยิ่งคมชัด
   const container = document.createElement('div');
   container.className = 'pdf-render-box';
   container.style.width = RENDER_WIDTH_PX + 'px';
@@ -2146,14 +2183,11 @@ async function exportDocsAsPdf(items, htmlFn, filenameBase){
     for(let i=0;i<items.length;i++){
       container.innerHTML = htmlFn(items[i]);
       await waitForImages(container);
-      if(i>0) doc.addPage('a5','landscape');
-      await new Promise((resolve, reject)=>{
-        doc.html(container, {
-          x:5, y:5, width:200, windowWidth:RENDER_WIDTH_PX,
-          html2canvas:{ scale:2, useCORS:true, backgroundColor:'#ffffff' },
-          callback: ()=> resolve()
-        });
+      await new Promise(r=>requestAnimationFrame(r)); // รอเลย์เอาต์นิ่งก่อนถ่ายภาพ
+      const canvas = await html2canvas(container, {
+        scale:2, useCORS:true, backgroundColor:'#ffffff', windowWidth:RENDER_WIDTH_PX
       });
+      addCanvasToDoc(doc, canvas, 5, i===0);
     }
     const filename = (filenameBase || 'document').replace(/[\\/:*?"<>|]/g,'-') + '.pdf';
     doc.save(filename);
@@ -2184,28 +2218,37 @@ function exportDepositPdf(deposit){
   return exportDocsAsPdf([deposit], depositReceiptHtml, deposit.receiptNo || ('มัดจำ-'+deposit.id));
 }
 
-/* Export รายงานสรุป เป็น PDF — ต่างจากใบแจ้งหนี้/ใบรับมัดจำตรงที่เนื้อหาอยู่ในหน้าเว็บอยู่แล้ว
-   (ไม่ได้ซ่อนอยู่หลัง @media print) จึงแคปเจอร์จาก DOM ที่แสดงอยู่ตรงๆ ได้เลย
-   ใช้ขนาดกระดาษ A4 แนวตั้งเพราะเป็นตารางข้อมูล ไม่ใช่เอกสารฟอร์มสั้นแบบ A5 */
+/* Export รายงานสรุป เป็น PDF — โคลนเนื้อหารายงานที่กำลังแสดงอยู่ ไปวาดในกล่องนอกจอ
+   ที่ตั้งความกว้างคงที่ระดับจอคอมพิวเตอร์เสมอ (ไม่ว่าจะกดจากมือถือหรือคอม)
+   เพื่อให้ PDF หน้าตาเหมือนกันทุกครั้ง ไม่ผันแปรตามขนาดจอที่กดตอนนั้น
+   ใช้ขนาดกระดาษ A4 แนวตั้ง ตัดแบ่งหลายหน้าอัตโนมัติถ้าตารางยาวเกิน 1 หน้า */
 async function exportReportPdf(){
   if(!pdfLibsReady()){
     showToast('ไลบรารีสร้าง PDF ยังโหลดไม่เสร็จ หรือไม่มีอินเทอร์เน็ต ลองใหม่อีกครั้ง');
     return;
   }
-  const el = document.getElementById('reportPrintArea');
-  if(!el) return;
+  const source = document.getElementById('reportPrintArea');
+  if(!source) return;
   showToast('กำลังสร้างไฟล์ PDF…');
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+  await ensureFontsReady();
+
+  const RENDER_WIDTH_PX = 900;
+  const container = document.createElement('div');
+  container.className = 'pdf-render-box';
+  container.style.width = RENDER_WIDTH_PX + 'px';
+  container.style.padding = '4px';
+  container.innerHTML = source.innerHTML;
+  document.body.appendChild(container);
+
   try{
-    await new Promise((resolve)=>{
-      doc.html(el, {
-        x:8, y:8, width:194, windowWidth: el.scrollWidth || 800,
-        html2canvas:{ scale:2, useCORS:true, backgroundColor:'#ffffff' },
-        autoPaging:'text',
-        callback: ()=> resolve()
-      });
+    await new Promise(r=>requestAnimationFrame(r));
+    const canvas = await html2canvas(container, {
+      scale:2, useCORS:true, backgroundColor:'#ffffff', windowWidth:RENDER_WIDTH_PX
     });
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+    addCanvasToDoc(doc, canvas, 8, true);
+
     const tab = renderReports._tab;
     const tabLabel = tab==='monthly' ? ('รายเดือน-'+(renderReports._month||'')) : (tab==='water' ? 'สรุปค่าน้ำ' : 'สรุปค่าไฟ');
     const filename = ('รายงานสรุป-'+tabLabel).replace(/[\\/:*?"<>|]/g,'-') + '.pdf';
@@ -2214,6 +2257,8 @@ async function exportReportPdf(){
   }catch(err){
     console.error('PDF export error', err);
     showToast('สร้างไฟล์ PDF ไม่สำเร็จ ลองใหม่อีกครั้ง');
+  }finally{
+    document.body.removeChild(container);
   }
 }
 
