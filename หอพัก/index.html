@@ -271,7 +271,11 @@
     font-weight:600;
     margin:2px 0 6px;
   }
-  .room-tag .floor{font-size:12px;color:var(--ink-soft);margin-bottom:10px;}
+  .room-tag .floor{
+    font-size:12px;color:var(--ink-soft);margin-bottom:10px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .room-tag .tenant-name{color:var(--ink);}
   .status-pill{
     display:inline-flex;align-items:center;gap:5px;
     font-size:11.5px;font-weight:600;
@@ -410,6 +414,16 @@
     padding:7px 10px;border:1px solid var(--line);border-radius:8px;
     font-family:inherit;font-size:13.5px;background:var(--bg);color:var(--ink);
   }
+  .view-toggle{
+    display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;
+  }
+  .view-toggle button{
+    padding:7px 12px;border:none;background:var(--surface);color:var(--ink-soft);
+    font-family:inherit;font-size:13px;cursor:pointer;border-right:1px solid var(--line);
+  }
+  .view-toggle button:last-child{border-right:none;}
+  .view-toggle button.active{background:var(--ink);color:var(--bg);font-weight:600;}
+  .view-toggle button:hover:not(.active){background:var(--bg);}
 
   /* ---------- Print / เอกสาร (ใบแจ้งหนี้ ใบรับมัดจำ) ----------
      สไตล์เหล่านี้เปิดใช้งานตลอด (ไม่ได้ผูกกับ @media print เท่านั้น)
@@ -974,6 +988,20 @@ function attachModalEvents(){
   if(deleteRoomBtn) deleteRoomBtn.onclick = onDeleteRoom;
   const saveBulkRoomsBtn = document.getElementById('saveBulkRoomsBtn');
   if(saveBulkRoomsBtn) saveBulkRoomsBtn.onclick = onSaveBulkRooms;
+  const prevRoomBtn = document.getElementById('prevRoomBtn');
+  if(prevRoomBtn && prevRoomBtn.dataset.id){
+    prevRoomBtn.onclick = ()=>{
+      const room = rooms.find(r=>r.id===prevRoomBtn.dataset.id);
+      if(room){ onSaveRoom._editId = room.id; openModal(roomFormHtml(room)); }
+    };
+  }
+  const nextRoomBtn = document.getElementById('nextRoomBtn');
+  if(nextRoomBtn && nextRoomBtn.dataset.id){
+    nextRoomBtn.onclick = ()=>{
+      const room = rooms.find(r=>r.id===nextRoomBtn.dataset.id);
+      if(room){ onSaveRoom._editId = room.id; openModal(roomFormHtml(room)); }
+    };
+  }
 
   const saveTenantBtn = document.getElementById('saveTenantBtn');
   if(saveTenantBtn) saveTenantBtn.onclick = onSaveTenant;
@@ -1222,8 +1250,9 @@ function sortRoomsWithin(list, mode){
 function renderRooms(){
   const roomList = currentRooms();
   const sortMode = renderRooms._sort || 'number';
+  const viewMode = renderRooms._view || 'grid';
 
-  // จัดกลุ่มตามชั้น
+  // จัดกลุ่มตามชั้น (ใช้กับมุมมองกริด)
   const floors = {};
   roomList.forEach(r=>{
     const key = r.floor || 'ไม่ระบุชั้น';
@@ -1231,6 +1260,8 @@ function renderRooms(){
     floors[key].push(r);
   });
   const floorKeys = Object.keys(floors).sort((a,b)=> a.localeCompare(b,'th',{numeric:true}));
+  // ลำดับเดียวกับที่ใช้ปุ่มเลื่อนซ้าย-ขวาตอนแก้ไขห้อง ใช้กับมุมมองรายการ (list) แบบตารางแบน
+  const flatOrder = roomNavOrder();
 
   return `
     <div class="page-head">
@@ -1244,27 +1275,52 @@ function renderRooms(){
       </div>
     </div>
     <div class="card">
-      <div class="card-head">
-        <h3>แบ่งตามชั้น</h3>
-        <select id="roomSort" class="toolbar-select">
-          <option value="number" ${sortMode==='number'?'selected':''}>เรียงตามเลขห้อง</option>
-          <option value="vacant" ${sortMode==='vacant'?'selected':''}>ห้องว่างก่อน</option>
-          <option value="occupied" ${sortMode==='occupied'?'selected':''}>ห้องมีผู้เช่าก่อน</option>
-        </select>
+      <div class="card-head" style="flex-wrap:wrap;gap:10px;">
+        <h3>${viewMode==='list'?'รายการห้องพัก':'แบ่งตามชั้น'}</h3>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <div class="view-toggle">
+            <button class="${viewMode==='grid'?'active':''}" id="roomViewGridBtn" title="มุมมองกริด">▦ กริด</button>
+            <button class="${viewMode==='list'?'active':''}" id="roomViewListBtn" title="มุมมองรายการ">☰ รายการ</button>
+          </div>
+          <select id="roomSort" class="toolbar-select">
+            <option value="number" ${sortMode==='number'?'selected':''}>เรียงตามเลขห้อง</option>
+            <option value="vacant" ${sortMode==='vacant'?'selected':''}>ห้องว่างก่อน</option>
+            <option value="occupied" ${sortMode==='occupied'?'selected':''}>ห้องมีผู้เช่าก่อน</option>
+          </select>
+        </div>
       </div>
       ${roomList.length===0 ? `<div class="empty"><div class="big">🔑</div>ยังไม่มีห้องพัก เริ่มเพิ่มห้องแรกกันเลย</div>` :
+        viewMode==='list' ? `
+        <table>
+          <thead><tr><th>ห้อง</th><th>ชั้น</th><th>สถานะ</th><th>ผู้เช่า</th><th>ค่าเช่า/เดือน</th></tr></thead>
+          <tbody>
+            ${flatOrder.map(r=>{
+              const tenant = r.status==='occupied' ? tenants.find(t=>t.roomId===r.id) : null;
+              return `
+              <tr class="room-row" data-id="${r.id}" style="cursor:pointer;">
+                <td style="font-weight:600;">${r.number}</td>
+                <td class="muted">${r.floor||'-'}</td>
+                <td><span class="status-pill ${r.status==='occupied'?'occupied':'vacant'}">${r.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span></td>
+                <td class="muted" style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${tenant?truncateText(tenantDisplayName(tenant),18):'—'}</td>
+                <td class="mono">${THB(r.rent)} บ.</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>` :
         floorKeys.map(fk=>`
           <div class="floor-group">
             <div class="floor-group-head">ชั้น ${fk}</div>
             <div class="room-grid">
-              ${sortRoomsWithin(floors[fk], sortMode).map(r=>`
+              ${sortRoomsWithin(floors[fk], sortMode).map(r=>{
+                const tenant = r.status==='occupied' ? tenants.find(t=>t.roomId===r.id) : null;
+                return `
                 <div class="room-tag" data-id="${r.id}">
                   <div class="num">${r.number}</div>
-                  <div class="floor">ชั้น ${r.floor||'-'}</div>
+                  <div class="floor">ชั้น ${r.floor||'-'}${tenant?` · <span class="tenant-name">${truncateText(tenantDisplayName(tenant),14)}</span>`:''}</div>
                   <span class="status-pill ${r.status==='occupied'?'occupied':'vacant'}">${r.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span>
                   <div class="rent">${THB(r.rent)} บ./เดือน</div>
-                </div>
-              `).join('')}
+                </div>`;
+              }).join('')}
             </div>
           </div>
         `).join('')
@@ -1349,9 +1405,46 @@ async function onSaveBulkRooms(){
     : `เพิ่มห้องแล้ว ${added} ห้อง`);
 }
 
+/* ลำดับห้องสำหรับปุ่มเลื่อนซ้าย-ขวาในหน้าต่างแก้ไขห้องพัก
+   ใช้ลำดับเดียวกับที่แสดงในหน้าห้องพัก (จัดกลุ่มตามชั้น + เรียงตามโหมดที่เลือกไว้)
+   เพื่อให้กดเลื่อนแล้วตรงกับที่เห็นในกริดจริง ไม่งง */
+function truncateText(str, maxLen){
+  if(!str) return '';
+  return str.length > maxLen ? str.slice(0, maxLen).trimEnd()+'…' : str;
+}
+
+function roomNavOrder(){
+  const roomList = currentRooms();
+  const sortMode = renderRooms._sort || 'number';
+  const floors = {};
+  roomList.forEach(r=>{
+    const key = r.floor || 'ไม่ระบุชั้น';
+    if(!floors[key]) floors[key] = [];
+    floors[key].push(r);
+  });
+  const floorKeys = Object.keys(floors).sort((a,b)=> a.localeCompare(b,'th',{numeric:true}));
+  const ordered = [];
+  floorKeys.forEach(fk=>{ sortRoomsWithin(floors[fk], sortMode).forEach(r=> ordered.push(r)); });
+  return ordered;
+}
+
 function roomFormHtml(room){
   const isEdit = !!room;
+  let navHtml = '';
+  if(isEdit){
+    const order = roomNavOrder();
+    const idx = order.findIndex(r=>r.id===room.id);
+    const prevRoom = idx>0 ? order[idx-1] : null;
+    const nextRoom = (idx>=0 && idx<order.length-1) ? order[idx+1] : null;
+    navHtml = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <button class="btn ghost small" id="prevRoomBtn" ${prevRoom?'':'disabled'} data-id="${prevRoom?prevRoom.id:''}">← ห้องก่อนหน้า</button>
+        <span class="muted" style="font-size:12px;">${idx>=0?`ห้อง ${idx+1} / ${order.length}`:''}</span>
+        <button class="btn ghost small" id="nextRoomBtn" ${nextRoom?'':'disabled'} data-id="${nextRoom?nextRoom.id:''}">ห้องถัดไป →</button>
+      </div>`;
+  }
   return `
+    ${navHtml}
     <h3>${isEdit?'แก้ไขห้องพัก':'เพิ่มห้องพัก'}</h3>
     <div class="field-row">
       <div class="field"><label>เลขห้อง</label><input id="f-number" value="${room?room.number:''}" placeholder="เช่น 101"></div>
@@ -2376,7 +2469,7 @@ function attachPageEvents(){
   const addRoomsBulkBtn = document.getElementById('addRoomsBulkBtn');
   if(addRoomsBulkBtn) addRoomsBulkBtn.onclick = ()=> openModal(bulkRoomFormHtml());
 
-  document.querySelectorAll('.room-tag').forEach(el=>{
+  document.querySelectorAll('.room-tag, .room-row').forEach(el=>{
     el.onclick = ()=>{
       const room = rooms.find(r=>r.id===el.dataset.id);
       onSaveRoom._editId = room.id;
@@ -2386,6 +2479,10 @@ function attachPageEvents(){
 
   const roomSort = document.getElementById('roomSort');
   if(roomSort) roomSort.onchange = (e)=>{ renderRooms._sort = e.target.value; render(); };
+  const roomViewGridBtn = document.getElementById('roomViewGridBtn');
+  if(roomViewGridBtn) roomViewGridBtn.onclick = ()=>{ renderRooms._view = 'grid'; render(); };
+  const roomViewListBtn = document.getElementById('roomViewListBtn');
+  if(roomViewListBtn) roomViewListBtn.onclick = ()=>{ renderRooms._view = 'list'; render(); };
 
   // Tenants
   const addTenantBtn = document.getElementById('addTenantBtn');
