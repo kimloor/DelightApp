@@ -488,9 +488,33 @@
 
   @media (max-width: 760px){
     .app-body{flex-direction:column;}
-    .sidebar{width:100%;flex-direction:row;align-items:center;padding:16px 18px;overflow-x:auto;}
+    .sidebar{
+      width:100%;
+      flex-direction:column;
+      align-items:stretch;
+      padding:14px 16px;
+      gap:12px;
+      overflow-x:visible;
+    }
     .brand{display:none;}
-    nav{flex-direction:row;}
+    .sidebar > .field{width:100%;}
+    nav{
+      flex-direction:row;
+      gap:6px;
+      overflow-x:auto;
+      -webkit-overflow-scrolling:touch;
+      padding:8px 0 2px;
+      margin-top:2px;
+      border-top:1px solid var(--line);
+      scrollbar-width:thin;
+    }
+    .nav-btn{
+      flex:none;
+      white-space:nowrap;
+      padding:9px 13px;
+      font-size:13.5px;
+    }
+    .nav-btn .icon{width:auto;}
     main{padding:24px 18px 50px;}
     .stat-row{grid-template-columns:repeat(2,1fr);}
     .field-row{grid-template-columns:1fr;}
@@ -512,7 +536,7 @@
       text-transform:uppercase;letter-spacing:0.03em;margin-bottom:2px;
     }
     #billsTable td.room-cell{font-size:17px;font-weight:700;padding-right:46px;cursor:pointer;}
-    #billsTable td.actions-cell{display:flex;gap:8px;padding-top:8px;}
+    #billsTable td.actions-cell{display:flex;gap:8px;padding-top:8px;flex-wrap:wrap;}
     #billsTable td.actions-cell button{flex:1;}
   }
 </style>
@@ -1049,6 +1073,10 @@ function attachModalEvents(){
   const saveBulkMeterBtn = document.getElementById('saveBulkMeterBtn');
   if(saveBulkMeterBtn) saveBulkMeterBtn.onclick = onSaveBulkMeter;
   wireBulkMeterLiveCalc();
+  const saveBillEditBtn = document.getElementById('saveBillEditBtn');
+  if(saveBillEditBtn) saveBillEditBtn.onclick = ()=> onSaveBillEdit(saveBillEditBtn.dataset.id);
+  const deleteBillBtn = document.getElementById('deleteBillBtn');
+  if(deleteBillBtn) deleteBillBtn.onclick = ()=> onDeleteBill(deleteBillBtn.dataset.id);
   const saveRatesBtn = document.getElementById('saveRatesBtn');
   if(saveRatesBtn) saveRatesBtn.onclick = onSaveRates;
   const deletePropertyBtn = document.getElementById('deletePropertyBtn');
@@ -1637,6 +1665,63 @@ async function onSaveMeter(){
   showToast('บันทึกเลขมิเตอร์แล้ว');
 }
 
+/* ============ แก้ไข / ลบ บิล ============ */
+function billEditFormHtml(bill){
+  const room = rooms.find(r=>r.id===bill.roomId);
+  return `
+    <h3>แก้ไขบิล — ห้อง ${room?room.number:'—'}</h3>
+    <p class="sub" style="font-size:12.5px;margin-top:-8px;">${monthLabel(bill.month)} · เลขที่บิล ${bill.invoiceNo||'-'}</p>
+    <div class="field"><label>ค่าเช่า (บาท)</label><input id="f-bill-rent" type="number" value="${Number(bill.rent)||0}" onfocus="this.select()"></div>
+    <div class="field-row">
+      <div class="field"><label>ค่าน้ำ (บาท)</label><input id="f-bill-water" type="number" value="${Number(bill.water)||0}" onfocus="this.select()"></div>
+      <div class="field"><label>ค่าไฟ (บาท)</label><input id="f-bill-electric" type="number" value="${Number(bill.electric)||0}" onfocus="this.select()"></div>
+    </div>
+    <div class="field">
+      <label>สถานะ</label>
+      <select id="f-bill-status">
+        <option value="unpaid" ${bill.status==='unpaid'?'selected':''}>ค้างชำระ</option>
+        <option value="paid" ${bill.status==='paid'?'selected':''}>ชำระแล้ว</option>
+      </select>
+    </div>
+    <p class="sub" style="font-size:12px;">การแก้ค่าน้ำ/ค่าไฟตรงนี้เป็นการแก้ยอดเงินโดยตรง ไม่กระทบเลขมิเตอร์ที่บันทึกไว้ — ถ้าต้องการแก้เลขมิเตอร์ ให้ปิดหน้าต่างนี้แล้วคลิกที่ช่องค่าน้ำ/ค่าไฟในตารางบิลแทน</p>
+    <div class="modal-actions">
+      <button class="btn danger" id="deleteBillBtn" data-id="${bill.id}">ลบบิล</button>
+      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+      <button class="btn" id="saveBillEditBtn" data-id="${bill.id}">บันทึก</button>
+    </div>
+  `;
+}
+
+async function onSaveBillEdit(billId){
+  const bill = bills.find(b=>b.id===billId);
+  if(!bill){ showToast('ไม่พบบิลนี้'); return; }
+  const rent = Number(document.getElementById('f-bill-rent').value)||0;
+  const water = Number(document.getElementById('f-bill-water').value)||0;
+  const electric = Number(document.getElementById('f-bill-electric').value)||0;
+  const status = document.getElementById('f-bill-status').value;
+  bill.rent = rent; bill.water = water; bill.electric = electric; bill.status = status;
+  bill.total = rent + water + electric;
+  await saveBills();
+  closeModal();
+  render();
+  showToast('บันทึกบิลแล้ว');
+}
+
+async function onDeleteBill(billId){
+  const bill = bills.find(b=>b.id===billId);
+  if(!bill) return;
+  const ok = confirm(
+    `ลบบิลนี้ (เลขที่ ${bill.invoiceNo||'-'})?\n\n` +
+    `คำเตือน: เลขที่บิลนี้จะไม่ถูกนำกลับมาใช้ซ้ำ — ลำดับเลขที่บิลจะโดดข้ามเลขนี้ไปตลอด`
+  );
+  if(!ok) return;
+  bills = bills.filter(b=>b.id!==billId);
+  await saveBills();
+  closeModal();
+  render();
+  showToast('ลบบิลแล้ว');
+}
+
 function ratesFormHtml(){
   const prop = currentProperty() || {};
   return `
@@ -2131,7 +2216,7 @@ function renderBills(){
                   <option value="paid" ${b.status==='paid'?'selected':''}>ชำระแล้ว</option>
                 </select>
               </td>
-              <td class="actions-cell"><button class="btn ghost small print-bill" data-id="${b.id}">🖨 พิมพ์บิล</button><button class="btn ghost small export-bill-pdf" data-id="${b.id}">📄 PDF</button></td>
+              <td class="actions-cell"><button class="btn ghost small print-bill" data-id="${b.id}">🖨 พิมพ์บิล</button><button class="btn ghost small export-bill-pdf" data-id="${b.id}">📄 PDF</button><button class="btn ghost small edit-bill" data-id="${b.id}">✎ แก้ไข</button><button class="btn ghost small delete-bill" data-id="${b.id}">🗑 ลบ</button></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -2572,6 +2657,17 @@ function attachPageEvents(){
     el.onclick = ()=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
       if(bill) exportInvoicePdf(bill);
+    };
+  });
+  document.querySelectorAll('.edit-bill').forEach(el=>{
+    el.onclick = ()=>{
+      const bill = bills.find(b=>b.id===el.dataset.id);
+      if(bill) openModal(billEditFormHtml(bill));
+    };
+  });
+  document.querySelectorAll('.delete-bill').forEach(el=>{
+    el.onclick = ()=>{
+      onDeleteBill(el.dataset.id);
     };
   });
   document.querySelectorAll('.bill-status').forEach(el=>{
