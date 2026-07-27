@@ -238,6 +238,8 @@
     font-family:'Fraunces',serif;
     font-size:17px;font-weight:600;margin:0;
   }
+  .page-head-actions{display:flex;gap:8px;flex-wrap:wrap;}
+  .toolbar-actions{display:flex;gap:8px;flex-wrap:wrap;padding:14px 20px;}
 
   /* ---------- Room key-tag grid ---------- */
   .room-grid{
@@ -519,6 +521,12 @@
     .stat-row{grid-template-columns:repeat(2,1fr);}
     .field-row{grid-template-columns:1fr;}
 
+    .page-head-actions{flex-direction:column;width:100%;}
+    .page-head-actions button{width:100%;}
+    .toolbar-actions{flex-direction:column;padding:14px 16px;}
+    .toolbar-actions button{width:100%;}
+    .card-head{flex-wrap:wrap;gap:10px;}
+
     #billsTable thead{display:none;}
     #billsTable, #billsTable tbody, #billsTable tr, #billsTable td{display:block;width:100%;}
     #billsTable tr{
@@ -683,6 +691,16 @@ const thisMonth = () => {
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
 };
+
+/* เดือนบิลเริ่มต้นที่แนะนำในหน้า "ค่าเช่า/บิล" — ถ้าวันที่ปัจจุบันเลยวันที่ 25 ของเดือนไปแล้ว
+   จะ default เป็นเดือนถัดไปให้แทน (เผื่อกรณีออกบิลล่วงหน้าปลายเดือนสำหรับรอบเดือนถัดไป)
+   ผู้ใช้ยังเปลี่ยนกลับไปเลือกเดือนอื่นเองได้ตามปกติผ่านช่องเลือกเดือน
+   ไม่กระทบ thisMonth() ที่ใช้แสดงผลสรุปเดือนปฏิทินจริงในหน้าภาพรวม/รายงาน */
+function defaultBillingMonth(){
+  const d = new Date();
+  if(d.getDate() > 25) d.setMonth(d.getMonth()+1);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
 
 /* แปลงวันที่แบบ ISO ("2569-07-13") จาก <input type="date"> ให้เป็นรูปแบบไทยอ่านง่าย เช่น "13 ก.ค. 2569" */
 const formatThaiDate = (iso) => {
@@ -2151,7 +2169,7 @@ function renderRangeReport(type, months){
 function renderBills(){
   const scopedBills = currentBills();
   const months = Array.from(new Set(scopedBills.map(b=>b.month).filter(m=>/^\d{4}-\d{2}$/.test(m)))).sort().reverse();
-  const activeMonth = renderBills._month || thisMonth();
+  const activeMonth = renderBills._month || defaultBillingMonth();
   if(!months.includes(activeMonth)) months.unshift(activeMonth);
   const monthBills = scopedBills.filter(b=>b.month===activeMonth);
   const prop = currentProperty() || {};
@@ -2171,7 +2189,7 @@ function renderBills(){
         <h2>ค่าเช่า / บิล</h2>
         <p class="sub">จัดการบิลรายเดือนของแต่ละห้อง · น้ำ ${THB(prop.waterRate)} บ./หน่วย · ไฟ ${THB(prop.electricRate)} บ./หน่วย</p>
       </div>
-      <div style="display:flex;gap:8px;">
+      <div class="page-head-actions">
         <button class="btn ghost" id="rateSettingsBtn">⚙︎ ตั้งค่าอพาร์ทเมนท์</button>
         <button class="btn ghost" id="bulkMeterBtn" ${monthBills.length===0?'disabled':''}>📋 จดมิเตอร์ทั้งหมด</button>
         <button class="btn" id="genBillBtn" ${currentRooms().filter(r=>r.status==='occupied').length===0?'disabled':''}>+ สร้างบิลเดือนนี้</button>
@@ -2181,14 +2199,14 @@ function renderBills(){
     <div class="card">
       <div class="card-head">
         <h3>เลือกเดือน</h3>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <select id="monthSelect" class="toolbar-select">
-            ${months.map(m=>`<option value="${m}" ${m===activeMonth?'selected':''}>${monthLabel(m)}</option>`).join('')}
-          </select>
-          <button class="btn ghost small" id="printSelectedBtn" ${selectedCount===0?'disabled':''}>🖨 พิมพ์บิลที่เลือก (${selectedCount})</button>
-          <button class="btn ghost small" id="exportSelectedPdfBtn" ${selectedCount===0?'disabled':''}>📄 บันทึกเป็น PDF (${selectedCount})</button>
-          <button class="btn ghost small" id="printReportBtn" ${monthBills.length===0?'disabled':''}>🖨 พิมพ์รายงานเดือนนี้</button>
-        </div>
+        <select id="monthSelect" class="toolbar-select">
+          ${months.map(m=>`<option value="${m}" ${m===activeMonth?'selected':''}>${monthLabel(m)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="toolbar-actions">
+        <button class="btn ghost small" id="printSelectedBtn" ${selectedCount===0?'disabled':''}>🖨 พิมพ์บิลที่เลือก (${selectedCount})</button>
+        <button class="btn ghost small" id="exportSelectedPdfBtn" ${selectedCount===0?'disabled':''}>📄 บันทึกเป็น PDF (${selectedCount})</button>
+        <button class="btn ghost small" id="printReportBtn" ${monthBills.length===0?'disabled':''}>🖨 พิมพ์รายงานเดือนนี้</button>
       </div>
       ${selectedCount>0?`
       <div style="display:flex;gap:8px;align-items:center;background:#FBF2E1;border:1px solid #E3B96A;border-radius:8px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap;">
@@ -2461,7 +2479,7 @@ function exportInvoicesPdf(billList){
     const ra = rooms.find(r=>r.id===a.roomId), rb = rooms.find(r=>r.id===b.roomId);
     return (ra?ra.number:'').localeCompare(rb?rb.number:'', 'th', {numeric:true});
   });
-  const label = sorted.length===1 ? (sorted[0].invoiceNo||'บิล') : ('บิลรวม-'+sorted.length+'ใบ-'+(renderBills._month||thisMonth()));
+  const label = sorted.length===1 ? (sorted[0].invoiceNo||'บิล') : ('บิลรวม-'+sorted.length+'ใบ-'+(renderBills._month||defaultBillingMonth()));
   return exportDocsAsPdf(sorted, invoiceHtml, label);
 }
 
@@ -2610,7 +2628,7 @@ function attachPageEvents(){
   const monthSelect = document.getElementById('monthSelect');
   if(monthSelect) monthSelect.onchange = (e)=>{ renderBills._month = e.target.value; render(); };
   const printReportBtn = document.getElementById('printReportBtn');
-  if(printReportBtn) printReportBtn.onclick = ()=> printMonthReport(renderBills._month || thisMonth());
+  if(printReportBtn) printReportBtn.onclick = ()=> printMonthReport(renderBills._month || defaultBillingMonth());
   const printSelectedBtn = document.getElementById('printSelectedBtn');
   if(printSelectedBtn) printSelectedBtn.onclick = ()=>{
     const selected = bills.filter(b=>renderBills._selected.has(b.id));
@@ -2623,7 +2641,7 @@ function attachPageEvents(){
   };
   const selectAllBills = document.getElementById('selectAllBills');
   if(selectAllBills) selectAllBills.onchange = (e)=>{
-    const activeMonth = renderBills._month || thisMonth();
+    const activeMonth = renderBills._month || defaultBillingMonth();
     const monthBills = currentBills().filter(b=>b.month===activeMonth);
     if(e.target.checked){ monthBills.forEach(b=>renderBills._selected.add(b.id)); }
     else { monthBills.forEach(b=>renderBills._selected.delete(b.id)); }
@@ -2698,7 +2716,7 @@ function attachPageEvents(){
   const rateSettingsBtn = document.getElementById('rateSettingsBtn');
   if(rateSettingsBtn) rateSettingsBtn.onclick = ()=> openModal(ratesFormHtml());
   const bulkMeterBtn = document.getElementById('bulkMeterBtn');
-  if(bulkMeterBtn) bulkMeterBtn.onclick = ()=> openModal(bulkMeterFormHtml(renderBills._month || thisMonth()), {wide:true});
+  if(bulkMeterBtn) bulkMeterBtn.onclick = ()=> openModal(bulkMeterFormHtml(renderBills._month || defaultBillingMonth()), {wide:true});
 
 }
 
@@ -3021,7 +3039,7 @@ function lastBillForRoom(roomId, beforeMonth){
 }
 
 async function generateBills(){
-  const month = thisMonth();
+  const month = renderBills._month || defaultBillingMonth();
   const occupiedRooms = currentRooms().filter(r=>r.status==='occupied');
   let created = 0;
   occupiedRooms.forEach(room=>{
