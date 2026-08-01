@@ -633,6 +633,7 @@ let rooms = [];
 let tenants = [];
 let bills = [];
 let deposits = [];
+let meterReadings = [];
 let properties = [];
 let currentPropertyId = null;
 try{ currentPropertyId = localStorage.getItem('dorm:currentProperty') || null; }catch(e){}
@@ -681,6 +682,21 @@ function bahtText(amount){
   return (neg?'ลบ':'') + words + 'บาทถ้วน';
 }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+
+/* บันทึกประวัติการจดมิเตอร์แยกไว้ต่างหาก (คนละตารางจาก bills) พร้อม timestamp ตอนบันทึกจริง
+   เพื่อให้ย้อนดูได้ว่าห้องไหน จดมิเตอร์ประเภทไหน เลขเท่าไหร่ บันทึกไว้ตอนไหนบ้าง
+   ไม่ทับข้อมูลเดิม เพิ่มเป็นแถวใหม่ทุกครั้งที่บันทึก (ประวัติสะสม ไม่ใช่ค่าล่าสุดอย่างเดียว) */
+function logMeterReading({roomId, billId, month, type, prev, curr, rate}){
+  const units = Math.max((Number(curr)||0) - (Number(prev)||0), 0);
+  const cost = units * (Number(rate)||0);
+  meterReadings.push({
+    id: 'mtr_'+uid(),
+    roomId, billId, month, type,
+    prev: Number(prev)||0, curr: Number(curr)||0,
+    units, rate: Number(rate)||0, cost,
+    recordedAt: new Date().toISOString()
+  });
+}
 const monthLabel = (ym) => {
   if(!ym || !/^\d{4}-\d{2}$/.test(ym)) return 'ไม่ระบุเดือน';
   const [y,m] = ym.split('-');
@@ -785,6 +801,7 @@ function cacheLocally(){
     localStorage.setItem('dorm:bills', JSON.stringify(bills));
     localStorage.setItem('dorm:properties', JSON.stringify(properties));
     localStorage.setItem('dorm:deposits', JSON.stringify(deposits));
+    localStorage.setItem('dorm:meterReadings', JSON.stringify(meterReadings));
   }catch(e){}
 }
 function loadFromLocalCache(){
@@ -793,6 +810,7 @@ function loadFromLocalCache(){
   try{ bills = JSON.parse(localStorage.getItem('dorm:bills')||'[]'); }catch(e){ bills=[]; }
   try{ properties = JSON.parse(localStorage.getItem('dorm:properties')||'[]'); }catch(e){ properties=[]; }
   try{ deposits = JSON.parse(localStorage.getItem('dorm:deposits')||'[]'); }catch(e){ deposits=[]; }
+  try{ meterReadings = JSON.parse(localStorage.getItem('dorm:meterReadings')||'[]'); }catch(e){ meterReadings=[]; }
 }
 
 /* ย้ายข้อมูลเก่า (ก่อนมีฟีเจอร์หลายอพาร์ทเมนท์) ให้เข้าอพาร์ทเมนท์เริ่มต้นอัตโนมัติ */
@@ -909,6 +927,7 @@ async function loadData(){
       bills = data.bills || [];
       properties = data.properties || [];
       deposits = data.deposits || [];
+      meterReadings = data.meterReadings || [];
       syncState = 'ok';
       cacheLocally();
     }catch(e){
@@ -917,12 +936,13 @@ async function loadData(){
       loadFromLocalCache();
     }
   } else if (window.storage) {
-    const [r,t,b,p,dep] = await Promise.all([wsGet('dorm:rooms'), wsGet('dorm:tenants'), wsGet('dorm:bills'), wsGet('dorm:properties'), wsGet('dorm:deposits')]);
+    const [r,t,b,p,dep,mtr] = await Promise.all([wsGet('dorm:rooms'), wsGet('dorm:tenants'), wsGet('dorm:bills'), wsGet('dorm:properties'), wsGet('dorm:deposits'), wsGet('dorm:meterReadings')]);
     try{ rooms = r?JSON.parse(r):[]; }catch(e){ rooms=[]; }
     try{ tenants = t?JSON.parse(t):[]; }catch(e){ tenants=[]; }
     try{ bills = b?JSON.parse(b):[]; }catch(e){ bills=[]; }
     try{ properties = p?JSON.parse(p):[]; }catch(e){ properties=[]; }
     try{ deposits = dep?JSON.parse(dep):[]; }catch(e){ deposits=[]; }
+    try{ meterReadings = mtr?JSON.parse(mtr):[]; }catch(e){ meterReadings=[]; }
   } else {
     loadFromLocalCache();
   }
@@ -959,6 +979,7 @@ async function saveTenants(){ await saveTable('tenants', tenants); }
 async function saveBills(){ await saveTable('bills', bills); }
 async function saveProperties(){ await saveTable('properties', properties); }
 async function saveDeposits(){ await saveTable('deposits', deposits); }
+async function saveMeterReadings(){ await saveTable('meterReadings', meterReadings); }
 
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -1067,6 +1088,19 @@ function attachModalEvents(){
       }
     };
   }
+  const meterHistorySearch = document.getElementById('meterHistorySearch');
+  if(meterHistorySearch){
+    meterHistorySearch.oninput = (e)=>{
+      const val = e.target.value;
+      const wrap = document.getElementById('modalBody');
+      if(wrap){
+        wrap.innerHTML = meterHistoryModalHtml(val);
+        attachModalEvents();
+        const input = document.getElementById('meterHistorySearch');
+        if(input){ input.focus(); input.setSelectionRange(val.length, val.length); }
+      }
+    };
+  }
   document.querySelectorAll('.print-deposit').forEach(el=>{
     el.onclick = ()=>{
       const dep = deposits.find(d=>d.id===el.dataset.id);
@@ -1095,6 +1129,8 @@ function attachModalEvents(){
   if(saveBillEditBtn) saveBillEditBtn.onclick = ()=> onSaveBillEdit(saveBillEditBtn.dataset.id);
   const deleteBillBtn = document.getElementById('deleteBillBtn');
   if(deleteBillBtn) deleteBillBtn.onclick = ()=> onDeleteBill(deleteBillBtn.dataset.id);
+  const confirmMoveBillsBtn = document.getElementById('confirmMoveBillsBtn');
+  if(confirmMoveBillsBtn) confirmMoveBillsBtn.onclick = onConfirmMoveBills;
   const saveRatesBtn = document.getElementById('saveRatesBtn');
   if(saveRatesBtn) saveRatesBtn.onclick = onSaveRates;
   const deletePropertyBtn = document.getElementById('deletePropertyBtn');
@@ -1675,6 +1711,9 @@ async function onSaveMeter(){
   else { bill.electricPrev=prev; bill.electricCurr=curr; bill.electric=cost; }
   bill.total = Number(bill.rent||0) + Number(bill.water||0) + Number(bill.electric||0);
 
+  logMeterReading({roomId: bill.roomId, billId: bill.id, month: bill.month, type, prev, curr, rate});
+  await saveMeterReadings();
+
   onSaveMeter._billId = null;
   onSaveMeter._type = null;
   await saveBills();
@@ -1980,6 +2019,56 @@ async function bulkSetBillStatus(status){
     : `ทำเครื่องหมายว่าค้างชำระ ${ids.size} ห้อง`);
 }
 
+/* ย้ายบิลที่เลือกไว้ไปอยู่เดือนอื่น — ใช้แก้กรณีกดสร้างบิลผิดเดือน (เช่น ระบบเคยมีบั๊ก
+   ให้ใช้วันที่ปฏิทินจริงแทนเดือนที่เลือกไว้) โดยไม่ต้องลบแล้วสร้างบิลใหม่เอง
+   ค่าเช่า/น้ำ/ไฟ/สถานะชำระเงินเดิมจะติดไปด้วยทั้งหมด มีแค่ "เดือน" กับ "เลขที่บิล" ที่เปลี่ยน
+   (เลขที่บิลต้องออกใหม่ เพราะเลขเดิมอ้างอิงเดือนเก่าฝังอยู่ในตัวเลข) */
+function moveBillsModalHtml(){
+  const selectedIds = Array.from(renderBills._selected || []);
+  const suggested = defaultBillingMonth();
+  return `
+    <h3>ย้ายบิลที่เลือกไปเดือนอื่น</h3>
+    <p class="sub" style="font-size:13px;margin-top:-6px;">เลือกอยู่ ${selectedIds.length} บิล</p>
+    <div class="field">
+      <label>ย้ายไปเดือน</label>
+      <input id="f-move-month" type="month" value="${suggested}">
+    </div>
+    <p class="sub" style="font-size:12px;">เลขที่บิล (INV-…) ของบิลที่ย้าย จะถูกออกใหม่ให้ตรงกับเดือนปลายทางให้อัตโนมัติ ส่วนค่าเช่า/ค่าน้ำ/ค่าไฟ/สถานะการชำระเงินจะคงเดิมไว้ทั้งหมด · ถ้าห้องไหนมีบิลของเดือนปลายทางอยู่แล้ว จะข้ามห้องนั้นไปให้ (ไม่ทับข้อมูลเดิม)</p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+      <button class="btn" id="confirmMoveBillsBtn">ย้ายบิล</button>
+    </div>
+  `;
+}
+
+async function onConfirmMoveBills(){
+  const targetMonth = document.getElementById('f-move-month').value;
+  if(!targetMonth || !/^\d{4}-\d{2}$/.test(targetMonth)){ showToast('กรุณาเลือกเดือนปลายทางให้ถูกต้อง'); return; }
+  const ids = Array.from(renderBills._selected || []);
+  if(ids.length===0){ showToast('ยังไม่ได้เลือกบิล'); return; }
+
+  let moved = 0, skipped = 0;
+  ids.forEach(id=>{
+    const bill = bills.find(b=>b.id===id);
+    if(!bill) return;
+    if(bill.month === targetMonth) return;
+    const newId = bill.roomId + '::' + targetMonth;
+    if(bills.find(b=>b.id===newId)){ skipped++; return; }
+    bill.id = newId;
+    bill.month = targetMonth;
+    bill.invoiceNo = genInvoiceNo(targetMonth);
+    moved++;
+  });
+
+  if(moved>0) await saveBills();
+  renderBills._selected = new Set();
+  closeModal();
+  render();
+  showToast(skipped>0
+    ? `ย้ายบิลไปเดือน${monthLabel(targetMonth)}แล้ว ${moved} ห้อง (ข้าม ${skipped} ห้องที่มีบิลเดือนปลายทางอยู่แล้ว)`
+    : `ย้ายบิลไปเดือน${monthLabel(targetMonth)}แล้ว ${moved} ห้อง`);
+}
+
 async function onSaveBulkMeter(){
   const prop = currentProperty() || {};
   const waterRate = Number(prop.waterRate)||0;
@@ -1999,9 +2088,11 @@ async function onSaveBulkMeter(){
     bill.waterCurr = wCurr; bill.water = Math.max(wCurr-wPrev,0)*waterRate;
     bill.electricCurr = eCurr; bill.electric = Math.max(eCurr-ePrev,0)*electricRate;
     bill.total = Number(bill.rent||0) + Number(bill.water||0) + Number(bill.electric||0);
+    logMeterReading({roomId: bill.roomId, billId: bill.id, month: bill.month, type:'water', prev:wPrev, curr:wCurr, rate:waterRate});
+    logMeterReading({roomId: bill.roomId, billId: bill.id, month: bill.month, type:'electric', prev:ePrev, curr:eCurr, rate:electricRate});
     updated++;
   });
-  if(updated>0) await saveBills();
+  if(updated>0){ await saveBills(); await saveMeterReadings(); }
   render();
   if(skipped>0){
     showToast(`บันทึกแล้ว ${updated} ห้อง (ข้าม ${skipped} ห้อง — เลขปัจจุบันน้อยกว่าเลขเดิม)`);
@@ -2198,6 +2289,7 @@ function renderBills(){
       <div class="page-head-actions">
         <button class="btn ghost" id="rateSettingsBtn">⚙︎ ตั้งค่าอพาร์ทเมนท์</button>
         <button class="btn ghost" id="bulkMeterBtn" ${monthBills.length===0?'disabled':''}>📋 จดมิเตอร์ทั้งหมด</button>
+        <button class="btn ghost" id="meterHistoryBtn">📜 ประวัติมิเตอร์</button>
         <button class="btn" id="genBillBtn" ${currentRooms().filter(r=>r.status==='occupied').length===0?'disabled':''}>+ สร้างบิลเดือนนี้</button>
       </div>
     </div>
@@ -2219,6 +2311,7 @@ function renderBills(){
         <span style="font-weight:600;font-size:13.5px;">เลือกอยู่ ${selectedCount} ห้อง</span>
         <button class="btn small" id="markPaidBtn" style="margin-left:auto;">✓ ทำเครื่องหมายว่าชำระแล้ว</button>
         <button class="btn ghost small" id="markUnpaidBtn">ทำเครื่องหมายว่าค้างชำระ</button>
+        <button class="btn ghost small" id="moveBillsBtn">📅 ย้ายไปเดือนอื่น</button>
       </div>`:''}
       ${monthBills.length===0 ? `<div class="empty"><div class="big">🧾</div>ยังไม่มีบิลของเดือนนี้ กด “สร้างบิลเดือนนี้” เพื่อสร้างบิลให้ทุกห้องที่มีผู้เช่า</div>` : `
       <table id="billsTable">
@@ -2671,6 +2764,8 @@ function attachPageEvents(){
   if(markPaidBtn) markPaidBtn.onclick = ()=> bulkSetBillStatus('paid');
   const markUnpaidBtn = document.getElementById('markUnpaidBtn');
   if(markUnpaidBtn) markUnpaidBtn.onclick = ()=> bulkSetBillStatus('unpaid');
+  const moveBillsBtn = document.getElementById('moveBillsBtn');
+  if(moveBillsBtn) moveBillsBtn.onclick = ()=> openModal(moveBillsModalHtml());
   document.querySelectorAll('.print-bill').forEach(el=>{
     el.onclick = ()=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
@@ -2723,6 +2818,8 @@ function attachPageEvents(){
   if(rateSettingsBtn) rateSettingsBtn.onclick = ()=> openModal(ratesFormHtml());
   const bulkMeterBtn = document.getElementById('bulkMeterBtn');
   if(bulkMeterBtn) bulkMeterBtn.onclick = ()=> openModal(bulkMeterFormHtml(renderBills._month || defaultBillingMonth()), {wide:true});
+  const meterHistoryBtn = document.getElementById('meterHistoryBtn');
+  if(meterHistoryBtn) meterHistoryBtn.onclick = ()=> openModal(meterHistoryModalHtml(''), {wide:true});
 
 }
 
@@ -2827,6 +2924,66 @@ function depositsForRoom(roomId){
 function allDepositsForCurrentProperty(){
   const roomIds = new Set(currentRooms().map(r=>r.id));
   return deposits.filter(d=>roomIds.has(d.roomId)).slice().sort((a,b)=> (a.date<b.date?1:-1));
+}
+
+/* ============ ประวัติการจดมิเตอร์ ============ */
+function formatDateTimeThai(iso){
+  if(!iso) return '-';
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return '-';
+  const day = String(d.getDate()).padStart(2,'0');
+  const names=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  const month = names[d.getMonth()];
+  const year = d.getFullYear()+543;
+  const hh = String(d.getHours()).padStart(2,'0');
+  const mm = String(d.getMinutes()).padStart(2,'0');
+  return `${day} ${month} ${year} ${hh}:${mm} น.`;
+}
+
+function meterHistoryModalHtml(query){
+  const q = (query||'').trim().toLowerCase();
+  const roomIds = new Set(currentRooms().map(r=>r.id));
+  /* เรียงล่าสุด→เก่าสุดตาม recordedAt
+     รายการเก่าที่บันทึกไว้ก่อนจะมีฟิลด์ recordedAt (ไม่มี timestamp เลย) ให้ถือว่า
+     "เก่าที่สุด" เสมอ จึงใช้ '' แทนค่าว่าง เพราะ '' เรียงมาก่อนสตริงวันที่ ISO ทุกตัว
+     ทำให้รายการเหล่านี้ตกไปอยู่ล่างสุดของประวัติอย่างสม่ำเสมอ ไม่ปนขึ้นมาบนสุด */
+  let list = meterReadings.filter(m=>roomIds.has(m.roomId)).slice()
+    .sort((a,b)=> (b.recordedAt||'').localeCompare(a.recordedAt||''));
+  if(q){
+    list = list.filter(m=>{
+      const room = rooms.find(r=>r.id===m.roomId);
+      const roomNum = room ? room.number.toLowerCase() : '';
+      return roomNum.includes(q) || (m.month||'').includes(q);
+    });
+  }
+  list = list.slice(0, 300); // กันรายการยาวเกินไปจนหน้าอืด แสดง 300 รายการล่าสุดพอ
+  return `
+    <h3>ประวัติการจดมิเตอร์</h3>
+    <input id="meterHistorySearch" class="toolbar-input" style="width:100%;margin-bottom:14px;" placeholder="ค้นหาเลขห้อง หรือเดือน (เช่น 2569-07)…" value="${(query||'').replace(/"/g,'&quot;')}">
+    ${list.length===0 ? `<div class="empty" style="padding:24px 10px;"><div class="big">📜</div>ยังไม่มีประวัติการจดมิเตอร์</div>` : `
+    <div style="max-height:56vh;overflow-y:auto;border:1px solid var(--line);border-radius:8px;">
+      <table>
+        <thead><tr><th>ห้อง</th><th>ประเภท</th><th>เลขมิเตอร์ (เดิม→ปัจจุบัน)</th><th>หน่วยที่ใช้</th><th>ยอดเงิน</th><th>บันทึกเมื่อ</th></tr></thead>
+        <tbody>
+          ${list.map(m=>{
+            const room = rooms.find(r=>r.id===m.roomId);
+            const typeLabel = m.type==='water' ? '💧 น้ำ' : '⚡ ไฟ';
+            return `<tr>
+              <td style="font-weight:600;">${room?room.number:'—'}</td>
+              <td>${typeLabel}</td>
+              <td class="mono muted">${m.prev} → ${m.curr}</td>
+              <td class="mono">${m.units}</td>
+              <td class="mono" style="font-weight:600;">${THB(m.cost)} บ.</td>
+              <td class="muted" style="white-space:nowrap;font-size:12.5px;">${formatDateTimeThai(m.recordedAt)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`}
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ปิด</button>
+    </div>
+  `;
 }
 
 function depositPickerModalHtml(query){
