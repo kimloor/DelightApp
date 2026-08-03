@@ -681,7 +681,15 @@ function bahtText(amount){
   let words = groups.map(g=>convertGroup(g)).join('ล้าน');
   return (neg?'ลบ':'') + words + 'บาทถ้วน';
 }
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+/* เช็คว่า id เป็นตัวเลขล้วนหรือยัง (ไม่มีตัวอักษรปน) ใช้ตรวจว่าต้องรัน migrateNumericIds() หรือไม่ */
+function isPlainNumericId(v){ return /^\d+$/.test(String(v==null?'':v)); }
+/* สร้าง id ใหม่เป็นเลขรันลำดับ (เก็บเป็น string เพื่อให้เทียบค่ากับ id เดิมที่มาจาก DOM/ชีตได้ตรงกันเสมอ)
+   แยกชุดตัวนับต่อตาราง (rooms เริ่ม 1, tenants เริ่ม 1, ... อิสระจากกัน) */
+function nextId(items){
+  let max = 0;
+  (items||[]).forEach(it=>{ const n = parseInt(it && it.id, 10); if(!isNaN(n) && n>max) max = n; });
+  return String(max+1);
+}
 
 /* บันทึกประวัติการจดมิเตอร์แยกไว้ต่างหาก (คนละตารางจาก bills) พร้อม timestamp ตอนบันทึกจริง
    เพื่อให้ย้อนดูได้ว่าห้องไหน จดมิเตอร์ประเภทไหน เลขเท่าไหร่ บันทึกไว้ตอนไหนบ้าง
@@ -690,7 +698,7 @@ function logMeterReading({roomId, billId, month, type, prev, curr, rate}){
   const units = Math.max((Number(curr)||0) - (Number(prev)||0), 0);
   const cost = units * (Number(rate)||0);
   meterReadings.push({
-    id: 'mtr_'+uid(),
+    id: nextId(meterReadings),
     roomId, billId, month, type,
     prev: Number(prev)||0, curr: Number(curr)||0,
     units, rate: Number(rate)||0, cost,
@@ -843,6 +851,64 @@ function migratePropertyScoping(){
   return changed;
 }
 
+/* ย้าย id เก่า (ที่มีตัวอักษร/ชื่อ/สัญลักษณ์ปน เช่น "อพาร์ทเมนท์ 1", "อพาร์ทเมนท์ 1::101", "dep_xxx")
+   ให้เป็นเลขรันลำดับล้วน แยกชุดต่อตาราง แล้วอัปเดตทุกฟิลด์ที่อ้างอิงข้ามตาราง
+   (propertyId, roomId, tenantId, billId) ให้ตรงกับ id ใหม่ทั้งหมด รันครั้งเดียวอัตโนมัติตอนเจอข้อมูลเก่า
+   ชื่อ/เลขห้อง/ชื่ออพาร์ทเมนท์เดิมไม่หายไปไหน เพราะอยู่ใน field name/number อยู่แล้วแยกจาก id */
+function migrateNumericIds(){
+  if(!properties.length) return false;
+  const needsMigration = properties.some(p=>!isPlainNumericId(p.id))
+    || rooms.some(r=>!isPlainNumericId(r.id))
+    || tenants.some(t=>!isPlainNumericId(t.id))
+    || bills.some(b=>!isPlainNumericId(b.id))
+    || deposits.some(d=>!isPlainNumericId(d.id))
+    || meterReadings.some(m=>!isPlainNumericId(m.id));
+  if(!needsMigration) return false;
+
+  const propMap = {};
+  properties.forEach((p,i)=>{ propMap[p.id] = String(i+1); });
+  properties.forEach(p=>{ p.id = propMap[p.id]; });
+
+  const roomMap = {};
+  rooms.forEach((r,i)=>{ roomMap[r.id] = String(i+1); });
+  rooms.forEach(r=>{
+    r.id = roomMap[r.id];
+    if(propMap[r.propertyId]) r.propertyId = propMap[r.propertyId];
+  });
+
+  // tenant.id เดิม = roomId เดิมเสมอ (1 ห้อง 1 ผู้เช่า) จึงย้าย id ผู้เช่าตามแผนที่ห้องได้เลย
+  tenants.forEach(t=>{
+    const newRoomId = roomMap[t.roomId];
+    if(newRoomId){ t.id = newRoomId; t.roomId = newRoomId; }
+  });
+
+  const billMap = {};
+  bills.forEach((b,i)=>{ billMap[b.id] = String(i+1); });
+  bills.forEach(b=>{
+    b.id = billMap[b.id];
+    if(roomMap[b.roomId]) b.roomId = roomMap[b.roomId];
+  });
+
+  deposits.forEach((d,i)=>{
+    d.id = String(i+1);
+    if(roomMap[d.roomId]) d.roomId = roomMap[d.roomId];
+    if(roomMap[d.tenantId]) d.tenantId = roomMap[d.tenantId]; // tenantId เดิม = roomId เดิมเช่นกัน
+  });
+
+  meterReadings.forEach((m,i)=>{
+    m.id = String(i+1);
+    if(roomMap[m.roomId]) m.roomId = roomMap[m.roomId];
+    if(billMap[m.billId]) m.billId = billMap[m.billId];
+  });
+
+  if(currentPropertyId && propMap[currentPropertyId]){
+    currentPropertyId = propMap[currentPropertyId];
+    try{ localStorage.setItem('dorm:currentProperty', currentPropertyId); }catch(e){}
+  }
+
+  return true;
+}
+
 function currentProperty(){ return properties.find(p=>p.id===currentPropertyId); }
 function currentRooms(){ return rooms.filter(r=>r.propertyId===currentPropertyId); }
 function currentTenants(){
@@ -948,9 +1014,10 @@ async function loadData(){
   }
 
   const migrated = migratePropertyScoping();
+  const idsMigrated = migrateNumericIds();
   const invoicesAssigned = assignMissingInvoiceNos();
-  if(migrated || invoicesAssigned){
-    await Promise.all([saveRooms(), saveTenants(), saveBills(), saveProperties()]);
+  if(migrated || idsMigrated || invoicesAssigned){
+    await Promise.all([saveRooms(), saveTenants(), saveBills(), saveProperties(), saveDeposits(), saveMeterReadings()]);
   }
 
   updateSyncLine();
@@ -1013,9 +1080,10 @@ document.getElementById('propertySelect').addEventListener('change', async (e)=>
     renderPropertySelect(); // reset selection back to current if cancelled
     if(!name || !name.trim()) return;
     const trimmed = name.trim();
-    if(properties.find(p=>p.id===trimmed)){ showToast('มีอพาร์ทเมนท์ชื่อนี้อยู่แล้ว'); return; }
-    properties.push({id:trimmed, name:trimmed, waterRate:18, electricRate:8});
-    currentPropertyId = trimmed;
+    if(properties.find(p=>p.name===trimmed)){ showToast('มีอพาร์ทเมนท์ชื่อนี้อยู่แล้ว'); return; }
+    const newProp = {id:nextId(properties), name:trimmed, waterRate:18, electricRate:8};
+    properties.push(newProp);
+    currentPropertyId = newProp.id;
     try{ localStorage.setItem('dorm:currentProperty', currentPropertyId); }catch(err){}
     await saveProperties();
     renderPropertySelect();
@@ -1474,7 +1542,7 @@ async function onSaveBulkRooms(){
   let added = 0, skipped = 0;
   numbers.forEach(number=>{
     if(existing.has(number)){ skipped++; return; }
-    rooms.push({ id: currentPropertyId+'::'+number, propertyId: currentPropertyId, number, floor, rent, status });
+    rooms.push({ id: nextId(rooms), propertyId: currentPropertyId, number, floor, rent, status });
     existing.add(number);
     added++;
   });
@@ -1851,7 +1919,7 @@ async function onSaveRates(){
   if(!prop) return;
   const newName = document.getElementById('f-propname').value.trim();
   if(!newName){ showToast('กรุณากรอกชื่ออพาร์ทเมนท์'); return; }
-  const dupName = properties.find(p=>p.id===newName && p.id!==prop.id);
+  const dupName = properties.find(p=>p.name===newName && p.id!==prop.id);
   if(dupName){ showToast('มีอพาร์ทเมนท์ชื่อนี้อยู่แล้ว'); return; }
 
   prop.waterRate = Number(document.getElementById('f-waterrate').value)||0;
@@ -1872,26 +1940,8 @@ async function onSaveRates(){
   }
   onSaveRates._removeQr = false;
 
-  if(newName !== prop.id){
-    // ชื่ออพาร์ทเมนท์คือ id หลักที่ห้อง/ผู้เช่า/บิลใช้อ้างอิง — ถ้าเปลี่ยนชื่อ ต้องอัปเดตทุกที่ที่เชื่อมโยงไว้ด้วย
-    const oldPropId = prop.id;
-    prop.id = newName;
-    prop.name = newName;
-    rooms.forEach(r=>{
-      if(r.propertyId===oldPropId){
-        const oldRoomId = r.id;
-        r.propertyId = newName;
-        r.id = newName + '::' + r.number;
-        tenants.forEach(t=>{ if(t.roomId===oldRoomId){ t.roomId=r.id; t.id=r.id; } });
-        bills.forEach(b=>{ if(b.roomId===oldRoomId){ b.roomId=r.id; b.id=r.id+'::'+b.month; } });
-      }
-    });
-    currentPropertyId = newName;
-    try{ localStorage.setItem('dorm:currentProperty', currentPropertyId); }catch(e){}
-    await Promise.all([saveRooms(), saveTenants(), saveBills()]);
-  } else {
-    prop.name = newName;
-  }
+  // id อพาร์ทเมนท์เป็นเลขรันคงที่แล้ว เปลี่ยนแค่ชื่อแสดงผล (name) ไม่กระทบ id หรือข้อมูลห้อง/ผู้เช่า/บิลที่เชื่อมโยงไว้เลย
+  prop.name = newName;
 
   await saveProperties();
   closeModal();
@@ -1910,10 +1960,12 @@ async function onDeleteProperty(){
   rooms = rooms.filter(r=>r.propertyId!==propId);
   tenants = tenants.filter(t=>!roomIds.has(t.roomId));
   bills = bills.filter(b=>!roomIds.has(b.roomId));
+  deposits = deposits.filter(d=>!roomIds.has(d.roomId));
+  meterReadings = meterReadings.filter(m=>!roomIds.has(m.roomId));
   properties = properties.filter(p=>p.id!==propId);
   currentPropertyId = properties[0].id;
   try{ localStorage.setItem('dorm:currentProperty', currentPropertyId); }catch(e){}
-  await Promise.all([saveRooms(), saveTenants(), saveBills(), saveProperties()]);
+  await Promise.all([saveRooms(), saveTenants(), saveBills(), saveProperties(), saveDeposits(), saveMeterReadings()]);
   closeModal();
   renderPropertySelect();
   render();
@@ -2052,9 +2104,7 @@ async function onConfirmMoveBills(){
     const bill = bills.find(b=>b.id===id);
     if(!bill) return;
     if(bill.month === targetMonth) return;
-    const newId = bill.roomId + '::' + targetMonth;
-    if(bills.find(b=>b.id===newId)){ skipped++; return; }
-    bill.id = newId;
+    if(bills.find(b=>b.roomId===bill.roomId && b.month===targetMonth)){ skipped++; return; }
     bill.month = targetMonth;
     bill.invoiceNo = genInvoiceNo(targetMonth);
     moved++;
@@ -2837,19 +2887,10 @@ async function onSaveRoom(){
 
   if(editId){
     const room = rooms.find(r=>r.id===editId);
-    const oldId = room.id;
+    // id ห้องเป็นเลขรันคงที่แล้ว แก้เลขห้อง (number) แค่เปลี่ยนป้ายแสดงผล ไม่กระทบ id หรือผู้เช่า/บิลที่เชื่อมโยงไว้เลย
     room.number = number; room.floor = floor; room.rent = Number(rent)||0; room.status = status;
-    room.id = currentPropertyId + '::' + number;
-    if(room.id !== oldId){
-      // เลขห้องคือ key หลักที่ผู้เช่า/บิลใช้อ้างอิง — ถ้าเปลี่ยน ต้องอัปเดตทุกที่ที่เชื่อมโยงไว้ด้วย
-      const newId = room.id;
-      tenants.forEach(t=>{ if(t.roomId===oldId){ t.roomId=newId; t.id=newId; } });
-      bills.forEach(b=>{ if(b.roomId===oldId){ b.roomId=newId; b.id=newId+'::'+b.month; } });
-      await Promise.all([saveTenants(), saveBills()]);
-    }
   } else {
-    // ใช้ "อพาร์ทเมนท์::เลขห้อง" เป็น id เพื่อให้ห้องพักในต่างอพาร์ทเมนท์ไม่ชนกัน
-    rooms.push({id:currentPropertyId+'::'+number, propertyId:currentPropertyId, number, floor, rent:Number(rent)||0, status});
+    rooms.push({id:nextId(rooms), propertyId:currentPropertyId, number, floor, rent:Number(rent)||0, status});
   }
   onSaveRoom._editId = null;
   await saveRooms();
@@ -3080,7 +3121,7 @@ async function onSaveDeposit(tenantId, alsoPrint){
   if(!date){ showToast('กรุณาเลือกวันที่รับเงิน'); return; }
 
   const deposit = {
-    id: 'dep_'+uid(),
+    id: nextId(deposits),
     roomId: tenant.roomId,
     tenantId: tenant.id,
     receiptNo: genDepositReceiptNo(date),
@@ -3206,14 +3247,13 @@ async function generateBills(){
   const occupiedRooms = currentRooms().filter(r=>r.status==='occupied');
   let created = 0;
   occupiedRooms.forEach(room=>{
-    const id = room.id + '::' + month;
-    const exists = bills.find(b=>b.id===id);
+    const exists = bills.find(b=>b.roomId===room.id && b.month===month);
     if(exists) return;
     const prev = lastBillForRoom(room.id, month);
     const waterPrev = prev ? Number(prev.waterCurr||0) : 0;
     const electricPrev = prev ? Number(prev.electricCurr||0) : 0;
     bills.push({
-      id, roomId:room.id, month,
+      id: nextId(bills), roomId:room.id, month,
       invoiceNo: genInvoiceNo(month),
       rent:Number(room.rent)||0,
       waterPrev, waterCurr:waterPrev, water:0,
