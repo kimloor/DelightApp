@@ -1303,9 +1303,9 @@ async function onClearSheet(){
   showToast('เลิกใช้ Sheets แล้ว กลับไปใช้ข้อมูลในเครื่องนี้');
 }
 
-document.getElementById('overlay').addEventListener('click', (e)=>{
-  if(e.target.id === 'overlay') closeModal();
-});
+/* ตั้งใจไม่ปิด modal เมื่อคลิกพื้นหลังนอกกล่อง (overlay) แล้ว — เพื่อกันข้อมูลที่กำลังกรอก/แก้ไข
+   หายไปโดยไม่ตั้งใจจากการคลิกพลาดออกนอกฟอร์ม ผู้ใช้ต้องกดปุ่ม "ยกเลิก"/กากบาท หรือกดบันทึก
+   เพื่อปิดหน้าต่างเท่านั้น */
 
 /* ============ Render router ============ */
 function render(){
@@ -1782,12 +1782,16 @@ async function onSaveMeter(){
   logMeterReading({roomId: bill.roomId, billId: bill.id, month: bill.month, type, prev, curr, rate});
   await saveMeterReadings();
 
+  // รีเช็คต่อทันที เผื่อบิลนี้ไม่ใช่เดือนล่าสุดของห้องนี้ — บิลเดือนถัดๆ ไปที่เคยสร้างไว้แล้ว
+  // จะได้ปรับ "เลขเดิม" ให้ตรงกับเลขปัจจุบันที่เพิ่งแก้นี้ และคำนวณยอดใหม่ให้อัตโนมัติ ไม่ต้องกดรีเช็คเอง
+  const cascadeFixed = recheckRoomMeterChain(bill.roomId);
+
   onSaveMeter._billId = null;
   onSaveMeter._type = null;
   await saveBills();
   closeModal();
   render();
-  showToast('บันทึกเลขมิเตอร์แล้ว');
+  showToast(cascadeFixed>0 ? `บันทึกแล้ว และปรับบิลเดือนถัดไปอีก ${cascadeFixed} รายการให้ต่อเนื่องกัน` : 'บันทึกเลขมิเตอร์แล้ว');
 }
 
 /* ============ แก้ไข / ลบ บิล ============ */
@@ -2338,7 +2342,8 @@ function renderBills(){
       </div>
       <div class="page-head-actions">
         <button class="btn ghost" id="rateSettingsBtn">⚙︎ ตั้งค่าอพาร์ทเมนท์</button>
-        <button class="btn ghost" id="bulkMeterBtn" ${monthBills.length===0?'disabled':''}>📋 จดมิเตอร์ทั้งหมด</button>
+        <button class="btn ghost" id="bulkMeterBtn">📋 จดมิเตอร์ทั้งหมด</button>
+        <button class="btn ghost" id="recheckMetersBtn">🔄 รีเช็คค่าน้ำ-ไฟ</button>
         <button class="btn ghost" id="meterHistoryBtn">📜 ประวัติมิเตอร์</button>
         <button class="btn" id="genBillBtn" ${currentRooms().filter(r=>r.status==='occupied').length===0?'disabled':''}>+ สร้างบิลเดือนนี้</button>
       </div>
@@ -2867,7 +2872,17 @@ function attachPageEvents(){
   const rateSettingsBtn = document.getElementById('rateSettingsBtn');
   if(rateSettingsBtn) rateSettingsBtn.onclick = ()=> openModal(ratesFormHtml());
   const bulkMeterBtn = document.getElementById('bulkMeterBtn');
-  if(bulkMeterBtn) bulkMeterBtn.onclick = ()=> openModal(bulkMeterFormHtml(renderBills._month || defaultBillingMonth()), {wide:true});
+  if(bulkMeterBtn) bulkMeterBtn.onclick = ()=>{
+    const month = renderBills._month || defaultBillingMonth();
+    const hasBillsThisMonth = currentBills().some(b=>b.month===month);
+    if(!hasBillsThisMonth){
+      showToast(`ยังไม่มีบิลของเดือน ${monthLabel(month)} — กด "สร้างบิลเดือนนี้" ก่อน แล้วค่อยจดมิเตอร์`);
+      return;
+    }
+    openModal(bulkMeterFormHtml(month), {wide:true});
+  };
+  const recheckMetersBtn = document.getElementById('recheckMetersBtn');
+  if(recheckMetersBtn) recheckMetersBtn.onclick = recheckAllMeters;
   const meterHistoryBtn = document.getElementById('meterHistoryBtn');
   if(meterHistoryBtn) meterHistoryBtn.onclick = ()=> openModal(meterHistoryModalHtml(''), {wide:true});
 
@@ -2885,17 +2900,22 @@ async function onSaveRoom(){
   const dup = rooms.find(r => r.propertyId===currentPropertyId && r.number === number && r.id !== editId);
   if(dup){ showToast('มีเลขห้องนี้อยู่แล้วในอพาร์ทเมนท์นี้ กรุณาใช้เลขห้องอื่น'); return; }
 
+  let savedRoom;
   if(editId){
     const room = rooms.find(r=>r.id===editId);
     // id ห้องเป็นเลขรันคงที่แล้ว แก้เลขห้อง (number) แค่เปลี่ยนป้ายแสดงผล ไม่กระทบ id หรือผู้เช่า/บิลที่เชื่อมโยงไว้เลย
     room.number = number; room.floor = floor; room.rent = Number(rent)||0; room.status = status;
+    savedRoom = room;
   } else {
-    rooms.push({id:nextId(rooms), propertyId:currentPropertyId, number, floor, rent:Number(rent)||0, status});
+    savedRoom = {id:nextId(rooms), propertyId:currentPropertyId, number, floor, rent:Number(rent)||0, status};
+    rooms.push(savedRoom);
   }
-  onSaveRoom._editId = null;
   await saveRooms();
-  closeModal();
   render();
+  // ไม่ปิดหน้าต่างหลังบันทึก — รีเฟรชฟอร์มเป็นโหมด "แก้ไข" ของห้องที่เพิ่งบันทึกแทน
+  // เพื่อให้กดปุ่ม "ห้องถัดไป" ต่อเนื่องได้เลยโดยไม่ต้องเปิดหน้าต่างใหม่
+  onSaveRoom._editId = savedRoom.id;
+  openModal(roomFormHtml(savedRoom));
   showToast('บันทึกห้องพักแล้ว');
 }
 async function onDeleteRoom(){
@@ -3240,6 +3260,54 @@ function lastBillForRoom(roomId, beforeMonth){
   const prevBills = bills.filter(b=>b.roomId===roomId && b.month < beforeMonth);
   if(!prevBills.length) return null;
   return prevBills.reduce((a,b)=> (b.month>a.month?b:a));
+}
+
+/* รีเช็คความต่อเนื่องของเลขมิเตอร์ในห้องเดียว: ไล่บิลของห้องนี้ตามลำดับเดือน ถ้าเดือนไหน
+   "เลขเดิม" ไม่ตรงกับ "เลขปัจจุบัน" ของเดือนก่อนหน้า (เช่น เพราะมีคนย้อนไปแก้เลขมิเตอร์เดือนเก่า)
+   จะดึงค่าที่ถูกต้องมาแทน แล้วคำนวณหน่วยที่ใช้ + ค่าใช้จ่าย + ยอดรวมของบิลนั้นใหม่ให้อัตโนมัติ
+   อัตราค่าน้ำ/ไฟที่ใช้คำนวณใหม่ จะคงอัตราเดิมที่เคยใช้จริงตอนนั้นไว้ (ย้อนคำนวณจาก cost/units เดิม)
+   เพื่อไม่ให้ยอดเงินของเดือนเก่าเปลี่ยนไปตามอัตราปัจจุบันโดยไม่ตั้งใจ ยกเว้นเดือนที่ยังไม่เคยจดมิเตอร์เลย
+   (หน่วย=0) จะใช้อัตราปัจจุบันของอพาร์ทเมนท์แทน — คืนค่าจำนวนบิลที่ถูกแก้ไข */
+function recheckRoomMeterChain(roomId){
+  const roomBills = bills.filter(b=>b.roomId===roomId).slice().sort((a,b)=> a.month.localeCompare(b.month));
+  const room = rooms.find(r=>r.id===roomId);
+  const prop = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId)) || {};
+  let fixedCount = 0;
+  ['water','electric'].forEach(type=>{
+    const prevKey = type+'Prev', currKey = type+'Curr';
+    for(let i=1;i<roomBills.length;i++){
+      const priorBill = roomBills[i-1];
+      const bill = roomBills[i];
+      const expectedPrev = Number(priorBill[currKey])||0;
+      if((Number(bill[prevKey])||0) === expectedPrev) continue; // ต่อเนื่องดีอยู่แล้ว ข้ามไป
+
+      const oldUnits = Math.max((Number(bill[currKey])||0) - (Number(bill[prevKey])||0), 0);
+      const currentRate = type==='water' ? Number(prop.waterRate)||0 : Number(prop.electricRate)||0;
+      const impliedRate = oldUnits>0 ? (Number(bill[type])||0) / oldUnits : currentRate;
+
+      bill[prevKey] = expectedPrev;
+      if((Number(bill[currKey])||0) < expectedPrev) bill[currKey] = expectedPrev; // กันหน่วยติดลบ
+      const units = Math.max((Number(bill[currKey])||0) - expectedPrev, 0);
+      bill[type] = units * impliedRate;
+      bill.total = Number(bill.rent||0) + Number(bill.water||0) + Number(bill.electric||0);
+      fixedCount++;
+    }
+  });
+  return fixedCount;
+}
+
+/* กดรีเช็คทั้งหมดทีเดียว (ทุกห้องในอพาร์ทเมนท์ปัจจุบัน) — ใช้ล้างข้อมูลเก่าที่อาจเพี้ยนสะสม
+   มาก่อนจะมีการรีเช็คอัตโนมัติตอนแก้เลขมิเตอร์ (ด้านล่าง) */
+async function recheckAllMeters(){
+  let totalFixed = 0;
+  currentRooms().forEach(room=>{ totalFixed += recheckRoomMeterChain(room.id); });
+  if(totalFixed>0){
+    await saveBills();
+    render();
+    showToast(`รีเช็คเสร็จแล้ว — แก้ไขบิลที่เลขมิเตอร์ไม่ต่อเนื่องกัน ${totalFixed} รายการ`);
+  } else {
+    showToast('ตรวจสอบแล้ว ทุกบิลมีเลขมิเตอร์ต่อเนื่องกันถูกต้องดีอยู่แล้ว');
+  }
 }
 
 async function generateBills(){
