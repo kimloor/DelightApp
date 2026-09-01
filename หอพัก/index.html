@@ -186,6 +186,11 @@
     width:100%;padding:11px;font-size:14.5px;font-weight:600;
   }
   .login-card button.login-submit:disabled{opacity:0.6;cursor:default;}
+  .login-card .login-switch{
+    font-size:12.5px;color:var(--ink-soft);text-align:center;margin:14px 0 0;
+  }
+  .login-card .login-switch a{color:var(--teal);font-weight:600;text-decoration:none;}
+  .login-card .login-switch a:hover{text-decoration:underline;}
 
   /* ---------- Main ---------- */
   main{
@@ -623,6 +628,29 @@
       </div>
       <div class="login-msg" id="loginMsg"></div>
       <button type="submit" class="btn login-submit" id="loginSubmitBtn">เข้าสู่ระบบ</button>
+      <p class="login-switch">ยังไม่มีบัญชี? <a href="#" id="showRegisterLink">สมัครสมาชิก</a></p>
+    </form>
+
+    <form id="registerForm" style="display:none;">
+      <div class="field">
+        <label>ชื่อผู้ใช้</label>
+        <input id="registerUsername" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+      </div>
+      <div class="field">
+        <label>ชื่อที่แสดง (ไม่บังคับ)</label>
+        <input id="registerDisplayName" autocomplete="name" placeholder="ถ้าไม่กรอกจะใช้ชื่อผู้ใช้แทน">
+      </div>
+      <div class="field">
+        <label>รหัสผ่าน</label>
+        <input id="registerPassword" type="password" autocomplete="new-password" required>
+      </div>
+      <div class="field">
+        <label>ยืนยันรหัสผ่าน</label>
+        <input id="registerPasswordConfirm" type="password" autocomplete="new-password" required>
+      </div>
+      <div class="login-msg" id="registerMsg"></div>
+      <button type="submit" class="btn login-submit" id="registerSubmitBtn">สมัครสมาชิก</button>
+      <p class="login-switch">มีบัญชีอยู่แล้ว? <a href="#" id="showLoginLink">เข้าสู่ระบบ</a></p>
     </form>
   </div>
 </div>
@@ -891,6 +919,19 @@ async function remoteLogin(username, password){
   return data; // { success, token, user }
 }
 
+/* สมัครสมาชิกใหม่ — สำเร็จแล้ว backend ออก token ให้พร้อมเลย (ไม่ต้อง login ซ้ำอีกรอบ) */
+async function remoteRegister(username, password, displayName){
+  const res = await fetch(sheetUrl, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({action:'register', username, password, displayName})
+  });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data = await res.json();
+  if(data && data.error) throw new Error(data.error);
+  return data; // { success, token, user }
+}
+
 /* ต้องล็อกอินก็ต่อเมื่อมีการซิงก์กับ Google Sheets ส่วนกลางอยู่ (มี sheetUrl) —
    ถ้าผู้ใช้เลือกปิดการซิงก์ (เก็บข้อมูลในเครื่องคนเดียว) จะไม่มีระบบบัญชีให้ล็อกอินอยู่แล้ว */
 function loginRequired(){ return !!sheetUrl; }
@@ -898,6 +939,8 @@ function loginRequired(){ return !!sheetUrl; }
 function showLoginScreen(){
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('appRoot').style.display = 'none';
+  document.getElementById('registerForm').style.display = 'none';
+  document.getElementById('loginForm').style.display = 'block';
 }
 function showAppScreen(){
   document.getElementById('loginScreen').style.display = 'none';
@@ -1229,6 +1272,50 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
 document.getElementById('logoutBtn').addEventListener('click', ()=>{
   doLogout();
   showToast('ออกจากระบบแล้ว');
+});
+
+document.getElementById('showRegisterLink').addEventListener('click', (e)=>{
+  e.preventDefault();
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('registerForm').style.display = 'block';
+});
+document.getElementById('showLoginLink').addEventListener('click', (e)=>{
+  e.preventDefault();
+  document.getElementById('registerForm').style.display = 'none';
+  document.getElementById('loginForm').style.display = 'block';
+});
+
+document.getElementById('registerForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const username = document.getElementById('registerUsername').value.trim();
+  const displayName = document.getElementById('registerDisplayName').value.trim();
+  const password = document.getElementById('registerPassword').value;
+  const confirmPassword = document.getElementById('registerPasswordConfirm').value;
+  const msg = document.getElementById('registerMsg');
+  const btn = document.getElementById('registerSubmitBtn');
+  msg.textContent = '';
+  if(!username || !password){ msg.textContent = 'กรอกชื่อผู้ใช้และรหัสผ่านให้ครบ'; return; }
+  if(password.length < 4){ msg.textContent = 'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
+  if(password !== confirmPassword){ msg.textContent = 'รหัสผ่านที่ยืนยันไม่ตรงกัน'; return; }
+  btn.disabled = true; btn.textContent = 'กำลังสมัคร…';
+  try{
+    const data = await remoteRegister(username, password, displayName);
+    authToken = data.token;
+    currentUser = data.user;
+    try{
+      localStorage.setItem('dorm:authToken', authToken);
+      localStorage.setItem('dorm:currentUser', JSON.stringify(currentUser));
+    }catch(err){}
+    document.getElementById('registerPassword').value = '';
+    document.getElementById('registerPasswordConfirm').value = '';
+    showAppScreen();
+    await loadData();
+    showToast('สมัครสมาชิกสำเร็จ ยินดีต้อนรับ!');
+  }catch(e){
+    msg.textContent = String(e.message || e) || 'สมัครสมาชิกไม่สำเร็จ ลองใหม่อีกครั้ง';
+  }finally{
+    btn.disabled = false; btn.textContent = 'สมัครสมาชิก';
+  }
 });
 
 /* ============ Nav ============ */

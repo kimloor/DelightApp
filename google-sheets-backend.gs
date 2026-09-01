@@ -1,7 +1,12 @@
 /**
  * สมุดหอพัก — Google Sheets backend
  * (v11: เพิ่มระบบ "ผู้ใช้งาน/login" — ให้หลายคน (หลายเจ้าของหอ) ใช้ Web App ลิงก์เดียวกันได้
- *       โดยแต่ละคนเห็นเฉพาะอพาร์ทเมนท์ของตัวเอง ไม่ทะลุข้ามบัญชี)
+ *       โดยแต่ละคนเห็นเฉพาะอพาร์ทเมนท์ของตัวเอง ไม่ทะลุข้ามบัญชี
+ *  v12: เพิ่ม action 'register' — เปิดให้ใครก็ตามที่มีลิงก์เว็บนี้สมัครบัญชีใหม่เองได้จากหน้าเว็บ
+ *       โดยตรง ไม่ต้องรอให้แอดมินสร้างให้ผ่าน editor แล้ว (ใช้กติกาเดียวกับ ADMIN_createUser
+ *       ทั้งหมด: username ห้ามซ้ำ, รหัสผ่านอย่างน้อย 4 ตัวอักษร) — ข้อควรรู้: เพราะลิงก์ /exec
+ *       ฝังอยู่ใน index.html แบบเปิดเผยอยู่แล้ว การเปิด register หมายถึงใครก็ตามที่มีลิงก์เว็บแอป
+ *       จะสมัครบัญชีของตัวเองได้ (แต่จะเห็นเฉพาะข้อมูลของบัญชีตัวเองเท่านั้น ไม่เห็นของคนอื่น)
  * ------------------------------------------------------------
  * โครงสร้าง (7 ชีต):
  *
@@ -362,6 +367,26 @@ function doPost(e) {
         token: createToken_(user),
         user: { id: user.id, username: user.username, displayName: user.displayName }
       });
+    }
+
+    /* สมัครสมาชิกเอง (เปิดให้ใครก็ได้ที่มีลิงก์เว็บนี้สมัครบัญชีใหม่ได้) — ตามที่ต้องการให้แชร์
+       โปรแกรมนี้ใช้งานร่วมกันหลายคนได้ ใช้ ADMIN_createUser ตัวเดียวกับที่ทำผ่าน editor ด้วยมือ
+       เพื่อให้กติกา (ความยาวรหัสผ่าน, username ห้ามซ้ำ) เป็นชุดเดียวกันทั้งสองทาง */
+    if (body.action === 'register') {
+      try {
+        var regUsername = String(body.username || '').trim();
+        var regPassword = String(body.password || '');
+        var regDisplayName = String(body.displayName || '').trim() || regUsername;
+        var newUserId = ADMIN_createUser(regUsername, regPassword, regDisplayName);
+        var newUser = findUserByUsername_(regUsername);
+        return jsonOutput_({
+          success: true,
+          token: createToken_(newUser),
+          user: { id: newUser.id, username: newUser.username, displayName: newUser.displayName }
+        });
+      } catch (regErr) {
+        return jsonOutput_({ error: String(regErr.message || regErr) });
+      }
     }
 
     var auth = verifyToken_(body.token);
