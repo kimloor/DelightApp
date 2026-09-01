@@ -716,14 +716,12 @@ const thisMonth = () => {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
 };
 
-/* เดือนบิลเริ่มต้นที่แนะนำในหน้า "ค่าเช่า/บิล" — ถ้าวันที่ปัจจุบันเลยวันที่ 25 ของเดือนไปแล้ว
-   จะ default เป็นเดือนถัดไปให้แทน (เผื่อกรณีออกบิลล่วงหน้าปลายเดือนสำหรับรอบเดือนถัดไป)
-   ผู้ใช้ยังเปลี่ยนกลับไปเลือกเดือนอื่นเองได้ตามปกติผ่านช่องเลือกเดือน
-   ไม่กระทบ thisMonth() ที่ใช้แสดงผลสรุปเดือนปฏิทินจริงในหน้าภาพรวม/รายงาน */
+/* เดือนบิลเริ่มต้นที่แนะนำในหน้า "ค่าเช่า/บิล" — ใช้เดือนปฏิทินจริงตรงๆ เสมอ (เดียวกับ thisMonth())
+   เดิมเคย "เด้ง" ไปเดือนถัดไปให้เองถ้าเลยวันที่ 25 ของเดือนแล้ว (เผื่อออกบิลล่วงหน้าปลายเดือน)
+   แต่ทำให้เดือนที่แสดงในแท็บนี้ไม่ตรงกับเดือนปัจจุบันจริง สร้างความสับสน จึงตัดพฤติกรรมนั้นออก
+   ผู้ใช้ยังเลือกเดือนอื่น (รวมถึงเดือนถัดไป) เองได้ตามปกติผ่านช่องเลือกเดือนอยู่แล้ว */
 function defaultBillingMonth(){
-  const d = new Date();
-  if(d.getDate() > 25) d.setMonth(d.getMonth()+1);
-  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+  return thisMonth();
 }
 
 /* แปลงวันที่แบบ ISO ("2569-07-13") จาก <input type="date"> ให้เป็นรูปแบบไทยอ่านง่าย เช่น "13 ก.ค. 2569" */
@@ -1325,6 +1323,9 @@ function renderDashboard(){
   const billList = currentBills();
   const occupied = roomList.filter(r=>r.status==='occupied').length;
   const vacant = roomList.filter(r=>r.status==='vacant').length;
+  // ใช้เดือนปฏิทินจริงตรงๆ เสมอ — ไม่อิงจากเดือนล่าสุดที่มีบิลอยู่ในระบบ เพราะถ้าเคยมีบิล
+  // เดือนถัดไปถูกสร้างไว้ล่วงหน้าแล้ว (เช่นจากพฤติกรรมเดิมของ defaultBillingMonth() ที่เด้ง
+  // ล่วงหน้าให้เอง) หน้าภาพรวมจะยังต้องแสดงสถานะของ "เดือนนี้จริงๆ" อยู่ดี ไม่ใช่เดือนอื่น
   const thisM = thisMonth();
   const thisMonthBills = billList.filter(b=>b.month===thisM);
   const unpaidCount = thisMonthBills.filter(b=>b.status==='unpaid').length;
@@ -1349,8 +1350,8 @@ function renderDashboard(){
       </div>
       <div class="stat-card">
         <p class="label">ผู้เช่าปัจจุบัน</p>
-        <p class="value teal">${currentTenants().length}</p>
-        <p class="foot">คน</p>
+        <p class="value teal">${occupied}</p>
+        <p class="foot">ห้อง</p>
       </div>
       <div class="stat-card">
         <p class="label">เก็บได้แล้วเดือนนี้</p>
