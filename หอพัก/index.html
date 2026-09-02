@@ -3535,6 +3535,29 @@ function lastBillForRoom(roomId, beforeMonth){
    อัตราค่าน้ำ/ไฟที่ใช้คำนวณใหม่ จะคงอัตราเดิมที่เคยใช้จริงตอนนั้นไว้ (ย้อนคำนวณจาก cost/units เดิม)
    เพื่อไม่ให้ยอดเงินของเดือนเก่าเปลี่ยนไปตามอัตราปัจจุบันโดยไม่ตั้งใจ ยกเว้นเดือนที่ยังไม่เคยจดมิเตอร์เลย
    (หน่วย=0) จะใช้อัตราปัจจุบันของอพาร์ทเมนท์แทน — คืนค่าจำนวนบิลที่ถูกแก้ไข */
+/* กระทบยอด "บิล" ให้ตรงกับรายการล่าสุดใน "จดมิเตอร์" ของบิลนั้นเสมอ — ใช้แก้กรณีที่การบันทึก
+   เลขมิเตอร์ครั้งล่าสุดไปเข้า "จดมิเตอร์" สำเร็จ แต่การบันทึกกลับไปที่ "บิล" ล้มเหลว (เช่น หลุด
+   การเชื่อมต่อ/หมดอายุการล็อกอินพอดีตอนนั้น) ทำให้บิลค้างค่าจากการบันทึกครั้งก่อนหน้าที่ผิดอยู่
+   แม้ "จดมิเตอร์" จะถูกต้องแล้วก็ตาม — เทียบจาก "เวลาบันทึก" ล่าสุดของรายการที่ผูกกับบิลนั้น */
+function reconcileBillFromMeterLog(bill){
+  let fixed = 0;
+  ['water','electric'].forEach(type=>{
+    const entries = meterReadings.filter(m=>m.billId===bill.id && m.type===type);
+    if(!entries.length) return;
+    const latest = entries.slice().sort((a,b)=> String(a.recordedAt).localeCompare(String(b.recordedAt))).slice(-1)[0];
+    const prevKey = type+'Prev', currKey = type+'Curr';
+    const logPrev = Number(latest.prev)||0, logCurr = Number(latest.curr)||0, logCost = Number(latest.cost)||0;
+    if((Number(bill[prevKey])||0) !== logPrev || (Number(bill[currKey])||0) !== logCurr || (Number(bill[type])||0) !== logCost){
+      bill[prevKey] = logPrev;
+      bill[currKey] = logCurr;
+      bill[type] = logCost; // ใช้ค่าใช้จ่ายที่คำนวณไว้แล้วตอนบันทึกจริง (คงอัตราที่ใช้จริงตอนนั้นไว้)
+      bill.total = Number(bill.rent||0) + Number(bill.water||0) + Number(bill.electric||0);
+      fixed++;
+    }
+  });
+  return fixed;
+}
+
 function recheckRoomMeterChain(roomId){
   const roomBills = bills.filter(b=>b.roomId===roomId).slice().sort((a,b)=> a.month.localeCompare(b.month));
   const room = rooms.find(r=>r.id===roomId);
@@ -3564,9 +3587,13 @@ function recheckRoomMeterChain(roomId){
 }
 
 /* กดรีเช็คทั้งหมดทีเดียว (ทุกห้องในอพาร์ทเมนท์ปัจจุบัน) — ใช้ล้างข้อมูลเก่าที่อาจเพี้ยนสะสม
-   มาก่อนจะมีการรีเช็คอัตโนมัติตอนแก้เลขมิเตอร์ (ด้านล่าง) */
+   ได้ 2 แบบ: (1) บิลไม่ตรงกับรายการล่าสุดใน "จดมิเตอร์" ของตัวเอง (เช่น sync ล้มเหลวตอนบันทึก)
+   (2) เลขมิเตอร์ระหว่างบิลเดือนต่อเดือนไม่ต่อเนื่องกัน (เช่น ย้อนไปแก้เดือนเก่าแล้วเดือนถัดไปไม่อัปเดต) */
 async function recheckAllMeters(){
   let totalFixed = 0;
+  // ขั้น 1: ดึงค่าล่าสุดจาก "จดมิเตอร์" มาแก้ "บิล" ของมันเองก่อน เผื่อบันทึกไม่ตรงกันจากการ sync ล้มเหลว
+  currentBills().forEach(bill=>{ totalFixed += reconcileBillFromMeterLog(bill); });
+  // ขั้น 2: ไล่เช็คความต่อเนื่องระหว่างบิลเดือนต่อเดือนของแต่ละห้องต่อ (เหมือนเดิม)
   currentRooms().forEach(room=>{ totalFixed += recheckRoomMeterChain(room.id); });
   if(totalFixed>0){
     await saveBills();
