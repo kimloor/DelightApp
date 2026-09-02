@@ -141,56 +141,8 @@
   .topbar .settings-btn:hover{background:rgba(246,241,232,0.22);}
   @media (max-width:520px){
     #syncStatusLine{display:none;}
-    #currentUserLabel{display:none;}
     .topbar-brand .wordmark{height:24px;}
-    .topbar .settings-btn span.label{display:none;}
   }
-
-  /* ---------- Login screen ---------- */
-  .login-screen{
-    min-height:100vh;
-    display:flex;align-items:center;justify-content:center;
-    padding:24px;
-    background:var(--bg);
-  }
-  .login-card{
-    width:100%;max-width:380px;
-    background:var(--surface);
-    border:1px solid var(--line);
-    border-radius:16px;
-    box-shadow:var(--shadow);
-    padding:32px 28px;
-  }
-  .login-card .brand-row{
-    display:flex;align-items:center;gap:10px;
-    margin-bottom:24px;
-  }
-  .login-card .brand-row .mark{width:36px;height:36px;border-radius:8px;flex-shrink:0;display:block;}
-  .login-card h1{
-    font-family:'Fraunces',serif;font-size:19px;font-weight:600;margin:0;
-  }
-  .login-card p.sub{margin:2px 0 0;font-size:12.5px;color:var(--ink-soft);}
-  .login-card .field{margin-bottom:14px;}
-  .login-card .field label{
-    display:block;font-size:13px;color:var(--ink-soft);margin-bottom:5px;
-  }
-  .login-card .field input{
-    width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;
-    font-family:inherit;font-size:14px;background:var(--bg);color:var(--ink);
-  }
-  .login-card .field input:focus{outline:2px solid var(--teal);outline-offset:1px;}
-  .login-card .login-msg{
-    font-size:12.5px;color:var(--rust);min-height:18px;margin:2px 0 10px;
-  }
-  .login-card button.login-submit{
-    width:100%;padding:11px;font-size:14.5px;font-weight:600;
-  }
-  .login-card button.login-submit:disabled{opacity:0.6;cursor:default;}
-  .login-card .login-switch{
-    font-size:12.5px;color:var(--ink-soft);text-align:center;margin:14px 0 0;
-  }
-  .login-card .login-switch a{color:var(--teal);font-weight:600;text-decoration:none;}
-  .login-card .login-switch a:hover{text-decoration:underline;}
 
   /* ---------- Main ---------- */
   main{
@@ -427,16 +379,17 @@
   }
 
   .toast{
-    position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);
+    position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(0.9);
     background:var(--ink);color:var(--bg);
-    padding:11px 20px;border-radius:9px;
-    font-size:13.5px;font-weight:500;
-    box-shadow:0 10px 30px rgba(0,0,0,0.25);
+    padding:18px 28px;border-radius:14px;
+    font-size:16px;font-weight:600;text-align:center;
+    max-width:80vw;
+    box-shadow:0 20px 50px rgba(0,0,0,0.35);
     opacity:0;pointer-events:none;
     transition:opacity .2s ease, transform .2s ease;
-    z-index:100;
+    z-index:200;
   }
-  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  .toast.show{opacity:1;transform:translate(-50%,-50%) scale(1);}
 
   select.bill-status{
     border:none;background:transparent;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;
@@ -600,62 +553,7 @@
 <body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
-<div class="login-screen" id="loginScreen" style="display:none;">
-  <div class="login-card">
-    <div class="brand-row">
-      <svg class="mark" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-        <rect width="512" height="512" rx="112" fill="#2A231D"/>
-        <path d="M256 90 L382 177 L130 177 Z" fill="#2E8FE0"/>
-        <text x="262" y="437" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="#00000030">D</text>
-        <text x="256" y="430" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linejoin="round">D</text>
-        <text x="256" y="430" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="#F6A23A">D</text>
-        <text x="256" y="430" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="none" stroke="#3B2A1E" stroke-width="5" stroke-linejoin="round">D</text>
-      </svg>
-      <div>
-        <h1>สมุดหอพัก</h1>
-        <p class="sub">เข้าสู่ระบบเพื่อจัดการหอพักของคุณ</p>
-      </div>
-    </div>
-    <form id="loginForm">
-      <div class="field">
-        <label>ชื่อผู้ใช้</label>
-        <input id="loginUsername" autocomplete="username" autocapitalize="off" spellcheck="false" required>
-      </div>
-      <div class="field">
-        <label>รหัสผ่าน</label>
-        <input id="loginPassword" type="password" autocomplete="current-password" required>
-      </div>
-      <div class="login-msg" id="loginMsg"></div>
-      <button type="submit" class="btn login-submit" id="loginSubmitBtn">เข้าสู่ระบบ</button>
-      <p class="login-switch">ยังไม่มีบัญชี? <a href="#" id="showRegisterLink">สมัครสมาชิก</a></p>
-    </form>
-
-    <form id="registerForm" style="display:none;">
-      <div class="field">
-        <label>ชื่อผู้ใช้</label>
-        <input id="registerUsername" autocomplete="username" autocapitalize="off" spellcheck="false" required>
-      </div>
-      <div class="field">
-        <label>ชื่อที่แสดง (ไม่บังคับ)</label>
-        <input id="registerDisplayName" autocomplete="name" placeholder="ถ้าไม่กรอกจะใช้ชื่อผู้ใช้แทน">
-      </div>
-      <div class="field">
-        <label>รหัสผ่าน</label>
-        <input id="registerPassword" type="password" autocomplete="new-password" required>
-      </div>
-      <div class="field">
-        <label>ยืนยันรหัสผ่าน</label>
-        <input id="registerPasswordConfirm" type="password" autocomplete="new-password" required>
-      </div>
-      <div class="login-msg" id="registerMsg"></div>
-      <button type="submit" class="btn login-submit" id="registerSubmitBtn">สมัครสมาชิก</button>
-      <p class="login-switch">มีบัญชีอยู่แล้ว? <a href="#" id="showLoginLink">เข้าสู่ระบบ</a></p>
-    </form>
-  </div>
-</div>
-
-<div class="app" id="appRoot" style="display:none;">
+<div class="app">
   <header class="topbar">
     <div class="topbar-brand">
       <svg class="mark" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
@@ -677,9 +575,7 @@
     </div>
     <div class="topbar-right">
       <div id="syncStatusLine">กำลังตรวจสอบ…</div>
-      <div id="currentUserLabel" style="font-size:12.5px;color:var(--bg);opacity:0.85;white-space:nowrap;"></div>
-      <button class="settings-btn" id="logoutBtn" style="display:none;">⎋ <span class="label">ออกจากระบบ</span></button>
-      <button class="settings-btn" id="openSettingsBtn">⚙︎ <span class="label">ตั้งค่า</span></button>
+      <button class="settings-btn" id="openSettingsBtn">⚙︎ ตั้งค่า</button>
     </div>
   </header>
   <div class="app-body">
@@ -744,15 +640,6 @@ let currentPropertyId = null;
 try{ currentPropertyId = localStorage.getItem('dorm:currentProperty') || null; }catch(e){}
 let currentPage = 'dashboard';
 let dataReady = false;
-
-/* ============ Auth (v11: หลายบัญชีใช้ backend เดียวกัน แยกข้อมูลคนละอพาร์ทเมนท์) ============ */
-let authToken = null;
-let currentUser = null;
-try{
-  authToken = localStorage.getItem('dorm:authToken') || null;
-  const savedUser = localStorage.getItem('dorm:currentUser');
-  currentUser = savedUser ? JSON.parse(savedUser) : null;
-}catch(e){}
 
 const THB = n => Number(n||0).toLocaleString('th-TH', {maximumFractionDigits:0});
 
@@ -886,11 +773,10 @@ async function remoteGetAll(){
   const url = new URL(sheetUrl);
   url.searchParams.set('action','getAll');
   url.searchParams.set('_', Date.now());
-  if(authToken) url.searchParams.set('token', authToken);
   const res = await fetch(url.toString());
   if(!res.ok) throw new Error('HTTP '+res.status);
   const data = await res.json();
-  if(data && data.error) throw new Error(data.error); // 'unauthorized' คือ token ไม่ผ่าน/หมดอายุ
+  if(data && data.error) throw new Error(data.error);
   return data;
 }
 
@@ -898,73 +784,12 @@ async function remoteSaveTable(table, items){
   const res = await fetch(sheetUrl, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({table, items, token: authToken})
+    body: JSON.stringify({table, items})
   });
   if(!res.ok) throw new Error('HTTP '+res.status);
   const data = await res.json();
   if(data && data.error) throw new Error(data.error);
   return data;
-}
-
-/* เรียก action='login' ตรงๆ (ไม่ต้องมี token เพราะยังไม่ได้ล็อกอิน) */
-async function remoteLogin(username, password){
-  const res = await fetch(sheetUrl, {
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({action:'login', username, password})
-  });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const data = await res.json();
-  if(data && data.error) throw new Error(data.error); // 'invalid_credentials' หรืออื่นๆ
-  return data; // { success, token, user }
-}
-
-/* สมัครสมาชิกใหม่ — สำเร็จแล้ว backend ออก token ให้พร้อมเลย (ไม่ต้อง login ซ้ำอีกรอบ) */
-async function remoteRegister(username, password, displayName){
-  const res = await fetch(sheetUrl, {
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({action:'register', username, password, displayName})
-  });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const data = await res.json();
-  if(data && data.error) throw new Error(data.error);
-  return data; // { success, token, user }
-}
-
-/* ต้องล็อกอินก็ต่อเมื่อมีการซิงก์กับ Google Sheets ส่วนกลางอยู่ (มี sheetUrl) —
-   ถ้าผู้ใช้เลือกปิดการซิงก์ (เก็บข้อมูลในเครื่องคนเดียว) จะไม่มีระบบบัญชีให้ล็อกอินอยู่แล้ว */
-function loginRequired(){ return !!sheetUrl; }
-
-function showLoginScreen(){
-  document.getElementById('loginScreen').style.display = 'flex';
-  document.getElementById('appRoot').style.display = 'none';
-  document.getElementById('registerForm').style.display = 'none';
-  document.getElementById('loginForm').style.display = 'block';
-}
-function showAppScreen(){
-  document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('appRoot').style.display = 'flex';
-  const logoutBtn = document.getElementById('logoutBtn');
-  if(logoutBtn) logoutBtn.style.display = loginRequired() ? '' : 'none';
-  const label = document.getElementById('currentUserLabel');
-  if(label) label.textContent = currentUser ? ('👤 ' + (currentUser.displayName || currentUser.username)) : '';
-}
-
-/* ล้างข้อมูลตารางที่แคชไว้ในเครื่อง (localStorage) กันไม่ให้ข้อมูลของบัญชีก่อนหน้าเหลือค้าง
-   ถ้าสลับไปใช้อีกบัญชีบนเครื่อง/เบราว์เซอร์เดียวกัน (เช่น ใช้เครื่องคอมร่วมกันหลายคน) */
-function clearLocalDataCache(){
-  ['dorm:rooms','dorm:tenants','dorm:bills','dorm:properties','dorm:deposits','dorm:meterReadings','dorm:currentProperty']
-    .forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
-  rooms=[]; tenants=[]; bills=[]; properties=[]; deposits=[]; meterReadings=[]; currentPropertyId=null;
-}
-
-function doLogout(){
-  authToken = null; currentUser = null;
-  try{ localStorage.removeItem('dorm:authToken'); localStorage.removeItem('dorm:currentUser'); }catch(e){}
-  clearLocalDataCache();
-  dataReady = false;
-  showLoginScreen();
 }
 
 async function wsGet(key){
@@ -1172,11 +997,6 @@ async function loadData(){
       cacheLocally();
     }catch(e){
       console.error('sheet load error', e);
-      if(String(e.message)==='unauthorized'){
-        // token ใช้ไม่ได้แล้ว (หมดอายุ/ถูกแก้ secret) — เด้งกลับไปหน้า login แทนที่จะโชว์ข้อมูลเก่าค้างไว้
-        doLogout();
-        return;
-      }
       syncState = 'error';
       loadFromLocalCache();
     }
@@ -1213,10 +1033,6 @@ async function saveTable(table, items){
       syncState = 'ok';
     }catch(e){
       console.error('sheet save error', e);
-      if(String(e.message)==='unauthorized'){
-        doLogout();
-        return;
-      }
       syncState = 'error';
     }
     updateSyncLine();
@@ -1238,85 +1054,6 @@ function showToast(msg){
   clearTimeout(showToast._t);
   showToast._t = setTimeout(()=>t.classList.remove('show'), 2200);
 }
-
-/* ============ Auth: login form / logout ============ */
-document.getElementById('loginForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const username = document.getElementById('loginUsername').value.trim();
-  const password = document.getElementById('loginPassword').value;
-  const msg = document.getElementById('loginMsg');
-  const btn = document.getElementById('loginSubmitBtn');
-  msg.textContent = '';
-  if(!username || !password){ msg.textContent = 'กรอกชื่อผู้ใช้และรหัสผ่านให้ครบ'; return; }
-  btn.disabled = true; btn.textContent = 'กำลังเข้าสู่ระบบ…';
-  try{
-    const data = await remoteLogin(username, password);
-    authToken = data.token;
-    currentUser = data.user;
-    try{
-      localStorage.setItem('dorm:authToken', authToken);
-      localStorage.setItem('dorm:currentUser', JSON.stringify(currentUser));
-    }catch(err){}
-    document.getElementById('loginPassword').value = '';
-    showAppScreen();
-    await loadData();
-  }catch(e){
-    msg.textContent = (String(e.message)==='invalid_credentials')
-      ? 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'
-      : 'เข้าสู่ระบบไม่สำเร็จ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่';
-  }finally{
-    btn.disabled = false; btn.textContent = 'เข้าสู่ระบบ';
-  }
-});
-
-document.getElementById('logoutBtn').addEventListener('click', ()=>{
-  doLogout();
-  showToast('ออกจากระบบแล้ว');
-});
-
-document.getElementById('showRegisterLink').addEventListener('click', (e)=>{
-  e.preventDefault();
-  document.getElementById('loginForm').style.display = 'none';
-  document.getElementById('registerForm').style.display = 'block';
-});
-document.getElementById('showLoginLink').addEventListener('click', (e)=>{
-  e.preventDefault();
-  document.getElementById('registerForm').style.display = 'none';
-  document.getElementById('loginForm').style.display = 'block';
-});
-
-document.getElementById('registerForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const username = document.getElementById('registerUsername').value.trim();
-  const displayName = document.getElementById('registerDisplayName').value.trim();
-  const password = document.getElementById('registerPassword').value;
-  const confirmPassword = document.getElementById('registerPasswordConfirm').value;
-  const msg = document.getElementById('registerMsg');
-  const btn = document.getElementById('registerSubmitBtn');
-  msg.textContent = '';
-  if(!username || !password){ msg.textContent = 'กรอกชื่อผู้ใช้และรหัสผ่านให้ครบ'; return; }
-  if(password.length < 4){ msg.textContent = 'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
-  if(password !== confirmPassword){ msg.textContent = 'รหัสผ่านที่ยืนยันไม่ตรงกัน'; return; }
-  btn.disabled = true; btn.textContent = 'กำลังสมัคร…';
-  try{
-    const data = await remoteRegister(username, password, displayName);
-    authToken = data.token;
-    currentUser = data.user;
-    try{
-      localStorage.setItem('dorm:authToken', authToken);
-      localStorage.setItem('dorm:currentUser', JSON.stringify(currentUser));
-    }catch(err){}
-    document.getElementById('registerPassword').value = '';
-    document.getElementById('registerPasswordConfirm').value = '';
-    showAppScreen();
-    await loadData();
-    showToast('สมัครสมาชิกสำเร็จ ยินดีต้อนรับ!');
-  }catch(e){
-    msg.textContent = String(e.message || e) || 'สมัครสมาชิกไม่สำเร็จ ลองใหม่อีกครั้ง';
-  }finally{
-    btn.disabled = false; btn.textContent = 'สมัครสมาชิก';
-  }
-});
 
 /* ============ Nav ============ */
 document.getElementById('nav').addEventListener('click', (e)=>{
@@ -1992,8 +1729,8 @@ function meterFormHtml(bill, type){
   return `
     <h3>จดมิเตอร์${label} — ห้อง ${(rooms.find(r=>r.id===bill.roomId)||{}).number||''}</h3>
     <div class="field-row">
-      <div class="field"><label>เลขมิเตอร์เดิม</label><input id="f-meter-prev" type="number" value="${prev}" onfocus="this.select()"></div>
-      <div class="field"><label>เลขมิเตอร์ปัจจุบัน</label><input id="f-meter-curr" type="number" value="${curr}" onfocus="this.select()"></div>
+      <div class="field"><label>เลขมิเตอร์เดิม</label><input id="f-meter-prev" type="number" min="0" value="${prev}" onfocus="this.select()"></div>
+      <div class="field"><label>เลขมิเตอร์ปัจจุบัน</label><input id="f-meter-curr" type="number" min="0" value="${curr}" onfocus="this.select()"></div>
     </div>
     <div class="field"><label>อัตราค่า${label} (บาท/หน่วย)</label><input id="f-meter-rate" type="number" value="${rate}" onfocus="this.select()"></div>
     <div id="meterCalc" class="sub" style="font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;line-height:1.7;">
@@ -2028,6 +1765,7 @@ async function onSaveMeter(){
   const prev = Number(document.getElementById('f-meter-prev').value)||0;
   const curr = Number(document.getElementById('f-meter-curr').value)||0;
   const rate = Number(document.getElementById('f-meter-rate').value)||0;
+  if(prev < 0 || curr < 0){ showToast('เลขมิเตอร์ติดลบไม่ได้'); return; }
   if(curr < prev){ showToast('เลขมิเตอร์ปัจจุบันต้องไม่น้อยกว่าเลขเดิม'); return; }
   const units = curr - prev;
   const cost = units * rate;
@@ -2285,13 +2023,13 @@ function bulkMeterFormHtml(month){
             <td>
               <div style="display:flex;align-items:center;gap:6px;">
                 <span class="muted mono" style="font-size:12px;white-space:nowrap;">${wPrev} →</span>
-                <input type="number" class="toolbar-input bm-water" data-prev="${wPrev}" value="${wCurr}" style="width:76px;" onfocus="this.select()">
+                <input type="number" class="toolbar-input bm-water" data-prev="${wPrev}" value="${wCurr}" min="0" style="width:76px;" onfocus="this.select()">
               </div>
             </td>
             <td>
               <div style="display:flex;align-items:center;gap:6px;">
                 <span class="muted mono" style="font-size:12px;white-space:nowrap;">${ePrev} →</span>
-                <input type="number" class="toolbar-input bm-electric" data-prev="${ePrev}" value="${eCurr}" style="width:76px;" onfocus="this.select()">
+                <input type="number" class="toolbar-input bm-electric" data-prev="${ePrev}" value="${eCurr}" min="0" style="width:76px;" onfocus="this.select()">
               </div>
             </td>
             <td class="mono bm-cost" style="font-weight:600;">${THB(wCost+eCost)} บ.</td>
@@ -3617,16 +3355,7 @@ document.addEventListener('click', (e)=>{
 
 /* ============ Init ============ */
 updateSyncLine();
-initApp();
-
-async function initApp(){
-  if(loginRequired() && !authToken){
-    showLoginScreen();
-    return;
-  }
-  showAppScreen();
-  await loadData();
-}
+loadData();
 
 /* Register service worker for offline use when hosted over http(s).
    Silently does nothing when opened as a local file or inside Claude. */
