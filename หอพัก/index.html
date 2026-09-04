@@ -476,6 +476,52 @@
   .view-toggle button.active{background:var(--ink);color:var(--bg);font-weight:600;}
   .view-toggle button:hover:not(.active){background:var(--bg);}
 
+  /* ---------- ผังอิสระ (free-form drag layout) ---------- */
+  .freeform-toolbar{
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;
+    padding:14px 20px 0;
+  }
+  .floor-tabs{display:flex;gap:6px;flex-wrap:wrap;}
+  .floor-tab{
+    border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);
+    padding:6px 14px;border-radius:20px;font-size:13px;font-family:inherit;cursor:pointer;
+  }
+  .floor-tab.active{background:var(--ink);color:var(--bg);font-weight:600;border-color:var(--ink);}
+  .ff-hint{font-size:12px;color:var(--ink-soft);}
+  .canvas-wrap{
+    margin:16px 20px 20px;
+    border:1.5px dashed var(--line);
+    border-radius:12px;
+    background-image:radial-gradient(var(--line) 1px, transparent 1px);
+    background-size:22px 22px;
+    background-color:var(--surface);
+    position:relative;
+    height:520px;
+    overflow:auto;
+  }
+  .canvas{position:relative;}
+  .fcard{
+    position:absolute;
+    width:140px;
+    background:var(--bg);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:16px 14px 14px;
+    cursor:grab;
+    touch-action:none;
+    transition:box-shadow .12s ease;
+  }
+  .fcard::before{
+    content:'';position:absolute;top:14px;right:14px;width:9px;height:9px;border-radius:50%;
+    background:var(--line);box-shadow:inset 0 0 0 1px rgba(0,0,0,0.06);
+  }
+  .fcard .num{font-family:'Fraunces',serif;font-size:22px;font-weight:600;margin:2px 0 6px;}
+  .fcard .floor{font-size:11.5px;color:var(--ink-soft);margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .fcard .tenant-name{color:var(--ink);}
+  .fcard .rent{margin-top:8px;font-size:12px;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;}
+  .fcard:hover{box-shadow:var(--shadow);}
+  .fcard.dragging{cursor:grabbing;box-shadow:0 14px 30px rgba(42,35,29,0.22);z-index:20;border-color:var(--gold);}
+
   /* ---------- Print / เอกสาร (ใบแจ้งหนี้ ใบรับมัดจำ) ----------
      สไตล์เหล่านี้เปิดใช้งานตลอด (ไม่ได้ผูกกับ @media print เท่านั้น)
      เพราะต้องใช้ตอน export PDF ด้วย (วาดลงกล่องนอกจอแล้วแคปเจอร์เป็นรูป/PDF
@@ -1679,6 +1725,13 @@ function renderRooms(){
   // ลำดับเดียวกับที่ใช้ปุ่มเลื่อนซ้าย-ขวาตอนแก้ไขห้อง ใช้กับมุมมองรายการ (list) แบบตารางแบน
   const flatOrder = roomNavOrder();
 
+  // ผังอิสระ: ชั้นที่กำลังเลือกดูอยู่ (จำค่าไว้ข้าม render เหมือน _sort/_view)
+  const activeFreeFloor = (renderRooms._freeFloor && floorKeys.includes(renderRooms._freeFloor)) ? renderRooms._freeFloor : floorKeys[0];
+  renderRooms._freeFloor = activeFreeFloor;
+  const freeRooms = (viewMode==='free' && activeFreeFloor) ? sortRoomsWithin(floors[activeFreeFloor], 'number') : [];
+  const freeLayout = (viewMode==='free' && activeFreeFloor) ? getFreeformLayout(activeFreeFloor) : {};
+  const freeSize = (viewMode==='free' && activeFreeFloor) ? freeformCanvasSize(activeFreeFloor) : {w:900,h:480};
+
   return `
     <div class="page-head">
       <div>
@@ -1692,17 +1745,19 @@ function renderRooms(){
     </div>
     <div class="card">
       <div class="card-head" style="flex-wrap:wrap;gap:10px;">
-        <h3>${viewMode==='list'?'รายการห้องพัก':'แบ่งตามชั้น'}</h3>
+        <h3>${viewMode==='list'?'รายการห้องพัก':viewMode==='free'?'ผังอิสระ':'แบ่งตามชั้น'}</h3>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <div class="view-toggle">
             <button class="${viewMode==='grid'?'active':''}" id="roomViewGridBtn" title="มุมมองกริด">▦ กริด</button>
             <button class="${viewMode==='list'?'active':''}" id="roomViewListBtn" title="มุมมองรายการ">☰ รายการ</button>
+            <button class="${viewMode==='free'?'active':''}" id="roomViewFreeBtn" title="ผังอิสระ">⤢ ผังอิสระ</button>
           </div>
+          ${viewMode!=='free' ? `
           <select id="roomSort" class="toolbar-select">
             <option value="number" ${sortMode==='number'?'selected':''}>เรียงตามเลขห้อง</option>
             <option value="vacant" ${sortMode==='vacant'?'selected':''}>ห้องว่างก่อน</option>
             <option value="occupied" ${sortMode==='occupied'?'selected':''}>ห้องมีผู้เช่าก่อน</option>
-          </select>
+          </select>` : ''}
         </div>
       </div>
       ${roomList.length===0 ? `<div class="empty"><div class="big">🔑</div>ยังไม่มีห้องพัก เริ่มเพิ่มห้องแรกกันเลย</div>` :
@@ -1723,6 +1778,31 @@ function renderRooms(){
             }).join('')}
           </tbody>
         </table>` :
+        viewMode==='free' ? `
+        <div class="freeform-toolbar">
+          <div class="floor-tabs">
+            ${floorKeys.map(fk=>`<button class="floor-tab ${fk===activeFreeFloor?'active':''}" data-floor="${fk}">ชั้น ${fk}</button>`).join('')}
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;">
+            <span class="ff-hint">ลากห้องเพื่อจัดตำแหน่งอิสระ — บันทึกอัตโนมัติในเครื่องนี้</span>
+            <button class="btn ghost" id="resetLayoutBtn">รีเซ็ตเป็นกริด</button>
+          </div>
+        </div>
+        <div class="canvas-wrap">
+          <div class="canvas" id="roomCanvas" style="width:${freeSize.w}px;height:${freeSize.h}px;">
+            ${freeRooms.map(r=>{
+              const tenant = r.status==='occupied' ? tenants.find(t=>t.roomId===r.id) : null;
+              const p = freeLayout[r.id] || {x:20,y:20};
+              return `
+              <div class="fcard" data-id="${r.id}" style="left:${p.x}px;top:${p.y}px;">
+                <div class="num">${r.number}</div>
+                <div class="floor">ชั้น ${r.floor||'-'}${tenant?` · <span class="tenant-name">${truncateText(tenantDisplayName(tenant),12)}</span>`:''}</div>
+                <span class="status-pill ${r.status==='occupied'?'occupied':'vacant'}">${r.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span>
+                <div class="rent">${THB(r.rent)} บ./เดือน</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>` :
         floorKeys.map(fk=>`
           <div class="floor-group">
             <div class="floor-group-head">ชั้น ${fk}</div>
@@ -1743,6 +1823,99 @@ function renderRooms(){
       }
     </div>
   `;
+}
+
+/* ============ ผังอิสระ: ตำแหน่งห้องแบบลากวางอิสระ ============
+   บันทึกตำแหน่งไว้ใน localStorage ต่อ (อพาร์ทเมนท์ + ชั้น) เนื่องจากเป็นการจัดวางเชิงภาพ
+   ล้วนๆ ที่ไม่จำเป็นต้อง sync ขึ้น Google Sheet — ยังไม่มีคอลัมน์รองรับตำแหน่ง x/y ในชีทห้องพัก
+   ถ้าจะทำ production จริงข้ามอุปกรณ์ ต้องเพิ่มคอลัมน์ layoutX/layoutY ในชีท + endpoint บันทึกแยก */
+function defaultFreeformPositions(floor){
+  const list = sortRoomsWithin(currentRooms().filter(r=>(r.floor||'ไม่ระบุชั้น')===floor), 'number');
+  const cols = 8, gapX = 156, gapY = 132, startX = 20, startY = 20;
+  const pos = {};
+  list.forEach((r,i)=>{
+    pos[r.id] = { x: startX + (i % cols) * gapX, y: startY + Math.floor(i / cols) * gapY };
+  });
+  return pos;
+}
+
+function freeformCanvasSize(floor){
+  const list = currentRooms().filter(r=>(r.floor||'ไม่ระบุชั้น')===floor);
+  const cols = 8, gapX = 156, gapY = 132;
+  const rows = Math.max(1, Math.ceil(list.length / cols));
+  return { w: Math.max(900, 20 + cols*gapX + 40), h: Math.max(480, 20 + rows*gapY + 40) };
+}
+
+function freeformLayoutKey(floor){
+  return `dorm:layout:${currentPropertyId}:${floor}`;
+}
+
+function getFreeformLayout(floor){
+  let saved = null;
+  try{ saved = JSON.parse(localStorage.getItem(freeformLayoutKey(floor)) || 'null'); }catch(e){ saved = null; }
+  const defaults = defaultFreeformPositions(floor);
+  if(!saved) return defaults;
+  // เติมตำแหน่งเริ่มต้นให้ห้องที่เพิ่มใหม่ทีหลัง ซึ่งยังไม่เคยถูกลากจัดตำแหน่งมาก่อน
+  Object.keys(defaults).forEach(id=>{ if(!saved[id]) saved[id] = defaults[id]; });
+  return saved;
+}
+
+function saveFreeformLayout(floor, layout){
+  try{ localStorage.setItem(freeformLayoutKey(floor), JSON.stringify(layout)); }catch(e){}
+}
+
+function attachFreeformDragEvents(){
+  const canvas = document.getElementById('roomCanvas');
+  if(!canvas) return;
+  const wrap = canvas.parentElement; // .canvas-wrap (มี overflow:auto)
+
+  canvas.querySelectorAll('.fcard').forEach(card=>{
+    let dragging = false, moved = false, offsetX = 0, offsetY = 0, startX = 0, startY = 0;
+
+    card.addEventListener('pointerdown', (e)=>{
+      dragging = true; moved = false;
+      card.setPointerCapture(e.pointerId);
+      const rect = card.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      startX = e.clientX; startY = e.clientY;
+    });
+
+    card.addEventListener('pointermove', (e)=>{
+      if(!dragging) return;
+      if(!moved && (Math.abs(e.clientX-startX) > 4 || Math.abs(e.clientY-startY) > 4)){
+        moved = true;
+        card.classList.add('dragging');
+      }
+      if(!moved) return;
+      const wrapRect = wrap.getBoundingClientRect();
+      let x = e.clientX - wrapRect.left + wrap.scrollLeft - offsetX;
+      let y = e.clientY - wrapRect.top + wrap.scrollTop - offsetY;
+      x = Math.max(0, Math.min(x, canvas.clientWidth - card.offsetWidth));
+      y = Math.max(0, Math.min(y, canvas.clientHeight - card.offsetHeight));
+      x = Math.round(x/8)*8; y = Math.round(y/8)*8; // snap กริด 8px
+      card.style.left = x + 'px';
+      card.style.top = y + 'px';
+    });
+
+    card.addEventListener('pointerup', ()=>{
+      dragging = false;
+      if(moved){
+        card.classList.remove('dragging');
+        const floor = renderRooms._freeFloor;
+        const layout = getFreeformLayout(floor);
+        layout[card.dataset.id] = { x: parseInt(card.style.left,10), y: parseInt(card.style.top,10) };
+        saveFreeformLayout(floor, layout);
+        showToast('บันทึกตำแหน่งแล้ว');
+      } else {
+        // ไม่ได้ลาก แค่คลิก -> เปิดฟอร์มแก้ไขห้องเหมือนมุมมองอื่น
+        const room = rooms.find(r=>r.id===card.dataset.id);
+        if(room){ onSaveRoom._editId = room.id; openModal(roomFormHtml(room)); }
+      }
+    });
+
+    card.addEventListener('pointercancel', ()=>{ dragging = false; card.classList.remove('dragging'); });
+  });
 }
 
 /* ============ เพิ่มห้องพักหลายห้องพร้อมกัน ============
@@ -3007,6 +3180,21 @@ function attachPageEvents(){
   if(roomViewGridBtn) roomViewGridBtn.onclick = ()=>{ renderRooms._view = 'grid'; render(); };
   const roomViewListBtn = document.getElementById('roomViewListBtn');
   if(roomViewListBtn) roomViewListBtn.onclick = ()=>{ renderRooms._view = 'list'; render(); };
+  const roomViewFreeBtn = document.getElementById('roomViewFreeBtn');
+  if(roomViewFreeBtn) roomViewFreeBtn.onclick = ()=>{ renderRooms._view = 'free'; render(); };
+
+  document.querySelectorAll('.floor-tab').forEach(el=>{
+    el.onclick = ()=>{ renderRooms._freeFloor = el.dataset.floor; render(); };
+  });
+  const resetLayoutBtn = document.getElementById('resetLayoutBtn');
+  if(resetLayoutBtn) resetLayoutBtn.onclick = ()=>{
+    const floor = renderRooms._freeFloor;
+    if(!floor) return;
+    saveFreeformLayout(floor, defaultFreeformPositions(floor));
+    render();
+    showToast('รีเซ็ตผังห้องเป็นกริดแล้ว');
+  };
+  attachFreeformDragEvents();
 
   // Tenants
   const addTenantBtn = document.getElementById('addTenantBtn');
