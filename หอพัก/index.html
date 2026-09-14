@@ -1584,6 +1584,15 @@ function attachModalEvents(){
       if(wrap) wrap.style.display = 'none';
     };
   }
+  const vatEnabledEl = document.getElementById('f-vat-enabled');
+  if(vatEnabledEl){
+    vatEnabledEl.onchange = ()=>{
+      const block = document.getElementById('vatSettingsBlock');
+      if(block) block.style.display = vatEnabledEl.checked ? '' : 'none';
+    };
+  }
+  const saveTaxInvoiceRangeBtn = document.getElementById('saveTaxInvoiceRangeBtn');
+  if(saveTaxInvoiceRangeBtn) saveTaxInvoiceRangeBtn.onclick = onSaveTaxInvoiceRange;
   wireMeterLiveCalc();
 
   const testSheetBtn = document.getElementById('testSheetBtn');
@@ -2270,7 +2279,7 @@ async function onSaveMeter(){
 
   if(type==='water'){ bill.waterPrev=prev; bill.waterCurr=curr; bill.water=cost; }
   else { bill.electricPrev=prev; bill.electricCurr=curr; bill.electric=cost; }
-  bill.total = Number(bill.rent||0) + Number(bill.water||0) + Number(bill.electric||0);
+  applyBillVat(bill);
 
   logMeterReading({roomId: bill.roomId, billId: bill.id, month: bill.month, type, prev, curr, rate});
   await saveMeterReadings();
@@ -2290,6 +2299,8 @@ async function onSaveMeter(){
 /* ============ แก้ไข / ลบ บิล ============ */
 function billEditFormHtml(bill){
   const room = rooms.find(r=>r.id===bill.roomId);
+  const prop = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId));
+  const vatOn = !!(prop && prop.vatEnabled);
   return `
     <h3>แก้ไขบิล — ห้อง ${room?room.number:'—'}</h3>
     <p class="sub" style="font-size:12.5px;margin-top:-8px;">${monthLabel(bill.month)} · เลขที่บิล ${bill.invoiceNo||'-'}</p>
@@ -2305,6 +2316,10 @@ function billEditFormHtml(bill){
         <option value="paid" ${bill.status==='paid'?'selected':''}>ชำระแล้ว</option>
       </select>
     </div>
+    ${vatOn ? `
+    <div class="field"><label>เลขที่ใบกำกับภาษี</label><input id="f-bill-taxinvoiceno" value="${(bill.taxInvoiceNo||'').replace(/"/g,'&quot;')}" placeholder="กรอกเอง เว้นว่างได้ถ้ายังไม่ออก"></div>
+    <div id="billVatCalc" class="sub" style="font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;line-height:1.7;margin-bottom:14px;"></div>
+    ` : ''}
     <p class="sub" style="font-size:12px;">การแก้ค่าน้ำ/ค่าไฟตรงนี้เป็นการแก้ยอดเงินโดยตรง ไม่กระทบเลขมิเตอร์ที่บันทึกไว้ — ถ้าต้องการแก้เลขมิเตอร์ ให้ปิดหน้าต่างนี้แล้วคลิกที่ช่องค่าน้ำ/ค่าไฟในตารางบิลแทน</p>
     <div class="modal-actions">
       <button class="btn danger" id="deleteBillBtn" data-id="${bill.id}">ลบบิล</button>
@@ -2312,6 +2327,28 @@ function billEditFormHtml(bill){
       <button class="btn" id="saveBillEditBtn" data-id="${bill.id}">บันทึก</button>
     </div>
   `;
+}
+
+/* พรีวิว VAT สดๆ ในฟอร์มแก้บิล — คำนวณด้วย computeVatForAmount ตัวเดียวกับที่ใช้บันทึกจริง
+   เพื่อให้สิ่งที่เห็นตอนพิมพ์ตัวเลขตรงกับยอดที่จะถูกบันทึกเป๊ะ ไม่มีเซอร์ไพรส์ตอนกดบันทึก */
+function wireBillEditVatCalc(prop){
+  const calcEl = document.getElementById('billVatCalc');
+  if(!calcEl || !prop) return;
+  const rentEl = document.getElementById('f-bill-rent');
+  const waterEl = document.getElementById('f-bill-water');
+  const electricEl = document.getElementById('f-bill-electric');
+  const rate = Number(prop.vatRate) || 0;
+  const recalc = ()=>{
+    const rentR = computeVatForAmount(rentEl.value, prop.vatTypeRent, rate);
+    const waterR = computeVatForAmount(waterEl.value, prop.vatTypeWater, rate);
+    const electricR = computeVatForAmount(electricEl.value, prop.vatTypeElectric, rate);
+    const subtotal = round2(rentR.net + waterR.net + electricR.net);
+    const vat = round2(rentR.vat + waterR.vat + electricR.vat);
+    const total = round2(rentR.gross + waterR.gross + electricR.gross);
+    calcEl.innerHTML = `ยอดก่อนภาษี <strong>${THB(subtotal)}</strong> + VAT <strong>${THB(vat)}</strong> = ยอดสุทธิ <strong>${THB(total)} บาท</strong>`;
+  };
+  [rentEl, waterEl, electricEl].forEach(el=> el && (el.oninput = recalc));
+  recalc();
 }
 
 async function onSaveBillEdit(billId){
@@ -2322,7 +2359,9 @@ async function onSaveBillEdit(billId){
   const electric = Number(document.getElementById('f-bill-electric').value)||0;
   const status = document.getElementById('f-bill-status').value;
   bill.rent = rent; bill.water = water; bill.electric = electric; bill.status = status;
-  bill.total = rent + water + electric;
+  const taxInvoiceNoEl = document.getElementById('f-bill-taxinvoiceno');
+  if(taxInvoiceNoEl) bill.taxInvoiceNo = taxInvoiceNoEl.value.trim();
+  applyBillVat(bill);
   await saveBills();
   closeModal();
   render();
@@ -2366,6 +2405,43 @@ function ratesFormHtml(){
       </div>
       <input id="f-qrimage" type="file" accept="image/*">
       <p class="sub" style="font-size:11.5px;margin:6px 0 0;">อัปโหลดรูป QR พร้อมเพย์ / QR ธนาคาร ระบบจะย่อขนาดให้อัตโนมัติ</p>
+    </div>
+    <div class="field" style="border-top:1px solid var(--line);padding-top:14px;margin-top:4px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="f-vat-enabled" ${prop.vatEnabled?'checked':''} style="width:auto;">
+        เปิดใช้ระบบ VAT สำหรับอพาร์ทเมนท์นี้
+      </label>
+    </div>
+    <div id="vatSettingsBlock" style="${prop.vatEnabled?'':'display:none;'}">
+      <div class="field-row">
+        <div class="field"><label>อัตรา VAT (%)</label><input id="f-vat-rate" type="number" step="0.01" value="${prop.vatRate!=null?Number(prop.vatRate):7}"></div>
+        <div class="field"><label>เลขประจำตัวผู้เสียภาษี</label><input id="f-vat-taxid" value="${(prop.taxId||'').replace(/"/g,'&quot;')}" placeholder="13 หลัก"></div>
+      </div>
+      <div class="field"><label>ชื่อนิติบุคคล/ผู้ประกอบการ (พิมพ์บนใบกำกับภาษี)</label><input id="f-vat-legalname" value="${(prop.legalName||'').replace(/"/g,'&quot;')}" placeholder="เช่น บริษัท ... จำกัด"></div>
+      <p class="sub" style="font-size:12px;margin:10px 0 6px;">กำหนดวิธีคิด VAT แยกอิสระต่อรายการ — "ไม่มี VAT" เช่น ค่าเช่าที่พักอาศัยได้รับยกเว้นตามกฎหมาย, "VAT นอก" คือราคาที่ตั้งเป็นราคาก่อนภาษี แล้วบวกเพิ่ม, "VAT ใน" คือราคาที่ตั้งรวมภาษีอยู่แล้ว ระบบจะแยกภาษีออกมาให้เอง</p>
+      <div class="field-row">
+        <div class="field"><label>ค่าเช่า</label>
+          <select id="f-vat-type-rent">
+            <option value="none" ${(!prop.vatTypeRent||prop.vatTypeRent==='none')?'selected':''}>ไม่มี VAT</option>
+            <option value="exclusive" ${prop.vatTypeRent==='exclusive'?'selected':''}>VAT นอก</option>
+            <option value="inclusive" ${prop.vatTypeRent==='inclusive'?'selected':''}>VAT ใน</option>
+          </select>
+        </div>
+        <div class="field"><label>ค่าน้ำ</label>
+          <select id="f-vat-type-water">
+            <option value="none" ${(!prop.vatTypeWater||prop.vatTypeWater==='none')?'selected':''}>ไม่มี VAT</option>
+            <option value="exclusive" ${prop.vatTypeWater==='exclusive'?'selected':''}>VAT นอก</option>
+            <option value="inclusive" ${prop.vatTypeWater==='inclusive'?'selected':''}>VAT ใน</option>
+          </select>
+        </div>
+        <div class="field"><label>ค่าไฟ</label>
+          <select id="f-vat-type-electric">
+            <option value="none" ${(!prop.vatTypeElectric||prop.vatTypeElectric==='none')?'selected':''}>ไม่มี VAT</option>
+            <option value="exclusive" ${prop.vatTypeElectric==='exclusive'?'selected':''}>VAT นอก</option>
+            <option value="inclusive" ${prop.vatTypeElectric==='inclusive'?'selected':''}>VAT ใน</option>
+          </select>
+        </div>
+      </div>
     </div>
     <div class="modal-actions">
       ${prop.id?`<button class="btn danger" id="deletePropertyBtn">ลบอพาร์ทเมนท์นี้</button>`:''}
@@ -2423,6 +2499,14 @@ async function onSaveRates(){
   prop.electricRate = Number(document.getElementById('f-electricrate').value)||0;
   prop.address = document.getElementById('f-address').value.trim();
   prop.notes = document.getElementById('f-notes').value.trim();
+
+  prop.vatEnabled = document.getElementById('f-vat-enabled').checked;
+  prop.vatRate = Number(document.getElementById('f-vat-rate').value)||0;
+  prop.vatTypeRent = document.getElementById('f-vat-type-rent').value;
+  prop.vatTypeWater = document.getElementById('f-vat-type-water').value;
+  prop.vatTypeElectric = document.getElementById('f-vat-type-electric').value;
+  prop.taxId = document.getElementById('f-vat-taxid').value.trim();
+  prop.legalName = document.getElementById('f-vat-legalname').value.trim();
 
   const qrFileInput = document.getElementById('f-qrimage');
   const qrFile = qrFileInput && qrFileInput.files && qrFileInput.files[0];
@@ -2634,7 +2718,7 @@ async function onSaveBulkMeter(){
     if(wCurr < wPrev || eCurr < ePrev){ skipped++; return; }
     bill.waterCurr = wCurr; bill.water = Math.max(wCurr-wPrev,0)*waterRate;
     bill.electricCurr = eCurr; bill.electric = Math.max(eCurr-ePrev,0)*electricRate;
-    bill.total = Number(bill.rent||0) + Number(bill.water||0) + Number(bill.electric||0);
+    applyBillVat(bill);
     logMeterReading({roomId: bill.roomId, billId: bill.id, month: bill.month, type:'water', prev:wPrev, curr:wCurr, rate:waterRate});
     logMeterReading({roomId: bill.roomId, billId: bill.id, month: bill.month, type:'electric', prev:ePrev, curr:eCurr, rate:electricRate});
     updated++;
@@ -2860,6 +2944,7 @@ function renderBills(){
         <button class="btn small" id="markPaidBtn" style="margin-left:auto;">✓ ทำเครื่องหมายว่าชำระแล้ว</button>
         <button class="btn ghost small" id="markUnpaidBtn">ทำเครื่องหมายว่าค้างชำระ</button>
         <button class="btn ghost small" id="moveBillsBtn">📅 ย้ายไปเดือนอื่น</button>
+        ${prop.vatEnabled?`<button class="btn ghost small" id="taxInvoiceRangeBtn">📇 กำหนดเลขที่ใบกำกับภาษี</button>`:''}
       </div>`:''}
       ${monthBills.length===0 ? `<div class="empty"><div class="big">🧾</div>ยังไม่มีบิลของเดือนนี้ กด “สร้างบิลเดือนนี้” เพื่อสร้างบิลให้ทุกห้องที่มีผู้เช่า</div>` : `
       <table id="billsTable">
@@ -2878,7 +2963,7 @@ function renderBills(){
               <td class="mono muted" data-label="ค่าเช่า">${THB(b.rent)}</td>
               <td class="edit-water" data-id="${b.id}" data-label="ค่าน้ำ" style="cursor:pointer;">${meterCellHtml(b,'water')}</td>
               <td class="edit-electric" data-id="${b.id}" data-label="ค่าไฟ" style="cursor:pointer;">${meterCellHtml(b,'electric')}</td>
-              <td class="mono" data-label="รวม" style="font-weight:600;">${THB(b.total)} บ.</td>
+              <td class="mono" data-label="รวม" style="font-weight:600;">${THB(b.total)} บ.${prop.vatEnabled?`<br><span class="muted" style="font-weight:400;font-size:11px;">รวม VAT ${THB(b.vatAmount||0)}</span>`:''}</td>
               <td data-label="สถานะ">
                 <select class="bill-status ${b.status==='paid'?'badge-paid':'badge-unpaid'}" data-id="${b.id}">
                   <option value="unpaid" ${b.status==='unpaid'?'selected':''}>ค้างชำระ</option>
@@ -2914,6 +2999,7 @@ function invoiceHtml(bill){
   const property = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId)) || {};
   if(!bill.invoiceNo){ bill.invoiceNo = genInvoiceNo(bill.month); saveBills(); }
   const invoiceNo = bill.invoiceNo;
+  const vatOn = !!property.vatEnabled;
 
   const waterUnits = Math.max((Number(bill.waterCurr)||0)-(Number(bill.waterPrev)||0),0);
   const electricUnits = Math.max((Number(bill.electricCurr)||0)-(Number(bill.electricPrev)||0),0);
@@ -2934,6 +3020,28 @@ function invoiceHtml(bill){
       <td class="r">${THB(it.amount)}</td>
     </tr>`).join('');
 
+  const footerHtml = vatOn ? `
+    <tr>
+      <td class="words" colspan="3" rowspan="3">(${bahtText(bill.total)})</td>
+      <td class="label">รวมมูลค่า</td>
+      <td class="amount">${THB(bill.vatSubtotal!=null?bill.vatSubtotal:(Number(bill.rent||0)+Number(bill.water||0)+Number(bill.electric||0)))}</td>
+    </tr>
+    <tr>
+      <td class="label">ภาษีมูลค่าเพิ่ม ${Number(property.vatRate)||0}%</td>
+      <td class="amount">${THB(bill.vatAmount||0)}</td>
+    </tr>
+    <tr>
+      <td class="label">รวมเงินที่ต้องชำระทั้งสิ้น</td>
+      <td class="amount">${THB(bill.total)}</td>
+    </tr>
+  ` : `
+    <tr>
+      <td class="words" colspan="3">(${bahtText(bill.total)})</td>
+      <td class="label">จำนวนเงินรวม</td>
+      <td class="amount">${THB(bill.total)}</td>
+    </tr>
+  `;
+
   return `
     <div class="invoice">
       <div class="inv-topbar">
@@ -2947,14 +3055,16 @@ function invoiceHtml(bill){
             <text x="256" y="430" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="none" stroke="#3B2A1E" stroke-width="5" stroke-linejoin="round">D</text>
           </svg>
           <div>
-            <p class="inv-shop-name">${property.name||''}</p>
+            <p class="inv-shop-name">${vatOn && property.legalName ? property.legalName : (property.name||'')}</p>
             ${property.address?`<p class="inv-shop-address">${property.address}</p>`:''}
+            ${vatOn && property.taxId?`<p class="inv-shop-address">เลขประจำตัวผู้เสียภาษี ${property.taxId}</p>`:''}
           </div>
         </div>
         <div class="inv-docno-wrap">
-          <div class="inv-doctitle">ใบแจ้งหนี้ / INVOICE</div>
+          <div class="inv-doctitle">${vatOn ? 'ใบแจ้งหนี้ / ใบกำกับภาษี' : 'ใบแจ้งหนี้ / INVOICE'}</div>
           <div class="inv-barcode"></div>
           <div class="inv-docno">${invoiceNo}</div>
+          ${vatOn && bill.taxInvoiceNo?`<div class="inv-docno" style="font-size:12px;">เลขที่ใบกำกับภาษี ${bill.taxInvoiceNo}</div>`:''}
         </div>
       </div>
       <div class="inv-body">
@@ -2984,11 +3094,7 @@ function invoiceHtml(bill){
             ${itemRowsHtml}
           </tbody>
           <tfoot>
-            <tr>
-              <td class="words" colspan="3">(${bahtText(bill.total)})</td>
-              <td class="label">จำนวนเงินรวม</td>
-              <td class="amount">${THB(bill.total)}</td>
-            </tr>
+            ${footerHtml}
           </tfoot>
         </table>
         ${(property.notes || property.qrImage) ? `
@@ -3147,6 +3253,7 @@ function receiptHtml(receipt){
   const property = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId)) || {};
   const receiptNo = receipt.receiptNo;
   const dateObj = receipt.date ? new Date(receipt.date+'T00:00:00') : new Date();
+  const vatOn = !!property.vatEnabled;
 
   let itemRowsHtml;
   if(bill){
@@ -3178,6 +3285,28 @@ function receiptHtml(receipt){
       </tr>`;
   }
 
+  const footerHtml = (vatOn && receipt.vatSubtotal) ? `
+    <tr>
+      <td class="words" colspan="3" rowspan="3">(${bahtText(receipt.amount)})</td>
+      <td class="label">รวมมูลค่า</td>
+      <td class="amount">${THB(receipt.vatSubtotal)}</td>
+    </tr>
+    <tr>
+      <td class="label">ภาษีมูลค่าเพิ่ม ${Number(property.vatRate)||0}%</td>
+      <td class="amount">${THB(receipt.vatAmount||0)}</td>
+    </tr>
+    <tr>
+      <td class="label">รวมเงินที่ต้องชำระทั้งสิ้น</td>
+      <td class="amount">${THB(receipt.amount)}</td>
+    </tr>
+  ` : `
+    <tr>
+      <td class="words" colspan="3">(${bahtText(receipt.amount)})</td>
+      <td class="label">จำนวนเงินรวม</td>
+      <td class="amount">${THB(receipt.amount)}</td>
+    </tr>
+  `;
+
   return `
     <div class="invoice dep-receipt">
       <div class="inv-topbar">
@@ -3191,12 +3320,13 @@ function receiptHtml(receipt){
             <text x="256" y="430" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="none" stroke="#3B2A1E" stroke-width="5" stroke-linejoin="round">D</text>
           </svg>
           <div>
-            <p class="inv-shop-name">${property.name||''}</p>
+            <p class="inv-shop-name">${vatOn && property.legalName ? property.legalName : (property.name||'')}</p>
             ${property.address?`<p class="inv-shop-address">${property.address}</p>`:''}
+            ${vatOn && property.taxId?`<p class="inv-shop-address">เลขประจำตัวผู้เสียภาษี ${property.taxId}</p>`:''}
           </div>
         </div>
         <div class="inv-docno-wrap">
-          <div class="inv-doctitle">ใบเสร็จรับเงิน / RECEIPT</div>
+          <div class="inv-doctitle">${vatOn ? 'ใบเสร็จรับเงิน / ใบกำกับภาษี' : 'ใบเสร็จรับเงิน / RECEIPT'}</div>
           <div class="inv-barcode"></div>
           <div class="inv-docno">${receiptNo}</div>
         </div>
@@ -3228,11 +3358,7 @@ function receiptHtml(receipt){
             ${itemRowsHtml}
           </tbody>
           <tfoot>
-            <tr>
-              <td class="words" colspan="3">(${bahtText(receipt.amount)})</td>
-              <td class="label">จำนวนเงินรวม</td>
-              <td class="amount">${THB(receipt.amount)}</td>
-            </tr>
+            ${footerHtml}
           </tfoot>
         </table>
         <div class="inv-sign">
@@ -3449,6 +3575,8 @@ function attachPageEvents(){
   if(markUnpaidBtn) markUnpaidBtn.onclick = ()=> bulkSetBillStatus('unpaid');
   const moveBillsBtn = document.getElementById('moveBillsBtn');
   if(moveBillsBtn) moveBillsBtn.onclick = ()=> openModal(moveBillsModalHtml());
+  const taxInvoiceRangeBtn = document.getElementById('taxInvoiceRangeBtn');
+  if(taxInvoiceRangeBtn) taxInvoiceRangeBtn.onclick = ()=> openModal(taxInvoiceRangeModalHtml(renderBills._selected.size));
   document.querySelectorAll('.issue-receipt').forEach(el=>{
     el.onclick = ()=> onIssueReceipt(el.dataset.id);
   });
@@ -3473,7 +3601,11 @@ function attachPageEvents(){
   document.querySelectorAll('.edit-bill').forEach(el=>{
     el.onclick = ()=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
-      if(bill) openModal(billEditFormHtml(bill));
+      if(!bill) return;
+      openModal(billEditFormHtml(bill));
+      const room = rooms.find(r=>r.id===bill.roomId);
+      const prop = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId));
+      wireBillEditVatCalc(prop);
     };
   });
   document.querySelectorAll('.delete-bill').forEach(el=>{
@@ -3865,7 +3997,9 @@ async function onSaveReceipt(billId){
     billId: bill.id,
     receiptNo: genReceiptNo(date),
     amount: bill.total,
-    date, note
+    date, note,
+    vatSubtotal: bill.vatSubtotal || 0,
+    vatAmount: bill.vatAmount || 0
   };
   receipts.push(receipt);
   bill.status = 'paid';
@@ -3990,7 +4124,7 @@ function reconcileBillFromMeterLog(bill){
       bill[prevKey] = logPrev;
       bill[currKey] = logCurr;
       bill[type] = logCost; // ใช้ค่าใช้จ่ายที่คำนวณไว้แล้วตอนบันทึกจริง (คงอัตราที่ใช้จริงตอนนั้นไว้)
-      bill.total = Number(bill.rent||0) + Number(bill.water||0) + Number(bill.electric||0);
+      applyBillVat(bill);
       fixed++;
     }
   });
@@ -4018,7 +4152,7 @@ function recheckRoomMeterChain(roomId){
       if((Number(bill[currKey])||0) < expectedPrev) bill[currKey] = expectedPrev; // กันหน่วยติดลบ
       const units = Math.max((Number(bill[currKey])||0) - expectedPrev, 0);
       bill[type] = units * impliedRate;
-      bill.total = Number(bill.rent||0) + Number(bill.water||0) + Number(bill.electric||0);
+      applyBillVat(bill);
       fixedCount++;
     }
   });
@@ -4043,6 +4177,90 @@ async function recheckAllMeters(){
   }
 }
 
+/* ============ VAT (v14) ============
+   ปัดเศษทศนิยม 2 ตำแหน่งแบบมาตรฐาน กันปัญหาทศนิยมลอย (floating point) สะสมตอนรวมยอดหลายช่อง */
+function round2(n){ return Math.round((Number(n)||0) * 100) / 100; }
+
+/* คำนวณ VAT ของยอดเงินหนึ่งช่อง ตามประเภทที่ตั้งไว้ (none/exclusive/inclusive)
+   - none:      ยกเว้นภาษี — net=vat=0 เท่ากับ base เดิมเป๊ะ ไม่มี VAT
+   - exclusive: "VAT นอก" — base คือราคาก่อนภาษี บวก VAT เพิ่มเข้าไปเป็นยอดรวม (gross)
+   - inclusive: "VAT ใน" — base คือยอดรวมภาษีแล้ว แยกภาษีออกมาจากยอดนั้นให้ (gross ยังเท่า base เดิม) */
+function computeVatForAmount(amount, vatType, ratePercent){
+  const base = Number(amount) || 0;
+  const rate = Number(ratePercent) || 0;
+  if(!base || vatType==='none' || !rate) return { net: base, vat: 0, gross: base };
+  const r = rate / 100;
+  if(vatType === 'exclusive'){
+    const vat = round2(base * r);
+    return { net: base, vat, gross: round2(base + vat) };
+  }
+  const net = round2(base / (1 + r));
+  const vat = round2(base - net);
+  return { net, vat, gross: base };
+}
+
+/* จุดคำนวณ VAT กลางจุดเดียวของทั้งแอป — เรียกทุกครั้งที่ค่าเช่า/น้ำ/ไฟของบิลเปลี่ยน เพื่อให้
+   bill.total / bill.vatSubtotal / bill.vatAmount ตรงกันเสมอไม่ว่าจะแก้จากจุดไหนในแอป (จดมิเตอร์,
+   แก้บิลมือ, รีเช็คเลขมิเตอร์ ฯลฯ) ถ้าอพาร์ทเมนท์ไม่เปิดใช้ VAT พฤติกรรมเหมือนเดิมทุกประการ
+   (total = รวมเช่า+น้ำ+ไฟ ตรงๆ) — เรียกแทนบรรทัด "bill.total = rent+water+electric" เดิมทุกจุด */
+function applyBillVat(bill){
+  const room = rooms.find(r=>r.id===bill.roomId);
+  const prop = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId));
+  if(!prop || !prop.vatEnabled){
+    bill.vatSubtotal = 0;
+    bill.vatAmount = 0;
+    bill.total = round2(Number(bill.rent||0) + Number(bill.water||0) + Number(bill.electric||0));
+    return;
+  }
+  const rate = Number(prop.vatRate) || 0;
+  const rentR = computeVatForAmount(bill.rent, prop.vatTypeRent, rate);
+  const waterR = computeVatForAmount(bill.water, prop.vatTypeWater, rate);
+  const electricR = computeVatForAmount(bill.electric, prop.vatTypeElectric, rate);
+  bill.vatSubtotal = round2(rentR.net + waterR.net + electricR.net);
+  bill.vatAmount = round2(rentR.vat + waterR.vat + electricR.vat);
+  bill.total = round2(rentR.gross + waterR.gross + electricR.gross);
+}
+
+/* ============ กำหนดเลขที่ใบกำกับภาษีเป็นช่วง (bulk) ============
+   เรียงบิลที่เลือกไว้ตามเลขห้อง (น้อย→มาก) แล้วกำหนดเลขที่ต่อเนื่องกันไปทีละ 1 จากเลขเริ่มต้นที่กรอก
+   รองรับเลขที่ที่มีคำนำหน้าไม่ใช่ตัวเลขได้ (เช่น "INV-08765") และคงจำนวนหลัก/เลขศูนย์นำหน้าตามที่กรอกไว้ */
+function taxInvoiceRangeModalHtml(count){
+  return `
+    <h3>กำหนดเลขที่ใบกำกับภาษีเป็นช่วง</h3>
+    <p class="sub" style="font-size:13px;line-height:1.6;">บิลที่เลือกไว้ ${count} รายการ จะถูกเรียงตามเลขห้องจากน้อยไปมาก แล้วกำหนดเลขที่ต่อเนื่องกันทีละ 1 โดยเริ่มจากเลขที่กรอกด้านล่าง</p>
+    <div class="field"><label>เลขที่ใบแรก</label><input id="f-taxinv-start" placeholder="เช่น 8765 หรือ INV-08765"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+      <button class="btn" id="saveTaxInvoiceRangeBtn">กำหนดเลขที่</button>
+    </div>
+  `;
+}
+
+async function onSaveTaxInvoiceRange(){
+  const startRaw = document.getElementById('f-taxinv-start').value.trim();
+  if(!startRaw){ showToast('กรุณากรอกเลขที่ใบแรก'); return; }
+  const m = /^(.*?)(\d+)$/.exec(startRaw);
+  if(!m){ showToast('เลขที่ใบแรกต้องลงท้ายด้วยตัวเลข เช่น 8765 หรือ INV-8765'); return; }
+  const prefix = m[1];
+  const digits = m[2].length; // คงจำนวนหลัก/เลขศูนย์นำหน้าตามที่กรอกไว้
+  const startNum = parseInt(m[2], 10);
+
+  const selectedBills = Array.from(renderBills._selected).map(id=>bills.find(b=>b.id===id)).filter(Boolean);
+  if(selectedBills.length===0){ showToast('ไม่มีบิลที่เลือกไว้'); return; }
+  selectedBills.sort((a,b)=>{
+    const ra = rooms.find(r=>r.id===a.roomId), rb = rooms.find(r=>r.id===b.roomId);
+    return (ra?ra.number:'').localeCompare(rb?rb.number:'', undefined, {numeric:true});
+  });
+  selectedBills.forEach((bill, i)=>{
+    bill.taxInvoiceNo = prefix + String(startNum + i).padStart(digits, '0');
+  });
+
+  await saveBills();
+  closeModal();
+  render();
+  showToast(`กำหนดเลขที่ใบกำกับภาษีให้ ${selectedBills.length} รายการแล้ว`);
+}
+
 async function generateBills(){
   const month = renderBills._month || defaultBillingMonth();
   const occupiedRooms = currentRooms().filter(r=>r.status==='occupied');
@@ -4059,8 +4277,9 @@ async function generateBills(){
       rent:Number(room.rent)||0,
       waterPrev, waterCurr:waterPrev, water:0,
       electricPrev, electricCurr:electricPrev, electric:0,
-      total:Number(room.rent)||0, status:'unpaid'
+      total:0, vatSubtotal:0, vatAmount:0, taxInvoiceNo:'', status:'unpaid'
     });
+    applyBillVat(bills[bills.length-1]);
     created++;
   });
   await saveBills();
