@@ -2101,13 +2101,26 @@ function roomFormHtml(room){
       <div class="field"><label>เลขห้อง</label><input id="f-number" value="${room?room.number:''}" placeholder="เช่น 101"></div>
       <div class="field"><label>ชั้น</label><input id="f-floor" value="${room?(room.floor||''):''}" placeholder="เช่น 1"></div>
     </div>
-    <div class="field"><label>ค่าเช่าต่อเดือน (บาท)</label><input id="f-rent" type="number" value="${room?room.rent:''}" placeholder="เช่น 3500"></div>
-    <div class="field">
-      <label>สถานะ</label>
-      <select id="f-status">
-        <option value="vacant" ${room&&room.status==='vacant'?'selected':''}>ว่าง</option>
-        <option value="occupied" ${room&&room.status==='occupied'?'selected':''}>มีผู้เช่า</option>
-      </select>
+    <div class="field-row">
+      <div class="field"><label>ค่าเช่าต่อเดือน (บาท)</label><input id="f-rent" type="number" value="${room?room.rent:''}" placeholder="เช่น 3500"></div>
+      <div class="field"><label>ค่ามัดจำ (บาท)</label><input id="f-deposit" type="number" value="${room&&room.deposit?room.deposit:''}" placeholder="เช่น 7000"></div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>ประเภทห้อง</label>
+        <select id="f-roomType">
+          <option value="" ${!room||!room.roomType?'selected':''}>— ยังไม่ระบุ —</option>
+          <option value="ห้องพัดลม" ${room&&room.roomType==='ห้องพัดลม'?'selected':''}>ห้องพัดลม</option>
+          <option value="ห้องแอร์" ${room&&room.roomType==='ห้องแอร์'?'selected':''}>ห้องแอร์</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>สถานะ</label>
+        <select id="f-status">
+          <option value="vacant" ${room&&room.status==='vacant'?'selected':''}>ว่าง</option>
+          <option value="occupied" ${room&&room.status==='occupied'?'selected':''}>มีผู้เช่า</option>
+        </select>
+      </div>
     </div>
     <div class="modal-actions">
       ${isEdit?`<button class="btn danger" id="deleteRoomBtn">ลบห้อง</button>`:''}
@@ -3662,6 +3675,8 @@ async function onSaveRoom(){
   const floor = document.getElementById('f-floor').value.trim();
   const rent = document.getElementById('f-rent').value;
   const status = document.getElementById('f-status').value;
+  const roomType = document.getElementById('f-roomType').value;
+  const deposit = document.getElementById('f-deposit').value;
   if(!number){ showToast('กรุณากรอกเลขห้อง'); return; }
 
   const editId = onSaveRoom._editId;
@@ -3674,9 +3689,10 @@ async function onSaveRoom(){
     const room = rooms.find(r=>r.id===editId);
     // id ห้องเป็นเลขรันคงที่แล้ว แก้เลขห้อง (number) แค่เปลี่ยนป้ายแสดงผล ไม่กระทบ id หรือผู้เช่า/บิลที่เชื่อมโยงไว้เลย
     room.number = number; room.floor = floor; room.rent = Number(rent)||0; room.status = status;
+    room.roomType = roomType; room.deposit = Number(deposit)||0;
     savedRoom = room;
   } else {
-    savedRoom = {id:nextId(rooms), propertyId:currentPropertyId, number, floor, rent:Number(rent)||0, status};
+    savedRoom = {id:nextId(rooms), propertyId:currentPropertyId, number, floor, rent:Number(rent)||0, status, roomType, deposit:Number(deposit)||0};
     rooms.push(savedRoom);
   }
   await saveRooms();

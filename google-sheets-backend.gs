@@ -7,8 +7,22 @@
  *       ทั้งหมด: username ห้ามซ้ำ, รหัสผ่านอย่างน้อย 4 ตัวอักษร) — ข้อควรรู้: เพราะลิงก์ /exec
  *       ฝังอยู่ใน index.html แบบเปิดเผยอยู่แล้ว การเปิด register หมายถึงใครก็ตามที่มีลิงก์เว็บแอป
  *       จะสมัครบัญชีของตัวเองได้ (แต่จะเห็นเฉพาะข้อมูลของบัญชีตัวเองเท่านั้น ไม่เห็นของคนอื่น)
+ *  v13: เพิ่ม 2 ชีตใหม่ —
+ *       (1) "ใบเสร็จ" — บันทึกใบเสร็จรับเงินที่ออกตอนกดปุ่ม "ออกใบเสร็จรับเงิน" ในหน้าบิล
+ *           (กดแล้วปรับสถานะบิลจาก "ค้างชำระ" เป็น "ชำระแล้ว" ให้อัตโนมัติด้วย)
+ *       (2) "ตำแหน่งผัง" — เก็บตำแหน่ง x/y ของห้องในมุมมอง "ผังอิสระ" ให้ซิงก์ข้ามอุปกรณ์ได้
+ *           (เดิมเก็บใน localStorage เครื่องเดียวเท่านั้น หายไปถ้าเปลี่ยนเครื่อง/ล้างเบราว์เซอร์)
+ *       เพิ่มระบบสำรองข้อมูลอัตโนมัติ (ดูฟังก์ชัน SETUP_scheduledBackup ท้ายไฟล์) — คัดลอกทั้ง
+ *       สเปรดชีตไปเก็บในโฟลเดอร์ Backups ทุก 15 วัน ต้องรัน SETUP_scheduledBackup() หนึ่งครั้งจาก
+ *       Apps Script editor เพื่อเริ่มใช้งาน (เหมือนขั้นตอน ADMIN_createUser ตอนติดตั้งครั้งแรก)
+ *  v14: เพิ่มระบบ VAT — เปิด/ปิดได้ต่ออพาร์ทเมนท์ (ไม่กระทบอพาร์ทเมนท์เดิมที่ไม่เปิดใช้)
+ *       ตั้งอัตรา VAT (%) เองได้ และเลือกประเภท VAT แยกอิสระต่อค่าเช่า/ค่าน้ำ/ค่าไฟ ได้ 3 แบบ:
+ *       "ไม่มี VAT" (ยกเว้น เช่น ค่าเช่าที่พักอาศัยตามกฎหมาย), "VAT นอก" (บวกเพิ่มจากราคาที่ตั้ง),
+ *       "VAT ใน" (ราคาที่ตั้งรวมภาษีอยู่แล้ว แยกออกมาให้). คำนวณแยกทีละช่องแล้วรวมยอด VAT เข้าด้วยกัน
+ *       เก็บผลคำนวณ (ยอดก่อนภาษี/VAT) ไว้ที่ตัวบิลตอนออกบิลเลย ไม่คำนวณสดใหม่ทุกครั้งที่เปิดดู กัน
+ *       ปัญหาบิลเก่าเพี้ยนถ้าอัตรา VAT ถูกแก้ไขภายหลัง. เพิ่มเลขที่ใบกำกับภาษีแยกชุดจากเลขที่บิลปกติ
  * ------------------------------------------------------------
- * โครงสร้าง (7 ชีต):
+ * โครงสร้าง (9 ชีต):
  *
  *   ผู้ใช้งาน   : รหัส | username | รหัสผ่าน(hash) | salt | ชื่อที่แสดง | วันที่สมัคร   ← ใหม่ใน v11
  *   อพาร์ทเมนท์ : รหัส | ชื่ออพาร์ทเมนท์ | อัตราค่าน้ำ | อัตราค่าไฟ | ที่อยู่ | หมายเหตุท้ายบิล | QR | รหัสเจ้าของ
@@ -20,6 +34,8 @@
  *   มัดจำ       : รหัส | รหัสห้อง | เลขที่ใบรับ | จำนวนเงิน | วันที่รับเงิน | หมายเหตุ
  *   จดมิเตอร์   : รหัส | รหัสห้อง | รหัสบิลอ้างอิง | เดือน | ประเภท | เลขเดิม | เลขปัจจุบัน |
  *                หน่วยที่ใช้ | อัตราต่อหน่วย | ค่าใช้จ่าย | เวลาบันทึก
+ *   ใบเสร็จ     : รหัส | รหัสห้อง | รหัสบิลอ้างอิง | เลขที่ใบเสร็จ | จำนวนเงิน | วันที่รับเงิน | หมายเหตุ   ← ใหม่ใน v13
+ *   ตำแหน่งผัง  : รหัส | รหัสห้อง | x | y                                                              ← ใหม่ใน v13
  *
  * หลักการของ v11:
  * - login (doPost action:'login') ตรวจ username/password กับชีต "ผู้ใช้งาน" (เก็บรหัสผ่านเป็น
@@ -50,19 +66,29 @@
 
 var SHEETS = {
   users: { name: 'ผู้ใช้งาน', headers: ['รหัส','username','รหัสผ่าน(hash)','salt','ชื่อที่แสดง','วันที่สมัคร'] },
-  properties: { name: 'อพาร์ทเมนท์', headers: ['รหัส','ชื่ออพาร์ทเมนท์','อัตราค่าน้ำ(บาท/หน่วย)','อัตราค่าไฟ(บาท/หน่วย)','ที่อยู่','หมายเหตุท้ายบิล','QR ชำระเงิน (base64)','รหัสเจ้าของ'] },
-  rooms:      { name: 'ห้องพัก',     headers: ['รหัส','รหัสอพาร์ทเมนท์','เลขห้อง','ชั้น','ค่าเช่า','สถานะ'] },
+  properties: { name: 'อพาร์ทเมนท์', headers: [
+                  'รหัส','ชื่ออพาร์ทเมนท์','อัตราค่าน้ำ(บาท/หน่วย)','อัตราค่าไฟ(บาท/หน่วย)','ที่อยู่',
+                  'หมายเหตุท้ายบิล','QR ชำระเงิน (base64)','รหัสเจ้าของ',
+                  'เปิดใช้VAT','อัตราVAT(%)','VATค่าเช่า','VATค่าน้ำ','VATค่าไฟ','เลขผู้เสียภาษี','ชื่อนิติบุคคล'
+                ] },
+  rooms:      { name: 'ห้องพัก',     headers: ['รหัส','รหัสอพาร์ทเมนท์','เลขห้อง','ชั้น','ค่าเช่า','สถานะ','ประเภทห้อง','ค่ามัดจำ'] },
   tenants:    { name: 'ผู้เช่า',     headers: ['รหัส','รหัสห้อง','ชื่อผู้เช่า','เบอร์โทร','วันที่เข้าพัก'] },
   bills:      { name: 'บิล',        headers: [
                   'รหัส','รหัสห้อง','เดือน','เลขที่บิล','ค่าเช่า',
                   'เลขมิเตอร์น้ำเดิม','เลขมิเตอร์น้ำปัจจุบัน','ค่าน้ำ',
-                  'เลขมิเตอร์ไฟเดิม','เลขมิเตอร์ไฟปัจจุบัน','ค่าไฟ','รวม','สถานะ'
+                  'เลขมิเตอร์ไฟเดิม','เลขมิเตอร์ไฟปัจจุบัน','ค่าไฟ','รวม','สถานะ',
+                  'ยอดก่อนภาษี','VAT','เลขที่ใบกำกับภาษี'
                 ] },
   deposits:      { name: 'มัดจำ', headers: ['รหัส','รหัสห้อง','เลขที่ใบรับ','จำนวนเงิน','วันที่รับเงิน','หมายเหตุ'] },
   meterReadings: { name: 'จดมิเตอร์', headers: [
                   'รหัส','รหัสห้อง','รหัสบิลอ้างอิง','เดือน','ประเภท',
                   'เลขเดิม','เลขปัจจุบัน','หน่วยที่ใช้','อัตราต่อหน่วย','ค่าใช้จ่าย','เวลาบันทึก'
-                ] }
+                ] },
+  receipts:      { name: 'ใบเสร็จ', headers: [
+                  'รหัส','รหัสห้อง','รหัสบิลอ้างอิง','เลขที่ใบเสร็จ','จำนวนเงิน','วันที่รับเงิน','หมายเหตุ',
+                  'ยอดก่อนภาษี','VAT'
+                ] },
+  roomLayouts:   { name: 'ตำแหน่งผัง', headers: ['รหัส','รหัสห้อง','x','y'] }
 };
 
 /* คอลัมน์ที่ต้องบังคับเป็น Plain text (@) เสมอ — เฉพาะช่องที่หน้าตาคล้ายตัวเลข/วันที่ ซึ่งเสี่ยงถูก
@@ -73,9 +99,10 @@ var TEXT_COLUMNS = {
   users:         [2, 3, 4, 6], // username, hash, salt, วันที่สมัคร (เผื่อ username ล้วนตัวเลข)
   rooms:         [3],        // เลขห้อง
   tenants:       [4, 5],     // เบอร์โทร, วันที่เข้าพัก
-  bills:         [3],        // เดือน
+  bills:         [3, 16],    // เดือน, เลขที่ใบกำกับภาษี
   deposits:      [5],        // วันที่รับเงิน
-  meterReadings: [4, 11]     // เดือน, เวลาบันทึก
+  meterReadings: [4, 11],    // เดือน, เวลาบันทึก
+  receipts:      [6]         // วันที่รับเงิน
 };
 
 function getOrCreateSheet_(table) {
@@ -112,22 +139,55 @@ function dateCellToText_(v, withDay) {
 /* ---- แปลงระหว่างข้อมูลภายในแอป กับแถวในชีต — ทุกตารางเชื่อมกันด้วย "รหัส" ตรงๆ ---- */
 
 /* ownerId เป็นคอลัมน์สุดท้าย (ต่อท้าย ไม่แทรกกลาง) เพื่อไม่ให้ตำแหน่งคอลัมน์เดิมขยับ —
-   แถวเก่าที่ยังไม่เคยมีเจ้าของจะมีช่องนี้ว่าง จนกว่าจะรัน ADMIN_assignAllPropertiesToUser */
+   แถวเก่าที่ยังไม่เคยมีเจ้าของจะมีช่องนี้ว่าง จนกว่าจะรัน ADMIN_assignAllPropertiesToUser
+   v14: เพิ่มชุดข้อมูล VAT ต่อท้ายเช่นกัน — อพาร์ทเมนท์เก่าที่ไม่เคยตั้งค่าจะได้ vatEnabled=false
+   โดยอัตโนมัติ (ช่องว่าง) ไม่กระทบการทำงานเดิมเลย ต้องเข้าไปเปิดใช้เองในหน้าตั้งค่าอพาร์ทเมนท์ */
 function propertyToRow_(p) {
-  return [ p.id, p.name || '', Number(p.waterRate) || 0, Number(p.electricRate) || 0, p.address || '', p.notes || '', p.qrImage || '', p.ownerId || '' ];
+  return [
+    p.id, p.name || '', Number(p.waterRate) || 0, Number(p.electricRate) || 0, p.address || '', p.notes || '', p.qrImage || '', p.ownerId || '',
+    p.vatEnabled ? 'เปิด' : '', Number(p.vatRate) || 0,
+    vatTypeToLabel_(p.vatTypeRent), vatTypeToLabel_(p.vatTypeWater), vatTypeToLabel_(p.vatTypeElectric),
+    p.taxId || '', p.legalName || ''
+  ];
 }
 function rowToProperty_(row) {
-  return { id: String(row[0]), name: String(row[1] || ''), waterRate: Number(row[2]) || 0, electricRate: Number(row[3]) || 0, address: String(row[4] || ''), notes: String(row[5] || ''), qrImage: String(row[6] || ''), ownerId: String(row[7] || '') };
+  return {
+    id: String(row[0]), name: String(row[1] || ''), waterRate: Number(row[2]) || 0, electricRate: Number(row[3]) || 0,
+    address: String(row[4] || ''), notes: String(row[5] || ''), qrImage: String(row[6] || ''), ownerId: String(row[7] || ''),
+    vatEnabled: row[8] === 'เปิด', vatRate: Number(row[9]) || 0,
+    vatTypeRent: labelToVatType_(row[10]), vatTypeWater: labelToVatType_(row[11]), vatTypeElectric: labelToVatType_(row[12]),
+    taxId: String(row[13] || ''), legalName: String(row[14] || '')
+  };
+}
+
+/* แปลงประเภท VAT ระหว่างรหัสภายในแอป (none/exclusive/inclusive) กับข้อความอ่านง่ายที่โชว์ในชีตจริง
+   - none:      ไม่ต้องเสีย VAT เลย (เช่น ค่าเช่าที่พักอาศัย ได้รับยกเว้นตามกฎหมาย)
+   - exclusive: "VAT นอก" ราคาที่ตั้งไว้เป็นราคาก่อนภาษี บวก VAT เพิ่มเข้าไปตอนออกบิล
+   - inclusive: "VAT ใน" ราคาที่ตั้งไว้รวมภาษีอยู่แล้ว ระบบแยกภาษีออกมาจากยอดนั้นให้เอง */
+function vatTypeToLabel_(t) {
+  if (t === 'exclusive') return 'VAT นอก';
+  if (t === 'inclusive') return 'VAT ใน';
+  return 'ไม่มี VAT';
+}
+function labelToVatType_(label) {
+  if (label === 'VAT นอก') return 'exclusive';
+  if (label === 'VAT ใน') return 'inclusive';
+  return 'none';
 }
 
 function roomToRow_(r) {
-  return [ r.id, r.propertyId, r.number || '', r.floor || '', Number(r.rent) || 0, r.status === 'occupied' ? 'มีผู้เช่า' : 'ว่าง' ];
+  return [
+    r.id, r.propertyId, r.number || '', r.floor || '', Number(r.rent) || 0,
+    r.status === 'occupied' ? 'มีผู้เช่า' : 'ว่าง',
+    r.roomType || '', Number(r.deposit) || 0
+  ];
 }
 function rowToRoom_(row) {
   return {
     id: String(row[0]), propertyId: String(row[1]), number: String(row[2] || ''),
     floor: String(row[3] || ''), rent: Number(row[4]) || 0,
-    status: row[5] === 'มีผู้เช่า' ? 'occupied' : 'vacant'
+    status: row[5] === 'มีผู้เช่า' ? 'occupied' : 'vacant',
+    roomType: String(row[6] || ''), deposit: Number(row[7]) || 0
   };
 }
 
@@ -138,12 +198,16 @@ function rowToTenant_(row) {
   return { id: String(row[0]), roomId: String(row[1]), name: String(row[2] || ''), phone: String(row[3] || ''), moveIn: dateCellToText_(row[4], true) };
 }
 
+/* v14: เพิ่ม vatSubtotal(ยอดก่อนภาษี), vatAmount(VAT), taxInvoiceNo(เลขที่ใบกำกับภาษี) ต่อท้าย —
+   บิลเก่าที่ออกก่อนมี VAT จะมี 3 ช่องนี้ว่าง/เป็น 0 อัตโนมัติ ไม่กระทบข้อมูลเดิม
+   "รวม" (total) ยังคงหมายถึงยอดสุทธิที่ต้องชำระเหมือนเดิมทุกประการ ไม่ว่าจะมี VAT หรือไม่ */
 function billToRow_(b) {
   return [
     b.id, b.roomId, b.month, b.invoiceNo || '', Number(b.rent) || 0,
     Number(b.waterPrev) || 0, Number(b.waterCurr) || 0, Number(b.water) || 0,
     Number(b.electricPrev) || 0, Number(b.electricCurr) || 0, Number(b.electric) || 0,
-    Number(b.total) || 0, b.status === 'paid' ? 'ชำระแล้ว' : 'ค้างชำระ'
+    Number(b.total) || 0, b.status === 'paid' ? 'ชำระแล้ว' : 'ค้างชำระ',
+    Number(b.vatSubtotal) || 0, Number(b.vatAmount) || 0, b.taxInvoiceNo || ''
   ];
 }
 function rowToBill_(row) {
@@ -152,7 +216,8 @@ function rowToBill_(row) {
     invoiceNo: String(row[3] || ''), rent: Number(row[4]) || 0,
     waterPrev: Number(row[5]) || 0, waterCurr: Number(row[6]) || 0, water: Number(row[7]) || 0,
     electricPrev: Number(row[8]) || 0, electricCurr: Number(row[9]) || 0, electric: Number(row[10]) || 0,
-    total: Number(row[11]) || 0, status: row[12] === 'ชำระแล้ว' ? 'paid' : 'unpaid'
+    total: Number(row[11]) || 0, status: row[12] === 'ชำระแล้ว' ? 'paid' : 'unpaid',
+    vatSubtotal: Number(row[13]) || 0, vatAmount: Number(row[14]) || 0, taxInvoiceNo: String(row[15] || '')
   };
 }
 
@@ -184,18 +249,55 @@ function rowToMeterReading_(row) {
   };
 }
 
+/* ใบเสร็จรับเงิน — ออกตอนบิลได้รับการชำระ อ้างอิงกลับไปที่บิลต้นทางผ่าน billId
+   (คนละเอกสารกับ "มัดจำ" ซึ่งเป็นเงินมัดจำตอนเข้าพัก ไม่ใช่ค่าเช่ารายเดือน)
+   v14: เพิ่ม vatSubtotal/vatAmount ต่อท้าย ให้ตรงกับของบิลต้นทาง เผื่อพิมพ์ใบเสร็จแบบมี VAT */
+function receiptToRow_(rc) {
+  return [ rc.id, rc.roomId, rc.billId || '', rc.receiptNo || '', Number(rc.amount) || 0, rc.date || '', rc.note || '',
+    Number(rc.vatSubtotal) || 0, Number(rc.vatAmount) || 0 ];
+}
+function rowToReceipt_(row) {
+  return {
+    id: String(row[0]), roomId: String(row[1]), billId: String(row[2] || ''),
+    receiptNo: String(row[3] || ''), amount: Number(row[4]) || 0,
+    date: dateCellToText_(row[5], true), note: String(row[6] || ''),
+    vatSubtotal: Number(row[7]) || 0, vatAmount: Number(row[8]) || 0
+  };
+}
+
+/* ตำแหน่งห้องในมุมมอง "ผังอิสระ" — เก็บแยกต่อห้อง (roomId ไม่ซ้ำกันอยู่แล้วในทุกอพาร์ทเมนท์)
+   ไม่ต้องเก็บรหัสอพาร์ทเมนท์/ชั้นซ้ำ เพราะสืบได้จากตัวห้องเองอยู่แล้ว */
+function roomLayoutToRow_(rl) {
+  return [ rl.id, rl.roomId, Number(rl.x) || 0, Number(rl.y) || 0 ];
+}
+function rowToRoomLayout_(row) {
+  return { id: String(row[0]), roomId: String(row[1]), x: Number(row[2]) || 0, y: Number(row[3]) || 0 };
+}
+
 var CONVERTERS = {
   properties:    { toRow: propertyToRow_,     fromRow: rowToProperty_ },
   rooms:         { toRow: roomToRow_,         fromRow: rowToRoom_ },
   tenants:       { toRow: tenantToRow_,       fromRow: rowToTenant_ },
   bills:         { toRow: billToRow_,         fromRow: rowToBill_ },
   deposits:      { toRow: depositToRow_,      fromRow: rowToDeposit_ },
-  meterReadings: { toRow: meterReadingToRow_,  fromRow: rowToMeterReading_ }
+  meterReadings: { toRow: meterReadingToRow_,  fromRow: rowToMeterReading_ },
+  receipts:      { toRow: receiptToRow_,      fromRow: rowToReceipt_ },
+  roomLayouts:   { toRow: roomLayoutToRow_,   fromRow: rowToRoomLayout_ }
 };
 
 /* ============================================================
  * ระบบ login / token (v11)
  * ============================================================ */
+
+/* ============================================================
+ * Auth แยกต่างหากสำหรับบอท (Facebook Messenger) — คนละชุดกับ token ของ user จริง
+ * เก็บ key ไว้ใน Script Properties ชื่อ BOT_API_KEY — ดึง/สร้างผ่าน action 'issueBotApiKey'
+ * ใน doGet ด้วย username/password เดิมของเจ้าของหอ ไม่ต้องเปิด Apps Script editor เลย
+ * ============================================================ */
+function verifyBotApiKey_(key) {
+  var expected = PropertiesService.getScriptProperties().getProperty('BOT_API_KEY');
+  return !!expected && !!key && String(key) === String(expected);
+}
 
 /* secret สำหรับเซ็น token — สุ่มสร้างครั้งแรกที่ใช้งาน แล้วเก็บถาวรไว้ใน Script Properties
    ของโปรเจกต์นี้ (คนละชุดกับ Properties ของสเปรดชีต) ไม่ต้องตั้งค่าเอง */
@@ -320,6 +422,25 @@ function doGet(e) {
       return jsonOutput_({ ok: true });
     }
 
+    /* ให้เจ้าของหอดึง/สร้างใหม่ BOT_API_KEY ได้เองทุกเมื่อ ผ่าน username/password เดียวกับที่ล็อกอิน
+       เข้าแอป — ไม่ต้องเปิด Apps Script editor หรือคัดลอกจาก Logger เลย กันลืม/พิมพ์ผิดจากการคัดลอก
+       ด้วยมือ ยิงซ้ำได้เรื่อยๆ จะได้ key เดิมกลับมาเสมอ ไม่หายแม้ไม่ได้จดไว้ทันที
+       ใส่ &regenerate=yes ถ้าต้องการสุ่ม key ใหม่ทับของเดิม (เช่น สงสัยว่าหลุด) */
+    if (action === 'issueBotApiKey') {
+      var iUser = findUserByUsername_(String(e.parameter.username || '').trim());
+      if (!iUser || hashPassword_(String(e.parameter.password || ''), iUser.salt) !== iUser.passwordHash) {
+        return jsonOutput_({ error: 'invalid_credentials' });
+      }
+      var botProps = PropertiesService.getScriptProperties();
+      var existingKey = botProps.getProperty('BOT_API_KEY');
+      if (existingKey && e.parameter.regenerate !== 'yes') {
+        return jsonOutput_({ apiKey: existingKey, regenerated: false });
+      }
+      var newBotKey = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
+      botProps.setProperty('BOT_API_KEY', newBotKey);
+      return jsonOutput_({ apiKey: newBotKey, regenerated: !!existingKey });
+    }
+
     var auth = verifyToken_(e.parameter && e.parameter.token);
     if (!auth) return jsonOutput_({ error: 'unauthorized' });
     var uid = auth.uid;
@@ -340,7 +461,9 @@ function doGet(e) {
       tenants: readTable_('tenants').filter(function (t) { return ownedRoomIds[t.roomId]; }),
       bills: readTable_('bills').filter(function (b) { return ownedRoomIds[b.roomId]; }),
       deposits: readTable_('deposits').filter(function (d) { return ownedRoomIds[d.roomId]; }),
-      meterReadings: readTable_('meterReadings').filter(function (m) { return ownedRoomIds[m.roomId]; })
+      meterReadings: readTable_('meterReadings').filter(function (m) { return ownedRoomIds[m.roomId]; }),
+      receipts: readTable_('receipts').filter(function (rc) { return ownedRoomIds[rc.roomId]; }),
+      roomLayouts: readTable_('roomLayouts').filter(function (rl) { return ownedRoomIds[rl.roomId]; })
     });
   } catch (err) {
     return jsonOutput_({ error: String(err) });
@@ -389,6 +512,32 @@ function doPost(e) {
       }
     }
 
+    /* ============================================================
+     * Endpoint สาธารณะสำหรับบอท (Facebook Messenger) — read-only เท่านั้น
+     * ใช้ BOT_API_KEY แยกต่างหาก ไม่ผ่าน verifyToken_/uid ของ user เลย
+     * คืนแค่ ชั้น/ประเภทห้อง/ค่าเช่า/ค่ามัดจำ ของห้องที่ "ว่าง" เท่านั้น —
+     * ไม่แตะชีต "ผู้เช่า", "บิล", "มัดจำ" (ใบเสร็จจริง) หรือ field ใดๆ ที่ระบุตัวบุคคลเด็ดขาด
+     * ============================================================ */
+    if (body.action === 'getPublicAvailability') {
+      if (!verifyBotApiKey_(body.apiKey)) return jsonOutput_({ error: 'unauthorized' });
+
+      var vacantRooms = readTable_('rooms')
+        .filter(function (r) { return r.status === 'vacant'; })
+        .map(function (r) {
+          return {
+            floor: r.floor,
+            roomType: r.roomType || null,
+            rent: r.rent,
+            deposit: r.deposit || null
+          };
+        });
+
+      return jsonOutput_({
+        rooms: vacantRooms,
+        updatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ssXXX")
+      });
+    }
+
     var auth = verifyToken_(body.token);
     if (!auth) return jsonOutput_({ error: 'unauthorized' });
     var uid = auth.uid;
@@ -411,7 +560,7 @@ function doPost(e) {
       var foreignRooms = existingRooms.filter(function (r) { return !ownedPropIds[r.propertyId]; });
       writeTable_('rooms', foreignRooms.concat(items));
     } else {
-      // tenants, bills, deposits, meterReadings — ทั้งหมดอ้างอิงผ่าน roomId
+      // tenants, bills, deposits, meterReadings, receipts, roomLayouts — ทั้งหมดอ้างอิงผ่าน roomId
       var ownedPropIds2 = getOwnedPropertyIds_(uid);
       var ownedRoomIds = getOwnedRoomIds_(ownedPropIds2);
       var existing = readTable_(table);
@@ -600,4 +749,74 @@ function RUN_createUser() {
   var newId = ADMIN_createUser('เจ้าของหอ', 'เปลี่ยนรหัสผ่านนี้ก่อนใช้จริง', 'เจ้าของหอ');
   // ถ้าอยากให้อพาร์ทเมนท์เดิมทั้งหมดเป็นของบัญชีนี้เลยในรอบเดียว ลบเครื่องหมาย // หน้าบรรทัดล่างออก:
   // ADMIN_assignAllPropertiesToUser(newId);
+}
+
+/* ============================================================
+ * ระบบสำรองข้อมูลอัตโนมัติ (v13)
+ * ------------------------------------------------------------
+ * คัดลอกทั้งไฟล์สเปรดชีตนี้ (ทุกชีต ทุกบัญชี) ไปเก็บไว้ในโฟลเดอร์ Google Drive ชื่อ
+ * BACKUP_FOLDER_NAME (สร้างให้อัตโนมัติถ้ายังไม่มี อยู่ในโฟลเดอร์เดียวกับไฟล์ต้นฉบับ)
+ * ทุกๆ BACKUP_INTERVAL_DAYS วัน — ป้องกันเหตุการณ์ข้อมูลหายจากการแก้ไข/migration ผิดพลาด
+ *
+ * วิธีเริ่มใช้งาน (ทำครั้งเดียว):
+ * 1) วางโค้ดทั้งไฟล์นี้ทับ Code.gs แล้ว Deploy > Manage deployments > New version > Deploy
+ *    (ขั้นตอนนี้จำเป็นเสมอทุกครั้งที่แก้ .gs — แค่ push ขึ้น GitHub ไม่ทำให้ Apps Script อัปเดตเอง)
+ * 2) เปิด Apps Script editor เลือกฟังก์ชัน "SETUP_scheduledBackup" จาก dropdown ด้านบน กด Run
+ *    ครั้งแรกจะมีหน้าต่างขอสิทธิ์เข้าถึง Drive — กด "อนุญาต" (Allow) ได้เลย ปลอดภัย ใช้เพื่อสร้าง
+ *    ไฟล์สำรองในไดรฟ์ของคุณเองเท่านั้น
+ * 3) เสร็จแล้ว — จะได้ไฟล์สำรองชุดแรกทันที (ดูในโฟลเดอร์ Drive ชื่อด้านล่าง) และระบบจะสำรองซ้ำ
+ *    ให้อัตโนมัติทุก 15 วันหลังจากนี้ตลอดไป ไม่ต้องทำอะไรเพิ่ม
+ *
+ * ปลอดภัยที่จะรัน SETUP_scheduledBackup() ซ้ำได้เสมอ (เช่น เผลอกดซ้ำ) — จะลบตัวจับเวลา (trigger)
+ * เดิมทิ้งก่อนเสมอ ไม่ทำให้เกิดการสำรองซ้อนสองชุดพร้อมกัน
+ * ============================================================ */
+
+var BACKUP_FOLDER_NAME = 'สำรองข้อมูล สมุดหอพัก (อัตโนมัติ)';
+var BACKUP_TRIGGER_HANDLER = 'BACKUP_onScheduledRun';
+var BACKUP_INTERVAL_DAYS = 15;
+
+/* หาโฟลเดอร์สำรอง ถ้ายังไม่มีให้สร้างใหม่ — วางไว้ในโฟลเดอร์เดียวกับตัวสเปรดชีตต้นฉบับเสมอ
+   เพื่อให้หาเจอง่าย (ไม่ใช่ไปกองอยู่ที่ root ของ Drive) */
+function BACKUP_getOrCreateFolder_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var file = DriveApp.getFileById(ss.getId());
+  var parents = file.getParents();
+  var parentFolder = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+  var existing = parentFolder.getFoldersByName(BACKUP_FOLDER_NAME);
+  if (existing.hasNext()) return existing.next();
+  return parentFolder.createFolder(BACKUP_FOLDER_NAME);
+}
+
+/* ทำสำเนาไฟล์สเปรดชีตทั้งไฟล์ (ทุกชีต ทุกบัญชี) ไปเก็บในโฟลเดอร์สำรอง
+   ตั้งชื่อไฟล์ให้มีวันที่-เวลาติดไปด้วย เพื่อแยกแต่ละชุดออกจากกันชัดเจน */
+function BACKUP_runNow_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var folder = BACKUP_getOrCreateFolder_();
+  var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd_HHmm');
+  var backupName = ss.getName() + ' - สำรอง ' + stamp;
+  DriveApp.getFileById(ss.getId()).makeCopy(backupName, folder);
+  Logger.log('สำรองข้อมูลสำเร็จ: ' + backupName);
+}
+
+/* ฟังก์ชันที่ตัวจับเวลา (time-driven trigger) เรียกอัตโนมัติทุก 15 วัน — ชื่อฟังก์ชันนี้ต้องตรงกับ
+   ค่าตัวแปร BACKUP_TRIGGER_HANDLER ด้านบนเป๊ะๆ ไม่งั้นตัวจับเวลาจะหาไม่เจอ */
+function BACKUP_onScheduledRun() {
+  BACKUP_runNow_();
+}
+
+/* รันฟังก์ชันนี้ "ครั้งเดียว" จาก Apps Script editor เพื่อเริ่มระบบสำรองอัตโนมัติ (ดูวิธีด้านบน) —
+   จะสำรองข้อมูลชุดแรกทันทีตอนกด Run เลย (ไม่ต้องรอ 15 วัน) แล้วตั้งตัวจับเวลาให้ทำซ้ำทุก 15 วัน
+   นับจากตอนนี้ไปเรื่อยๆ โดยอัตโนมัติ */
+function SETUP_scheduledBackup() {
+  // ลบตัวจับเวลาเดิมที่ผูกกับฟังก์ชันนี้ทิ้งก่อนเสมอ กันตั้งซ้ำถ้ารันฟังก์ชันนี้มากกว่า 1 ครั้ง
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === BACKUP_TRIGGER_HANDLER) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger(BACKUP_TRIGGER_HANDLER)
+    .timeBased()
+    .everyDays(BACKUP_INTERVAL_DAYS)
+    .atHour(3) // สำรองตอนตี 3 (เวลาของสคริปต์) ของทุกรอบ 15 วัน ช่วงที่ไม่มีคนใช้งาน
+    .create();
+  BACKUP_runNow_(); // สำรองชุดแรกทันที
+  Logger.log('ตั้งเวลาสำรองข้อมูลอัตโนมัติทุก ' + BACKUP_INTERVAL_DAYS + ' วันเรียบร้อยแล้ว + สำรองชุดแรกเสร็จแล้ว');
 }
