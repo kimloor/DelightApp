@@ -1459,6 +1459,27 @@ function attachModalEvents(){
   if(deleteRoomBtn) deleteRoomBtn.onclick = onDeleteRoom;
   const saveBulkRoomsBtn = document.getElementById('saveBulkRoomsBtn');
   if(saveBulkRoomsBtn) saveBulkRoomsBtn.onclick = onSaveBulkRooms;
+
+  const rtdSelectAll = document.getElementById('rtdSelectAll');
+  if(rtdSelectAll) rtdSelectAll.onchange = ()=>{
+    document.querySelectorAll('.rtd-check').forEach(cb=> cb.checked = rtdSelectAll.checked);
+  };
+  const applyRtdBulkBtn = document.getElementById('applyRtdBulkBtn');
+  if(applyRtdBulkBtn) applyRtdBulkBtn.onclick = ()=>{
+    const type = document.getElementById('rtd-bulk-type').value;
+    const depositRaw = document.getElementById('rtd-bulk-deposit').value;
+    let appliedCount = 0;
+    document.querySelectorAll('.rtd-row').forEach(row=>{
+      const cb = row.querySelector('.rtd-check');
+      if(!cb.checked) return;
+      if(type) row.querySelector('.rtd-type').value = type;
+      if(depositRaw !== '') row.querySelector('.rtd-deposit').value = depositRaw;
+      appliedCount++;
+    });
+    if(appliedCount===0) showToast('ยังไม่ได้ติ๊กเลือกห้องเลย');
+  };
+  const saveRtdBtn = document.getElementById('saveRtdBtn');
+  if(saveRtdBtn) saveRtdBtn.onclick = onSaveRoomTypeDepositBulk;
   const prevRoomBtn = document.getElementById('prevRoomBtn');
   if(prevRoomBtn && prevRoomBtn.dataset.id){
     prevRoomBtn.onclick = ()=>{
@@ -1794,6 +1815,7 @@ function renderRooms(){
         <p class="sub">${roomList.length} ห้อง — คลิกที่ห้องเพื่อแก้ไขหรือลบ</p>
       </div>
       <div style="display:flex;gap:8px;">
+        <button class="btn ghost" id="bulkEditTypeDepositBtn">✎ ประเภทห้อง/มัดจำ (หลายห้อง)</button>
         <button class="btn ghost" id="addRoomsBulkBtn">+ เพิ่มหลายห้อง</button>
         <button class="btn" id="addRoomBtn">+ เพิ่มห้อง</button>
       </div>
@@ -2054,6 +2076,76 @@ async function onSaveBulkRooms(){
   showToast(skipped>0
     ? `เพิ่มห้องแล้ว ${added} ห้อง (ข้าม ${skipped} ห้องที่มีเลขซ้ำอยู่แล้ว)`
     : `เพิ่มห้องแล้ว ${added} ห้อง`);
+}
+
+/* ============ แก้ไขประเภทห้อง & ค่ามัดจำ หลายห้องพร้อมกัน ============
+   ปัญหาที่แก้: ไม่ต้องเปิดแก้ทีละห้องผ่านฟอร์มห้องพักตามปกติ — ตารางนี้แก้ได้ทุกห้องในหน้าเดียว
+   ติ๊กเลือกห้อง + กรอกค่าด้านบน + กด "ใช้กับห้องที่เลือก" จะกรอกค่าเดียวกันลงทุกแถวที่ติ๊กไว้ให้
+   (ยังไม่บันทึก แค่กรอกในตาราง) แล้วกด "บันทึกทั้งหมด" ครั้งเดียวค่อยส่งขึ้น backend จริง */
+function bulkEditRoomTypeDepositHtml(){
+  const roomList = roomNavOrder(); // ลำดับเดียวกับที่ใช้แสดงหน้าห้องพักปกติ อ่านง่าย ไล่ตามชั้น
+  return `
+    <h3>แก้ไขประเภทห้อง & ค่ามัดจำ (หลายห้องพร้อมกัน)</h3>
+    <p class="sub" style="font-size:12px;margin-top:-6px;">ติ๊กเลือกห้องที่ต้องการ แล้วกรอกค่าด้านบนกด "ใช้กับห้องที่เลือก" เพื่อกรอกครั้งเดียวใช้กับหลายห้อง หรือจะแก้ทีละช่องในตารางเองก็ได้ กด "บันทึกทั้งหมด" ครั้งเดียวตอนเสร็จ</p>
+    <div class="field-row" style="align-items:flex-end;">
+      <div class="field">
+        <label>ประเภทห้อง</label>
+        <select id="rtd-bulk-type">
+          <option value="">— ไม่เปลี่ยน —</option>
+          <option value="ห้องพัดลม">ห้องพัดลม</option>
+          <option value="ห้องแอร์">ห้องแอร์</option>
+        </select>
+      </div>
+      <div class="field"><label>ค่ามัดจำ (บาท)</label><input id="rtd-bulk-deposit" type="number" placeholder="เว้นว่าง = ไม่เปลี่ยน"></div>
+      <div class="field" style="flex:0 0 auto;"><button class="btn ghost" type="button" id="applyRtdBulkBtn">ใช้กับห้องที่เลือก</button></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin:8px 0;cursor:pointer;">
+      <input type="checkbox" id="rtdSelectAll"> เลือกทั้งหมด (${roomList.length} ห้อง)
+    </label>
+    <div style="max-height:360px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;">
+      <table>
+        <thead><tr><th style="width:32px;"></th><th>ห้อง</th><th>ชั้น</th><th>ประเภทห้อง</th><th>ค่ามัดจำ</th></tr></thead>
+        <tbody>
+          ${roomList.map(r=>`
+            <tr class="rtd-row" data-id="${r.id}">
+              <td><input type="checkbox" class="rtd-check"></td>
+              <td style="font-weight:600;">${r.number}${r.status==='occupied'?' <span class="muted" style="font-weight:400;">(มีผู้เช่า)</span>':''}</td>
+              <td class="muted">${r.floor||'-'}</td>
+              <td>
+                <select class="rtd-type">
+                  <option value="" ${!r.roomType?'selected':''}>— ยังไม่ระบุ —</option>
+                  <option value="ห้องพัดลม" ${r.roomType==='ห้องพัดลม'?'selected':''}>ห้องพัดลม</option>
+                  <option value="ห้องแอร์" ${r.roomType==='ห้องแอร์'?'selected':''}>ห้องแอร์</option>
+                </select>
+              </td>
+              <td><input type="number" class="rtd-deposit" style="width:100px;" value="${r.deposit?r.deposit:''}"></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+      <button class="btn" id="saveRtdBtn">บันทึกทั้งหมด</button>
+    </div>
+  `;
+}
+
+async function onSaveRoomTypeDepositBulk(){
+  let changed = 0;
+  document.querySelectorAll('.rtd-row').forEach(row=>{
+    const room = rooms.find(r=>r.id===row.dataset.id);
+    if(!room) return;
+    const newType = row.querySelector('.rtd-type').value;
+    const newDeposit = Number(row.querySelector('.rtd-deposit').value) || 0;
+    if(room.roomType !== newType || room.deposit !== newDeposit) changed++;
+    room.roomType = newType;
+    room.deposit = newDeposit;
+  });
+  await saveRooms();
+  closeModal();
+  render();
+  showToast(changed>0 ? `บันทึกแล้ว ${changed} ห้อง` : 'ไม่มีการเปลี่ยนแปลง');
 }
 
 /* ลำดับห้องสำหรับปุ่มเลื่อนซ้าย-ขวาในหน้าต่างแก้ไขห้องพัก
@@ -3477,6 +3569,8 @@ function attachPageEvents(){
   if(addRoomBtn) addRoomBtn.onclick = ()=> openModal(roomFormHtml(null));
   const addRoomsBulkBtn = document.getElementById('addRoomsBulkBtn');
   if(addRoomsBulkBtn) addRoomsBulkBtn.onclick = ()=> openModal(bulkRoomFormHtml());
+  const bulkEditTypeDepositBtn = document.getElementById('bulkEditTypeDepositBtn');
+  if(bulkEditTypeDepositBtn) bulkEditTypeDepositBtn.onclick = ()=> openModal(bulkEditRoomTypeDepositHtml(), {wide:true});
 
   document.querySelectorAll('.room-tag, .room-row').forEach(el=>{
     el.onclick = ()=>{
