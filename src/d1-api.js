@@ -617,6 +617,32 @@ async function deleteBillRow(env, user, billId) {
   return {success:true,id};
 }
 
+
+async function moveBillsRows(env, user, ids, targetMonth) {
+  if (!/^\d{4}-\d{2}$/.test(s(targetMonth))) throw new Error('invalid_bill_month');
+  const out=[];
+  let skipped=0;
+  for (const rawId of (Array.isArray(ids)?ids:[])) {
+    const id=s(rawId);
+    const existing=await dbBill(env,id);
+    if (!existing) continue;
+    await requireRoomAdminAccess(env,user,existing.room_id);
+    if (existing.month===targetMonth) continue;
+
+    const dup=await env.DB.prepare('SELECT id FROM bills WHERE room_id=? AND month=? AND id<>? LIMIT 1')
+      .bind(String(existing.room_id),s(targetMonth),id).first();
+    if (dup) { skipped++; continue; }
+
+    const next=rowBill(existing);
+    next.month=s(targetMonth);
+    next.invoiceNo=await nextInvoiceNo(env,targetMonth);
+    await updateLogicalRow(env,'bills',next);
+    out.push(rowBill(await dbBill(env,id)));
+  }
+  if(out.length) await appendLog(env,user,'move','bills',out.map(x=>x.id),out.length,'month '+targetMonth);
+  return {bills:out,skipped};
+}
+
 async function createMeterReadingRows(env, user, items) {
   if (user.role !== 'admin') throw new Error('forbidden');
   const list=Array.isArray(items)?items:[];
@@ -748,6 +774,11 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'deleteBill') {
     try { return await deleteBillRow(env,x.user,body.id); }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'moveBills') {
+    try { return {success:true,...await moveBillsRows(env,x.user,body.ids,body.targetMonth)}; }
     catch(e) { return {error:e.message}; }
   }
 
