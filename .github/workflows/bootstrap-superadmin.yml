@@ -1,0 +1,52 @@
+name: Bootstrap Platform Superadmin
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    if: contains(github.event.head_commit.message, '[BOOTSTRAP-SUPERADMIN]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Ensure username admin is unused
+        shell: bash
+        run: |
+          set -euo pipefail
+          COUNT="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS c FROM users WHERE username='admin';" --json | jq -r '.[0].results[0].c')"
+          test "$COUNT" = "0"
+
+      - name: Create platform superadmin
+        shell: bash
+        run: |
+          set -euo pipefail
+          ID="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT CAST(COALESCE(MAX(CAST(id AS INTEGER)),0)+1 AS TEXT) AS id FROM users;" --json | jq -r '.[0].results[0].id')"
+          NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "INSERT INTO users (id,username,password_hash,salt,display_name,created_at,role,platform_role) VALUES ('$ID','admin','ed8d5b475667934c788dd2f9ba69183ecbb1fc29fe5d8b5338e33ce92f4e130c','02b6ec596c9125d158ff29f887854e67','DelightApp Admin','$NOW','admin','superadmin');"
+
+      - name: Validate role separation
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT username,role,platform_role FROM users WHERE username IN ('admin','kim','test') ORDER BY username;"
+          SUPER="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS c FROM users WHERE username='admin' AND platform_role='superadmin';" --json | jq -r '.[0].results[0].c')"
+          ADMIN_ACCESS="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS c FROM property_admins pa JOIN users u ON u.id=pa.user_id WHERE u.username='admin';" --json | jq -r '.[0].results[0].c')"
+          KIM_OWNER="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS c FROM property_admins pa JOIN users u ON u.id=pa.user_id WHERE u.username='kim' AND pa.access_role='owner';" --json | jq -r '.[0].results[0].c')"
+          TEST_ADMIN="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS c FROM property_admins pa JOIN users u ON u.id=pa.user_id WHERE u.username='test' AND pa.access_role='admin';" --json | jq -r '.[0].results[0].c')"
+          test "$SUPER" = "1"
+          test "$ADMIN_ACCESS" = "0"
+          test "$KIM_OWNER" = "2"
+          test "$TEST_ADMIN" = "2"
+          echo "superadmin_bootstrap=PASS"
