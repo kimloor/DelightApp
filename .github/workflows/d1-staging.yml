@@ -1,0 +1,40 @@
+name: D1 Staging Validate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/d1-backend
+    paths:
+      - ".github/workflows/d1-staging.yml"
+      - "src/**"
+      - "migrations/**"
+      - "wrangler.jsonc"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate Cloudflare authentication
+        run: npx --yes wrangler@4 whoami
+
+      - name: Check D1 migrations
+        run: npx --yes wrangler@4 d1 migrations list delightapp-db --remote
+
+      - name: Validate D1 schema
+        run: |
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','properties','rooms','tenants','bills','deposits','meter_readings','receipts','room_layouts','audit_logs') ORDER BY name;"
+
+      - name: Upload staging Worker version
+        run: npx --yes wrangler@4 versions upload --message "D1 staging validation" --tag "d1-staging"
