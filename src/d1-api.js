@@ -708,7 +708,12 @@ async function createBillsRows(env, user, items) {
     const id=await nextNumericId(env,'bills');
     const invoiceNo=await nextInvoiceNo(env,month);
     const next={...(raw||{}),id,roomId,month,invoiceNo};
-    await insertLogicalRow(env,'bills',next);
+    try{
+      await insertLogicalRow(env,'bills',next);
+    }catch(e){
+      if(businessErrorMessage(e)==='bill_room_month_exists') continue;
+      throw e;
+    }
     const saved=await dbBill(env,id);
     out.push(rowBill(saved));
     await appendLog(env,user,'create','bills',[id],1,'room '+roomId+' month '+month);
@@ -792,8 +797,6 @@ async function createMeterReadingRows(env, user, items) {
   if (user.role !== 'admin') throw new Error('forbidden');
   const list=Array.isArray(items)?items:[];
   const out=[];
-  let nextIdNum=Number(await nextNumericId(env,'meter_readings'))||1;
-
   for (const raw of list) {
     const roomId=s(raw?.roomId);
     await requireRoomAdminAccess(env,user,roomId);
@@ -804,7 +807,7 @@ async function createMeterReadingRows(env, user, items) {
       if (!bill || String(bill.room_id)!==roomId) throw new Error('meter_bill_room_mismatch');
     }
 
-    const id=String(nextIdNum++);
+    const id=await nextNumericId(env,'meter_readings');
     const next={...(raw||{}),id,roomId,billId};
     await insertLogicalRow(env,'meterReadings',next);
     const saved=await env.DB.prepare('SELECT * FROM meter_readings WHERE id=?').bind(id).first();
@@ -829,7 +832,12 @@ async function createRoomsRows(env, user, items) {
       'SELECT id FROM rooms WHERE property_id=? AND room_number=? LIMIT 1'
     ).bind(propertyId,number).first();
     if (dup) { skipped++; continue; }
-    out.push(await createRoomRow(env,user,{...(raw||{}),propertyId,number}));
+    try{
+      out.push(await createRoomRow(env,user,{...(raw||{}),propertyId,number}));
+    }catch(e){
+      if(businessErrorMessage(e)==='room_number_exists'){ skipped++; continue; }
+      throw e;
+    }
   }
   return {rooms:out,skipped};
 }
@@ -954,19 +962,13 @@ async function createReceiptRow(env, user, item) {
 async function upsertRoomLayoutRow(env, user, item) {
   const roomId=s(item?.roomId);
   await requireRoomAdminAccess(env,user,roomId);
-  let existing=await env.DB.prepare('SELECT * FROM room_layouts WHERE room_id=? ORDER BY CAST(id AS INTEGER),id LIMIT 1')
-    .bind(roomId).first();
-  if (existing) {
-    await env.DB.prepare('UPDATE room_layouts SET x=?,y=? WHERE id=?')
-      .bind(n(item?.x),n(item?.y),String(existing.id)).run();
-  } else {
-    const id=await nextNumericId(env,'room_layouts');
-    await env.DB.prepare('INSERT INTO room_layouts (id,room_id,x,y) VALUES (?,?,?,?)')
-      .bind(id,roomId,n(item?.x),n(item?.y)).run();
-    existing=await env.DB.prepare('SELECT * FROM room_layouts WHERE id=?').bind(id).first();
-  }
-  const saved=await env.DB.prepare('SELECT * FROM room_layouts WHERE room_id=? ORDER BY CAST(id AS INTEGER),id LIMIT 1')
-    .bind(roomId).first();
+  const existing=await env.DB.prepare('SELECT id FROM room_layouts WHERE room_id=? LIMIT 1').bind(roomId).first();
+  const id=existing ? String(existing.id) : await nextNumericId(env,'room_layouts');
+  await env.DB.prepare(
+    `INSERT INTO room_layouts (id,room_id,x,y) VALUES (?,?,?,?)
+     ON CONFLICT(room_id) DO UPDATE SET x=excluded.x,y=excluded.y`
+  ).bind(id,roomId,n(item?.x),n(item?.y)).run();
+  const saved=await env.DB.prepare('SELECT * FROM room_layouts WHERE room_id=? LIMIT 1').bind(roomId).first();
   return rowLayout(saved);
 }
 
