@@ -14,6 +14,38 @@ No staff role in V1.
 
 A future platform-level `superadmin` may be added separately if needed, but it is not part of this V1 permission model.
 
+## Platform administration
+
+DelightApp separates platform-level administration from property-level access.
+
+```text
+users.role
+- admin
+- tenant
+
+users.platform_role
+- normal
+- superadmin
+
+property_admins.access_role
+- owner
+- admin
+```
+
+A `superadmin` manages the DelightApp platform itself. It is not automatically a property owner and should not automatically receive tenant/business data from every property.
+
+Platform-level capabilities may include:
+
+- manage platform accounts
+- recover/fix account and access mappings
+- view property/account structure
+- suspend or restore accounts in a future version
+- inspect platform audit/error information
+
+Property business-data access remains governed by `property_admins`.
+
+Current property UI must clearly show `Owner` and `Admin` for each property.
+
 ## 2. Core relationship
 
 Admin access is many-to-many:
