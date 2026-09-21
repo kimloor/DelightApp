@@ -192,6 +192,51 @@
   .login-card .login-switch a{color:var(--teal);font-weight:600;text-decoration:none;}
   .login-card .login-switch a:hover{text-decoration:underline;}
 
+  /* ---------- Tenant home (Phase E) ---------- */
+  .tenant-app{min-height:100vh;background:var(--bg);}
+  .tenant-shell{width:min(920px,100%);margin:0 auto;padding:28px 22px 60px;}
+  .tenant-hero{
+    display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+    margin-bottom:22px;flex-wrap:wrap;
+  }
+  .tenant-hero h1{font-family:'Fraunces',serif;font-size:28px;margin:0 0 4px;}
+  .tenant-hero p{margin:0;color:var(--ink-soft);font-size:14px;}
+  .tenant-actions{display:flex;gap:8px;flex-wrap:wrap;}
+  .tenant-summary{
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:22px;
+  }
+  .tenant-summary .card{margin:0;padding:18px;}
+  .tenant-kicker{font-size:12px;color:var(--ink-soft);margin-bottom:7px;}
+  .tenant-value{font-size:22px;font-weight:700;line-height:1.25;}
+  .tenant-sub{font-size:12.5px;color:var(--ink-soft);margin-top:5px;}
+  .tenant-grid{display:grid;grid-template-columns:1.25fr .75fr;gap:18px;align-items:start;}
+  .tenant-section{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;}
+  .tenant-section + .tenant-section{margin-top:18px;}
+  .tenant-section-head{padding:15px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  .tenant-section-head h2{font-size:16px;margin:0;font-family:'Fraunces',serif;}
+  .tenant-list{display:flex;flex-direction:column;}
+  .tenant-row{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:14px;align-items:flex-start;}
+  .tenant-row:last-child{border-bottom:none;}
+  .tenant-row-title{font-weight:600;font-size:14px;}
+  .tenant-row-sub{font-size:12.5px;color:var(--ink-soft);margin-top:3px;}
+  .tenant-row-amount{text-align:right;font-weight:700;white-space:nowrap;}
+  .tenant-empty{padding:28px 18px;text-align:center;color:var(--ink-soft);font-size:13px;}
+  .tenant-status{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;}
+  .tenant-status.paid{background:var(--teal-soft);color:var(--teal);}
+  .tenant-status.unpaid{background:var(--rust-soft);color:var(--rust);}
+  .tenant-info{padding:16px 18px;}
+  .tenant-info-line{display:flex;justify-content:space-between;gap:14px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13.5px;}
+  .tenant-info-line:last-child{border-bottom:none;}
+  .tenant-info-line span:first-child{color:var(--ink-soft);}
+  .tenant-error{padding:18px;border:1px solid var(--rust);border-radius:12px;background:var(--rust-soft);color:var(--rust);}
+  @media(max-width:700px){
+    .tenant-shell{padding:20px 14px 46px;}
+    .tenant-summary{grid-template-columns:1fr;}
+    .tenant-grid{grid-template-columns:1fr;}
+    .tenant-actions{width:100%;}
+    .tenant-actions .btn{flex:1;justify-content:center;}
+  }
+
   /* ---------- Main ---------- */
   main{
     flex:1;
@@ -789,6 +834,19 @@
   </div>
 </div>
 
+<div class="tenant-app" id="tenantRoot" style="display:none;">
+  <header class="topbar">
+    <div class="topbar-brand">DelightApp · ผู้เช่า</div>
+    <div class="topbar-right">
+      <button class="settings-btn" type="button" onclick="openChangePassword()">🔑 <span class="label">เปลี่ยนรหัสผ่าน</span></button>
+      <button class="settings-btn" type="button" onclick="doLogout()">ออกจากระบบ</button>
+    </div>
+  </header>
+  <div class="tenant-shell" id="tenantMain">
+    <div class="loading-note">กำลังโหลดข้อมูลผู้เช่า…</div>
+  </div>
+</div>
+
 <div class="overlay" id="overlay">
   <div class="modal" id="modalBody"></div>
 </div>
@@ -807,6 +865,7 @@ let properties = [];
 let receipts = [];
 let roomLayouts = [];
 let propertyAdmins = [];
+let tenantHomeData = null;
 let currentPropertyId = null;
 try{ currentPropertyId = localStorage.getItem('dorm:currentProperty') || null; }catch(e){}
 let currentPage = 'dashboard';
@@ -969,6 +1028,18 @@ async function remoteGetAll(){
   return data;
 }
 
+async function remoteGetTenantHome(){
+  const res = await fetch(sheetUrl, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({action:'getTenantHome', token:authToken})
+  });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data = await res.json();
+  if(data && data.error) throw new Error(data.error);
+  return data;
+}
+
 /* เรียก action='login' ตรงๆ (ไม่ต้องมี token เพราะยังไม่ได้ล็อกอิน) */
 async function remoteLogin(username, password){
   const res = await fetch(sheetUrl, {
@@ -1012,15 +1083,21 @@ async function remoteAuthPost(payload){
    ถ้าผู้ใช้เลือกปิดการซิงก์ (เก็บข้อมูลในเครื่องคนเดียว) จะไม่มีระบบบัญชีให้ล็อกอินอยู่แล้ว */
 function loginRequired(){ return !!sheetUrl; }
 
+function isTenantSession(){
+  return !!(currentUser && currentUser.isAdmin === false);
+}
 function showLoginScreen(){
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('appRoot').style.display = 'none';
+  document.getElementById('tenantRoot').style.display = 'none';
   document.getElementById('registerForm').style.display = 'none';
   document.getElementById('loginForm').style.display = 'block';
 }
 function showAppScreen(){
+  const tenant = isTenantSession();
   document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('appRoot').style.display = 'flex';
+  document.getElementById('appRoot').style.display = tenant ? 'none' : 'flex';
+  document.getElementById('tenantRoot').style.display = tenant ? 'block' : 'none';
 }
 
 /* ล้างข้อมูลตารางที่แคชไว้ในเครื่อง (localStorage) กันไม่ให้ข้อมูลของบัญชีก่อนหน้าเหลือค้าง
@@ -1028,7 +1105,7 @@ function showAppScreen(){
 function clearLocalDataCache(){
   ['dorm:rooms','dorm:tenants','dorm:bills','dorm:properties','dorm:deposits','dorm:meterReadings','dorm:receipts','dorm:roomLayouts','dorm:currentProperty']
     .forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
-  rooms=[]; tenants=[]; bills=[]; properties=[]; deposits=[]; meterReadings=[]; receipts=[]; roomLayouts=[]; propertyAdmins=[]; currentPropertyId=null;
+  rooms=[]; tenants=[]; bills=[]; properties=[]; deposits=[]; meterReadings=[]; receipts=[]; roomLayouts=[]; propertyAdmins=[]; tenantHomeData=null; currentPropertyId=null;
 }
 
 function doLogout(){
@@ -1254,6 +1331,30 @@ function genReceiptNo(dateStr){
 }
 
 async function loadData(){
+  if (isTenantSession()) {
+    // Tenant data never falls back to the admin/browser dataset. Clear any prior
+    // admin cache before reading the one server-authorized tenant home payload.
+    clearLocalDataCache();
+    try{
+      tenantHomeData = await remoteGetTenantHome();
+      syncState = 'ok';
+      updateSyncLine();
+      dataReady = true;
+      renderTenantHome();
+    }catch(e){
+      console.error('tenant home load error', e);
+      tenantHomeData = null;
+      dataReady = false;
+      if(String(e.message)==='unauthorized'){
+        doLogout();
+        return;
+      }
+      const target=document.getElementById('tenantMain');
+      if(target) target.innerHTML = '<div class="tenant-error">ไม่สามารถโหลดข้อมูลผู้เช่าได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองเข้าสู่ระบบใหม่</div>';
+    }
+    return;
+  }
+
   if (sheetUrl) {
     try{
       const data = await remoteGetAll();
@@ -1299,6 +1400,116 @@ async function loadData(){
   dataReady = true;
   renderPropertySelect();
   render();
+}
+
+
+function renderTenantHome(){
+  const target=document.getElementById('tenantMain');
+  if(!target) return;
+  const data=tenantHomeData;
+  if(!data || !data.property || !data.room || !data.tenant){
+    target.innerHTML='<div class="tenant-error">บัญชีผู้เช่านี้ยังไม่ได้ผูกกับห้องพัก กรุณาติดต่อผู้ดูแลระบบ</div>';
+    return;
+  }
+
+  const property=data.property;
+  const room=data.room;
+  const tenant=data.tenant;
+  const recentBills=(data.bills||[]).slice(0,6);
+  const recentReceipts=(data.receipts||[]).slice(0,6);
+  const deposits=data.deposits||[];
+  const paidDeposit=deposits.reduce((sum,d)=>sum+(Number(d.amount)||0),0);
+  const requiredDeposit=Number(room.deposit)||0;
+  const latestBill=recentBills[0]||null;
+  const unpaid=(data.bills||[]).filter(b=>b.status!=='paid');
+  const unpaidTotal=unpaid.reduce((sum,b)=>sum+(Number(b.total)||0),0);
+
+  const billRows=recentBills.length ? recentBills.map(b=>`
+    <div class="tenant-row">
+      <div>
+        <div class="tenant-row-title">${escapeAuthHtml(monthLabel(b.month))}</div>
+        <div class="tenant-row-sub">เลขที่บิล ${escapeAuthHtml(b.invoiceNo||'—')}</div>
+        <span class="tenant-status ${b.status==='paid'?'paid':'unpaid'}">${b.status==='paid'?'ชำระแล้ว':'รอชำระ'}</span>
+      </div>
+      <div class="tenant-row-amount">฿${THB(b.total)}</div>
+    </div>`).join('') : '<div class="tenant-empty">ยังไม่มีบิล</div>';
+
+  const receiptRows=recentReceipts.length ? recentReceipts.map(r=>`
+    <div class="tenant-row">
+      <div>
+        <div class="tenant-row-title">${escapeAuthHtml(r.receiptNo||'ใบเสร็จ')}</div>
+        <div class="tenant-row-sub">${escapeAuthHtml(formatThaiDate(r.date))}</div>
+      </div>
+      <div class="tenant-row-amount">฿${THB(r.amount)}</div>
+    </div>`).join('') : '<div class="tenant-empty">ยังไม่มีใบเสร็จ</div>';
+
+  const depositRows=deposits.length ? deposits.slice(0,5).map(d=>`
+    <div class="tenant-row">
+      <div>
+        <div class="tenant-row-title">${escapeAuthHtml(d.receiptNo||'เงินมัดจำ')}</div>
+        <div class="tenant-row-sub">${escapeAuthHtml(formatThaiDate(d.date))}${d.note?' · '+escapeAuthHtml(d.note):''}</div>
+      </div>
+      <div class="tenant-row-amount">฿${THB(d.amount)}</div>
+    </div>`).join('') : '<div class="tenant-empty">ยังไม่มีรายการรับเงินมัดจำ</div>';
+
+  target.innerHTML=`
+    <div class="tenant-hero">
+      <div>
+        <h1>สวัสดี ${escapeAuthHtml(tenant.name || currentUser?.displayName || currentUser?.username || '')}</h1>
+        <p>${escapeAuthHtml(property.name)} · ห้อง ${escapeAuthHtml(room.number)}</p>
+      </div>
+      <div class="tenant-actions">
+        <button class="btn ghost" type="button" onclick="openChangePassword()">เปลี่ยนรหัสผ่าน</button>
+        <button class="btn" type="button" onclick="doLogout()">ออกจากระบบ</button>
+      </div>
+    </div>
+
+    <div class="tenant-summary">
+      <div class="card">
+        <div class="tenant-kicker">ยอดค้างชำระ</div>
+        <div class="tenant-value ${unpaidTotal>0?'rust':'teal'}">฿${THB(unpaidTotal)}</div>
+        <div class="tenant-sub">${unpaid.length ? unpaid.length+' บิลที่รอชำระ' : 'ไม่มีบิลค้างชำระ'}</div>
+      </div>
+      <div class="card">
+        <div class="tenant-kicker">บิลล่าสุด</div>
+        <div class="tenant-value">${latestBill ? escapeAuthHtml(monthLabel(latestBill.month)) : '—'}</div>
+        <div class="tenant-sub">${latestBill ? '฿'+THB(latestBill.total)+' · '+(latestBill.status==='paid'?'ชำระแล้ว':'รอชำระ') : 'ยังไม่มีบิล'}</div>
+      </div>
+      <div class="card">
+        <div class="tenant-kicker">เงินมัดจำที่รับแล้ว</div>
+        <div class="tenant-value">฿${THB(paidDeposit)}</div>
+        <div class="tenant-sub">ตามห้อง ฿${THB(requiredDeposit)}</div>
+      </div>
+    </div>
+
+    <div class="tenant-grid">
+      <div>
+        <section class="tenant-section">
+          <div class="tenant-section-head"><h2>บิลล่าสุด</h2><span class="muted">${recentBills.length} รายการ</span></div>
+          <div class="tenant-list">${billRows}</div>
+        </section>
+        <section class="tenant-section">
+          <div class="tenant-section-head"><h2>ใบเสร็จ</h2><span class="muted">${recentReceipts.length} รายการ</span></div>
+          <div class="tenant-list">${receiptRows}</div>
+        </section>
+      </div>
+      <div>
+        <section class="tenant-section">
+          <div class="tenant-section-head"><h2>ข้อมูลห้องพัก</h2></div>
+          <div class="tenant-info">
+            <div class="tenant-info-line"><span>อพาร์ทเมนท์</span><strong>${escapeAuthHtml(property.name)}</strong></div>
+            <div class="tenant-info-line"><span>ห้อง</span><strong>${escapeAuthHtml(room.number)}</strong></div>
+            <div class="tenant-info-line"><span>ชั้น</span><strong>${escapeAuthHtml(room.floor||'—')}</strong></div>
+            <div class="tenant-info-line"><span>ผู้เช่า</span><strong>${escapeAuthHtml(tenant.name)}</strong></div>
+            <div class="tenant-info-line"><span>เข้าอยู่</span><strong>${escapeAuthHtml(formatThaiDate(tenant.moveIn))}</strong></div>
+          </div>
+        </section>
+        <section class="tenant-section">
+          <div class="tenant-section-head"><h2>เงินมัดจำ</h2></div>
+          <div class="tenant-list">${depositRows}</div>
+        </section>
+      </div>
+    </div>`;
 }
 
 function showToast(msg){
