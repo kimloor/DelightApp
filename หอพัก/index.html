@@ -1502,9 +1502,14 @@ let adminUsersCache = [];
 async function openAdminUsers(){
   openModal(`
     <h3>จัดการผู้ใช้</h3>
+    <div style="display:flex;justify-content:flex-end;margin:-2px 0 10px;">
+      <button class="btn" id="auCreateBtn">+ เพิ่มผู้ใช้</button>
+    </div>
     <div id="auBody" style="font-size:13px;color:var(--ink-soft);">กำลังโหลด…</div>
     <div class="modal-actions"><button class="btn ghost" id="cancelBtn">ปิด</button></div>
   `);
+  const createBtn=document.getElementById('auCreateBtn');
+  if(createBtn) createBtn.onclick=showAdminCreateUserForm;
   try{
     const data = await remoteAuthPost({action:'adminListUsers'});
     adminUsersCache = data.users || [];
@@ -1513,6 +1518,62 @@ async function openAdminUsers(){
     if(handleUnauthorized(e)) return;
     const body = document.getElementById('auBody');
     if(body){ body.style.color = 'var(--rust)'; body.textContent = pwErrorText(e); }
+  }
+}
+
+
+function showAdminCreateUserForm(){
+  const body=document.getElementById('auBody');
+  if(!body) return;
+  body.innerHTML=`
+    <div class="field">
+      <label>ชื่อผู้ใช้</label>
+      <input id="acu-username" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label>ชื่อที่แสดง</label>
+      <input id="acu-display" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>รหัสผ่านเริ่มต้น (อย่างน้อย 4 ตัวอักษร)</label>
+      <input id="acu-password" type="password" autocomplete="new-password">
+    </div>
+    <div class="field">
+      <label>ยืนยันรหัสผ่าน</label>
+      <input id="acu-confirm" type="password" autocomplete="new-password">
+    </div>
+    <div id="acuMsg" style="font-size:12.5px;color:var(--rust);min-height:18px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn ghost" id="acuBackBtn">กลับ</button>
+      <button class="btn" id="acuSaveBtn">สร้างผู้ใช้</button>
+    </div>`;
+  document.getElementById('acuBackBtn').onclick=renderAdminUsers;
+  document.getElementById('acuSaveBtn').onclick=onAdminCreateUser;
+  document.getElementById('acu-username').focus();
+}
+
+async function onAdminCreateUser(){
+  const username=document.getElementById('acu-username').value.trim();
+  const displayName=document.getElementById('acu-display').value.trim();
+  const password=document.getElementById('acu-password').value;
+  const confirmPassword=document.getElementById('acu-confirm').value;
+  const msg=document.getElementById('acuMsg');
+  const btn=document.getElementById('acuSaveBtn');
+  msg.textContent='';
+  if(!username){ msg.textContent='กรอกชื่อผู้ใช้'; return; }
+  if(password.length<4){ msg.textContent='รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
+  if(password!==confirmPassword){ msg.textContent='รหัสผ่านที่ยืนยันไม่ตรงกัน'; return; }
+  btn.disabled=true; btn.textContent='กำลังสร้าง…';
+  try{
+    await remoteAuthPost({action:'adminCreateUser',username,password,displayName});
+    showToast('สร้างบัญชี '+username+' เรียบร้อยแล้ว');
+    const data=await remoteAuthPost({action:'adminListUsers'});
+    adminUsersCache=data.users||[];
+    renderAdminUsers();
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    msg.textContent=pwErrorText(e);
+    btn.disabled=false; btn.textContent='สร้างผู้ใช้';
   }
 }
 
