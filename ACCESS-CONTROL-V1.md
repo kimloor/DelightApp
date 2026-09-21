@@ -301,7 +301,7 @@ Guardrails:
 
 ### Phase B — Scoped reads
 
-**Status: IMPLEMENTED (shadow mode)**
+**Status: DONE**
 
 Implemented:
 
@@ -310,10 +310,11 @@ Implemented:
 - legacy global `getAll` is now admin-only
 - tenant accounts cannot receive the global admin dataset
 
-Current limitation:
+Current production state:
 
-- the existing admin frontend still uses legacy global `getAll`
-- strict read isolation is intentionally deferred to Phase D
+- admin frontend uses `getAdminScoped`
+- legacy global `getAll` is disabled
+- strict read isolation is active
 
 ### Phase C — Row-level writes
 
@@ -365,9 +366,18 @@ Production isolation verification created a temporary isolated admin/property an
 
 ### Phase E — Tenant foundation
 
-- tenant account binding
-- tenant-specific API
-- tenant portal foundation
+**Status: DONE**
+
+Implemented:
+
+- tenant account binding through `tenant_accounts`
+- tenant-specific API through `getTenantHome`
+- tenant login routes to a dedicated tenant-facing UI, not the admin shell
+- tenant home shows mapped property, room, tenant name, recent/current bills, payment status, receipts and deposit information
+- tenant can change own password and logout
+- tenant frontend does not call admin dataset endpoints
+- tenant session clears incompatible admin cache and has no stale-admin-data fallback
+- server-side tenant lookup remains restricted to the mapped tenant/room/property
 
 ## 14. Acceptance tests
 
