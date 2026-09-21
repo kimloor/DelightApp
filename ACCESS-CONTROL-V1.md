@@ -310,8 +310,35 @@ Minimum required:
 - tenant can access only own tenant/room data
 - audit log records access-management changes
 
-## 15. Current blocker before implementation
+## 15. Existing production access mapping
 
-Existing production users and properties must be mapped intentionally before strict isolation is enabled.
+Confirmed mapping for current production accounts:
 
-The migration must know which current accounts should have access to which current properties.
+- `kim` -> admin access to both current properties
+- `test` -> admin access to both current properties
+- the remaining 2 existing user accounts -> tenant role
+
+Current properties:
+
+- ภาณุภณแมนชั่น
+- ทีเอชแอล แมนชั่น
+
+Initial admin seeding for Phase A:
+
+```text
+kim  -> ภาณุภณแมนชั่น
+kim  -> ทีเอชแอล แมนชั่น
+test -> ภาณุภณแมนชั่น
+test -> ทีเอชแอล แมนชั่น
+```
+
+Tenant account binding remains intentionally unresolved until each of the 2 tenant-role user accounts is matched to the correct existing tenant record.
+
+Do not guess tenant-to-user mapping.
+
+Strict isolation must not be enabled until:
+
+1. both admin mappings above are seeded and verified
+2. each tenant user is explicitly linked to the correct tenant record
+3. scoped reads are validated
+4. whole-table global writes are retired or safely scoped
