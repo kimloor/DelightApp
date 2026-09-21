@@ -34,6 +34,14 @@
 
 รายละเอียด: `ACCESS-CONTROL-V1.md`
 
+Progress:
+
+- Phase A schema/mapping: DONE
+- Phase B scoped reads: DONE
+- Phase C row-level CRUD: DONE
+- Phase D strict property isolation: DONE
+- Phase E tenant foundation: NEXT
+
 ---
 
 ## 1. Payment Slip Verification
