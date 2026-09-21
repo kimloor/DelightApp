@@ -61,6 +61,96 @@ async function sha256Hex(text) {
   return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))));
 }
 
+const PASSWORD_ALGO_V2 = 'pbkdf2_sha256';
+const PASSWORD_ITERATIONS_V2 = 100000;
+const SESSION_TTL_MS = 7*24*60*60*1000;
+const LOGIN_WINDOW_MS = 15*60*1000;
+const LOGIN_BLOCK_MS = 15*60*1000;
+const LOGIN_MAX_FAILURES = 5;
+
+async function pbkdf2Hex(password, salt, iterations=PASSWORD_ITERATIONS_V2) {
+  const material = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    {name:'PBKDF2'},
+    false,
+    ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {name:'PBKDF2',hash:'SHA-256',salt:new TextEncoder().encode(salt),iterations},
+    material,
+    256
+  );
+  return hex(new Uint8Array(bits));
+}
+
+async function verifyUserPassword(user, password) {
+  const algo = user?.password_algo || 'legacy_sha256';
+  if (algo === PASSWORD_ALGO_V2) {
+    const iterations = Number(user.password_iterations) || PASSWORD_ITERATIONS_V2;
+    return timingSafeText(await pbkdf2Hex(password,user.salt,iterations), user.password_hash || '');
+  }
+  return timingSafeText(await sha256Hex(password+':'+user.salt), user.password_hash || '');
+}
+
+async function makePasswordV2(password) {
+  const salt=crypto.randomUUID();
+  return {
+    salt,
+    hash:await pbkdf2Hex(password,salt,PASSWORD_ITERATIONS_V2),
+    algo:PASSWORD_ALGO_V2,
+    iterations:PASSWORD_ITERATIONS_V2
+  };
+}
+
+async function upgradeLegacyPassword(env, user, password) {
+  if ((user?.password_algo || 'legacy_sha256') === PASSWORD_ALGO_V2) return user;
+  const next=await makePasswordV2(password);
+  await env.DB.prepare(
+    'UPDATE users SET password_hash=?,salt=?,password_algo=?,password_iterations=? WHERE id=?'
+  ).bind(next.hash,next.salt,next.algo,next.iterations,String(user.id)).run();
+  return await userById(env,user.id);
+}
+
+async function loginLimitKey(request, username) {
+  const ip=request?.headers?.get('CF-Connecting-IP') || request?.headers?.get('x-forwarded-for') || '';
+  return sha256Hex(String(username).toLowerCase()+'|'+String(ip).split(',')[0].trim());
+}
+
+async function loginLimitState(env, request, username) {
+  const key=await loginLimitKey(request,username);
+  const now=Date.now();
+  const row=await env.DB.prepare('SELECT * FROM auth_login_limits WHERE key_hash=?').bind(key).first();
+  if (!row) return {key,blocked:false,now};
+  if (Number(row.blocked_until)>now) return {key,blocked:true,now};
+  if (Number(row.window_started_at)+LOGIN_WINDOW_MS<now) {
+    await env.DB.prepare('DELETE FROM auth_login_limits WHERE key_hash=?').bind(key).run();
+    return {key,blocked:false,now};
+  }
+  return {key,blocked:false,now,row};
+}
+
+async function recordLoginFailure(env, state) {
+  const now=state.now || Date.now();
+  const row=state.row;
+  const failCount=(Number(row?.fail_count)||0)+1;
+  const windowStarted=Number(row?.window_started_at)||now;
+  const blockedUntil=failCount>=LOGIN_MAX_FAILURES ? now+LOGIN_BLOCK_MS : 0;
+  await env.DB.prepare(
+    `INSERT INTO auth_login_limits (key_hash,fail_count,window_started_at,blocked_until,updated_at)
+     VALUES (?,?,?,?,?)
+     ON CONFLICT(key_hash) DO UPDATE SET
+       fail_count=excluded.fail_count,
+       window_started_at=excluded.window_started_at,
+       blocked_until=excluded.blocked_until,
+       updated_at=excluded.updated_at`
+  ).bind(state.key,failCount,windowStarted,blockedUntil,now).run();
+}
+
+async function clearLoginFailures(env, state) {
+  await env.DB.prepare('DELETE FROM auth_login_limits WHERE key_hash=?').bind(state.key).run();
+}
+
 async function hmacHex(secret, text) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
   return hex(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(text))));
@@ -68,7 +158,12 @@ async function hmacHex(secret, text) {
 
 async function createToken(env, user) {
   requireSecret(env);
-  const payload = { uid:String(user.id), u:String(user.username), exp:Date.now() + 30*24*60*60*1000 };
+  const payload = {
+    uid:String(user.id),
+    u:String(user.username),
+    sv:Number(user.session_version)||1,
+    exp:Date.now() + SESSION_TTL_MS
+  };
   const payloadB64 = b64url(new TextEncoder().encode(JSON.stringify(payload)));
   return payloadB64 + '.' + await hmacHex(env.AUTH_SECRET, payloadB64);
 }
@@ -138,7 +233,11 @@ async function authenticate(env, token) {
   const auth = await verifyToken(env, token);
   if (!auth) return null;
   const user = await userById(env, auth.uid);
-  return user ? {auth,user} : null;
+  if (!user) return null;
+  const tokenVersion=Number(auth.sv || 1);
+  const currentVersion=Number(user.session_version)||1;
+  if (tokenVersion !== currentVersion) return null;
+  return {auth,user};
 }
 
 async function requireAdmin(env, token) {
@@ -963,18 +1062,17 @@ async function createScopedAdminUser(env, admin, body) {
   const password=s(body.password);
   const displayName=s(body.displayName).trim() || username;
   if(!username) throw new Error('username_required');
-  if(password.length<4) throw new Error('password_too_short');
+  if(password.length<8) throw new Error('password_too_short');
   if(await userByUsername(env,username)) throw new Error('username_exists');
 
   const id=await nextNumericId(env,'users');
-  const salt=crypto.randomUUID();
-  const hash=await sha256Hex(password+':'+salt);
+  const pw=await makePasswordV2(password);
   const createdAt=new Date().toISOString();
 
   const stmts=[
     env.DB.prepare(
-      "INSERT INTO users (id,username,password_hash,salt,display_name,created_at,role) VALUES (?,?,?,?,?,?, 'admin')"
-    ).bind(id,username,hash,salt,displayName,createdAt)
+      "INSERT INTO users (id,username,password_hash,salt,display_name,created_at,role,password_algo,password_iterations,session_version) VALUES (?,?,?,?,?,?, 'admin',?,?,1)"
+    ).bind(id,username,pw.hash,pw.salt,displayName,createdAt,pw.algo,pw.iterations)
   ];
   for(const propertyId of propertyIds){
     stmts.push(env.DB.prepare(
@@ -1006,9 +1104,17 @@ async function removeAdminPropertyAccess(env, admin, targetUserId, propertyId) {
 async function handlePost(request, env, body) {
   if (body.action === 'login') {
     const username = s(body.username).trim();
+    const state=await loginLimitState(env,request,username || '__empty__');
+    if (state.blocked) return {error:'too_many_attempts'};
     const user = username ? await userByUsername(env, username) : null;
-    if (!user || await sha256Hex(s(body.password)+':'+user.salt) !== user.password_hash) return {error:'invalid_credentials'};
-    return {success:true, token:await createToken(env,user), user:publicUser(user)};
+    const valid = user ? await verifyUserPassword(user,s(body.password)) : false;
+    if (!valid) {
+      await recordLoginFailure(env,state);
+      return {error:'invalid_credentials'};
+    }
+    await clearLoginFailures(env,state);
+    const current=await upgradeLegacyPassword(env,user,s(body.password));
+    return {success:true, token:await createToken(env,current), user:publicUser(current)};
   }
 
   if (body.action === 'register') {
@@ -1152,13 +1258,21 @@ async function handlePost(request, env, body) {
   }
 
   if (body.action === 'changePassword') {
-    if (await sha256Hex(s(body.oldPassword)+':'+x.user.salt) !== x.user.password_hash) return {error:'wrong_old_password'};
+    if (!await verifyUserPassword(x.user,s(body.oldPassword))) return {error:'wrong_old_password'};
     const p = s(body.newPassword);
-    if (p.length < 4) return {error:'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'};
-    const salt = crypto.randomUUID();
-    const hash = await sha256Hex(p+':'+salt);
-    await env.DB.prepare('UPDATE users SET password_hash=?, salt=? WHERE id=?').bind(hash,salt,x.user.id).run();
-    await appendLog(env,x.user,'changePassword','users',[String(x.user.id)],1,'');
+    if (p.length < 8) return {error:'password_too_short'};
+    const pw=await makePasswordV2(p);
+    await env.DB.prepare(
+      'UPDATE users SET password_hash=?,salt=?,password_algo=?,password_iterations=?,session_version=session_version+1 WHERE id=?'
+    ).bind(pw.hash,pw.salt,pw.algo,pw.iterations,x.user.id).run();
+    const current=await userById(env,x.user.id);
+    await appendLog(env,x.user,'changePassword','users',[String(x.user.id)],1,'sessions revoked');
+    return {success:true,token:await createToken(env,current)};
+  }
+
+  if (body.action === 'logoutAll') {
+    await env.DB.prepare('UPDATE users SET session_version=session_version+1 WHERE id=?').bind(x.user.id).run();
+    await appendLog(env,x.user,'logoutAll','users',[String(x.user.id)],1,'');
     return {success:true};
   }
 
@@ -1182,12 +1296,12 @@ async function handlePost(request, env, body) {
       if (!target) throw new Error('user_not_found');
       if(!await adminCanManageUser(env,x.user,target.id)) throw new Error('forbidden');
       const p=s(body.newPassword);
-      if (p.length<4) throw new Error('password_too_short');
-      const salt=crypto.randomUUID();
-      const hash=await sha256Hex(p+':'+salt);
-      await env.DB.prepare('UPDATE users SET password_hash=?, salt=? WHERE id=?')
-        .bind(hash,salt,target.id).run();
-      await appendLog(env,x.user,'adminResetPassword','users',[String(target.id)],1,'account '+target.username);
+      if (p.length<8) throw new Error('password_too_short');
+      const pw=await makePasswordV2(p);
+      await env.DB.prepare(
+        'UPDATE users SET password_hash=?,salt=?,password_algo=?,password_iterations=?,session_version=session_version+1 WHERE id=?'
+      ).bind(pw.hash,pw.salt,pw.algo,pw.iterations,target.id).run();
+      await appendLog(env,x.user,'adminResetPassword','users',[String(target.id)],1,'account '+target.username+' sessions revoked');
       return {success:true};
     } catch(e) { return {error:e.message}; }
   }
