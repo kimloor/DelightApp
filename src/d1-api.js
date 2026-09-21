@@ -12,7 +12,7 @@ const TABLES = {
   },
   tenants: {
     columns: ['id','room_id','name','phone','move_in_date'],
-    fromClient: t => [s(t.id),s(t.roomId),s(t.name),s(t.phone),s(t.moveInDate)],
+    fromClient: t => [s(t.id),s(t.roomId),s(t.name),s(t.phone),s(t.moveIn != null ? t.moveIn : t.moveInDate)],
   },
   bills: {
     columns: ['id','room_id','month','invoice_no','rent','water_prev','water_curr','water_charge','electric_prev','electric_curr','electric_charge','total','status','vat_subtotal','vat_amount','tax_invoice_no'],
@@ -166,7 +166,7 @@ function rowProperty(r) {
   };
 }
 function rowRoom(r) { return {id:String(r.id),propertyId:String(r.property_id),number:r.room_number||'',floor:r.floor||'',rent:n(r.rent),status:r.status==='occupied'?'occupied':'vacant',roomType:r.room_type||'',deposit:n(r.deposit)}; }
-function rowTenant(r) { return {id:String(r.id),roomId:String(r.room_id),name:r.name||'',phone:r.phone||'',moveInDate:r.move_in_date||''}; }
+function rowTenant(r) { return {id:String(r.id),roomId:String(r.room_id),name:r.name||'',phone:r.phone||'',moveIn:r.move_in_date||''}; }
 function rowBill(r) { return {id:String(r.id),roomId:String(r.room_id),month:r.month||'',invoiceNo:r.invoice_no||'',rent:n(r.rent),waterPrev:n(r.water_prev),waterCurr:n(r.water_curr),water:n(r.water_charge),electricPrev:n(r.electric_prev),electricCurr:n(r.electric_curr),electric:n(r.electric_charge),total:n(r.total),status:r.status==='paid'?'paid':'unpaid',vatSubtotal:n(r.vat_subtotal),vatAmount:n(r.vat_amount),taxInvoiceNo:r.tax_invoice_no||''}; }
 function rowDeposit(r) { return {id:String(r.id),roomId:String(r.room_id),receiptNo:r.receipt_no||'',amount:n(r.amount),date:r.received_date||'',note:r.note||''}; }
 function rowMeter(r) { return {id:String(r.id),roomId:String(r.room_id),billId:String(r.bill_id||''),month:r.month||'',type:r.type||'',prev:n(r.previous_reading),curr:n(r.current_reading),units:n(r.units_used),rate:n(r.rate),cost:n(r.cost),recordedAt:r.recorded_at||''}; }
@@ -441,6 +441,87 @@ async function deleteRoomRow(env, user, roomId) {
   return {success:true,id};
 }
 
+
+async function dbTenant(env, tenantId) {
+  return env.DB.prepare('SELECT * FROM tenants WHERE id=?').bind(String(tenantId)).first();
+}
+
+async function createTenantRow(env, user, item) {
+  if (user.role !== 'admin') throw new Error('forbidden');
+  const roomId=s(item?.roomId);
+  const room=await dbRoom(env,roomId);
+  if (!room) throw new Error('room_not_found');
+  await requireAdminProperty(env,user,room.property_id);
+
+  const existing=await env.DB.prepare('SELECT id FROM tenants WHERE room_id=? LIMIT 1').bind(roomId).first();
+  if (existing) throw new Error('room_already_has_tenant');
+
+  const id=await nextNumericId(env,'tenants');
+  const next={...(item||{}),id,roomId};
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO tenants (id,room_id,name,phone,move_in_date) VALUES (?,?,?,?,?)')
+      .bind(id,roomId,s(next.name),s(next.phone),s(next.moveIn)),
+    env.DB.prepare("UPDATE rooms SET status='occupied' WHERE id=?").bind(roomId),
+  ]);
+  await appendLog(env,user,'create','tenants',[id],1,'room '+roomId);
+  return {
+    tenant:rowTenant(await dbTenant(env,id)),
+    room:rowRoom(await dbRoom(env,roomId)),
+  };
+}
+
+async function updateTenantRow(env, user, item) {
+  const id=s(item?.id);
+  const existing=await dbTenant(env,id);
+  if (!existing) throw new Error('tenant_not_found');
+
+  const oldRoom=await dbRoom(env,existing.room_id);
+  if (!oldRoom) throw new Error('room_not_found');
+  await requireAdminProperty(env,user,oldRoom.property_id);
+
+  const newRoomId=s(item?.roomId);
+  const newRoom=await dbRoom(env,newRoomId);
+  if (!newRoom) throw new Error('room_not_found');
+  await requireAdminProperty(env,user,newRoom.property_id);
+
+  const conflict=await env.DB.prepare('SELECT id FROM tenants WHERE room_id=? AND id<>? LIMIT 1')
+    .bind(newRoomId,id).first();
+  if (conflict) throw new Error('room_already_has_tenant');
+
+  const stmts=[
+    env.DB.prepare('UPDATE tenants SET room_id=?,name=?,phone=?,move_in_date=? WHERE id=?')
+      .bind(newRoomId,s(item?.name),s(item?.phone),s(item?.moveIn),id),
+    env.DB.prepare("UPDATE rooms SET status='occupied' WHERE id=?").bind(newRoomId),
+  ];
+  if (String(existing.room_id)!==newRoomId) {
+    stmts.push(env.DB.prepare("UPDATE rooms SET status='vacant' WHERE id=?").bind(String(existing.room_id)));
+  }
+  await env.DB.batch(stmts);
+  await appendLog(env,user,'update','tenants',[id],1,'room '+newRoomId);
+  return {
+    tenant:rowTenant(await dbTenant(env,id)),
+    room:rowRoom(await dbRoom(env,newRoomId)),
+    oldRoom:String(existing.room_id)!==newRoomId ? rowRoom(await dbRoom(env,existing.room_id)) : null,
+  };
+}
+
+async function deleteTenantRow(env, user, tenantId) {
+  const id=s(tenantId);
+  const existing=await dbTenant(env,id);
+  if (!existing) throw new Error('tenant_not_found');
+  const room=await dbRoom(env,existing.room_id);
+  if (!room) throw new Error('room_not_found');
+  await requireAdminProperty(env,user,room.property_id);
+
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM tenant_accounts WHERE tenant_id=?').bind(id),
+    env.DB.prepare('DELETE FROM tenants WHERE id=?').bind(id),
+    env.DB.prepare("UPDATE rooms SET status='vacant' WHERE id=?").bind(String(existing.room_id)),
+  ]);
+  await appendLog(env,user,'delete','tenants',[id],1,'room '+existing.room_id);
+  return {success:true,id,room:rowRoom(await dbRoom(env,existing.room_id))};
+}
+
 async function handlePost(request, env, body) {
   if (body.action === 'login') {
     const username = s(body.username).trim();
@@ -511,6 +592,21 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'deleteRoom') {
     try { return await deleteRoomRow(env,x.user,body.id); }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'createTenant') {
+    try { return {success:true,...await createTenantRow(env,x.user,body.item||{})}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'updateTenant') {
+    try { return {success:true,...await updateTenantRow(env,x.user,body.item||{})}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'deleteTenant') {
+    try { return await deleteTenantRow(env,x.user,body.id); }
     catch(e) { return {error:e.message}; }
   }
 
