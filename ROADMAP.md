@@ -15,6 +15,26 @@
 
 ---
 
+## 0. Multi-Tenant Access Control Foundation
+
+**Status:** PLANNED
+
+เป้าหมาย: แยกข้อมูลของแต่ละผู้ดูแลออกจากกันอย่างปลอดภัย และรองรับหลาย admin ต่อ property
+
+หลักการ:
+
+- role หลัก: admin / tenant
+- admin 1 คนดูแลหลาย property ได้
+- property 1 แห่งมีหลาย admin ได้
+- ใช้ `property_admins` เป็น permission mapping
+- tenant account แยก mapping ผ่าน `tenant_accounts`
+- backend ต้อง enforce access ทุก read/write
+- ต้องเปลี่ยน whole-table writes เป็น row-level CRUD ก่อนเปิด strict isolation
+
+รายละเอียด: `ACCESS-CONTROL-V1.md`
+
+---
+
 ## 1. Payment Slip Verification
 
 **Status:** IDEA
