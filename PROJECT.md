@@ -20,7 +20,7 @@ Primary user-facing modules:
 - Room layout positions / ตำแหน่งผัง
 - Apartment/property settings
 - VAT configuration
-- Login / registration
+- Login
 - Password change
 - Admin user management
 - Public read-only room availability endpoint for external bot usage
@@ -93,6 +93,8 @@ Tables:
 - `receipts`
 - `room_layouts`
 - `audit_logs`
+- `property_admins`
+- `tenant_accounts`
 
 Business IDs remain `TEXT PRIMARY KEY` for migration compatibility.
 
@@ -114,16 +116,17 @@ D1 now enforces the main parent/child relationships defined in the initial migra
 
 ## 5. Authentication and authorization
 
-Supported production actions include:
+Supported production behavior includes:
 
 - login
-- register
+- public self-registration disabled
 - me
 - change own password
-- admin list users
-- admin reset another user's password
-- getAll
-- compatible table saves
+- admin user management
+- scoped property-authorized row-level CRUD
+- admin scoped-read API
+- tenant-specific read API
+- legacy admin global read retained temporarily until Phase D
 - public availability lookup
 
 Existing users were migrated with the legacy compatible password format:
@@ -136,21 +139,21 @@ Worker sessions use the Worker `AUTH_SECRET`.
 
 Users were required to sign in again at the D1 cutover rather than reusing Apps Script tokens.
 
-### Current shared-data behavior
+### Current access-control transition
 
-The application intentionally still preserves the pre-migration shared-data model:
+Multi-Tenant Access V1 is partially enabled in production:
 
-- authenticated users can currently read shared apartment data
-- authenticated users can currently write shared tables
-- `owner_id` is retained but is not currently used to isolate properties by account
+- `property_admins` is the authorization mapping for admin writes
+- `tenant_accounts` maps tenant logins to tenant records
+- `kim` and `test` are mapped to both current properties
+- `test02` is mapped to the current tenant in ทีเอชแอล แมนชั่น
+- `pare` is mapped to the current tenant in ภาณุภณแมนชั่น
+- tenant accounts cannot use the legacy global admin dataset or admin write actions
+- all normal business writes are row-level and checked server-side against property access
 
-Owner/property isolation is a **future security/authorization feature**, not part of the completed D1 migration.
+The admin frontend still reads the legacy global admin snapshot temporarily. Phase D will switch admin reads to `getAdminScoped`, completing strict cross-admin property isolation.
 
-Current planned access mapping for Multi-Tenant Access V1:
-
-- `kim` and `test` will have admin access to both existing properties
-- the remaining 2 existing accounts will become tenant accounts
-- tenant-to-tenant-record binding must be confirmed before isolation is enabled
+`properties.owner_id` remains legacy compatibility data and is not the primary permission source.
 
 See `ACCESS-CONTROL-V1.md`.
 
@@ -176,17 +179,20 @@ The service worker explicitly excludes `/api` requests from caching so authentic
 
 ## 7. Current write model
 
-The compatibility API still supports the old whole-table save contract for several tables.
+Production frontend mutations now use explicit row-level API actions.
 
-This was kept intentionally to make the database migration safer and smaller in scope.
+The legacy whole-table client save functions have been removed and the Worker rejects the old whole-table write contract with `legacy_whole_table_write_disabled`.
 
-Preferred future direction:
+Current properties of the write model:
 
-- row-level CRUD
-- transactions for multi-record business operations
-- conflict/concurrency handling
-- smaller payloads
-- less risk of one client overwriting unrelated rows
+- server-side property authorization for business-data writes
+- server-generated IDs for newly created business rows
+- server-side document numbering for newly created bills, deposits and receipts
+- dedicated bulk row operations where the UI edits multiple rows
+- owner-only property deletion with controlled cascade
+- no client snapshot may delete rows merely because they are absent from the current view
+
+Further improvements may add stronger transactional grouping and optimistic concurrency/version checks for operations that span several requests.
 
 ## 8. Important business behavior to preserve
 
@@ -217,9 +223,9 @@ Key examples:
 
 `หอพัก/index.html` remains large and should eventually be modularized, but this should be a separate refactor.
 
-### Whole-table saves
+### Concurrency / multi-request transactions
 
-This is the highest-priority backend technical debt after migration stabilization.
+Whole-table saves have been retired. Remaining write-model work is to strengthen atomicity/version-conflict handling for complex operations that currently span multiple row-level requests.
 
 ### Legacy Apps Script copies
 
