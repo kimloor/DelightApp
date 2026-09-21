@@ -1,0 +1,70 @@
+name: Phase D Isolation Verification
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: contains(github.event.head_commit.message, '[PHASE-D-VERIFY]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PROD_URL: https://delightapp.ekqtjl.workers.dev
+      TEST_USER: phase_d_test_admin
+      TEST_USER_ID: phase_d_test_admin
+      TEST_PROPERTY_ID: phase_d_test_property
+      TEST_PASSWORD: PhaseDTest-9x!
+      TEST_SALT: phase-d-salt
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Prepare isolated test account
+        shell: bash
+        run: |
+          set -euo pipefail
+          HASH="$(printf '%s' "$TEST_PASSWORD:$TEST_SALT" | sha256sum | awk '{print $1}')"
+          NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "DELETE FROM property_admins WHERE user_id='$TEST_USER_ID' OR property_id='$TEST_PROPERTY_ID'; DELETE FROM properties WHERE id='$TEST_PROPERTY_ID'; DELETE FROM users WHERE id='$TEST_USER_ID' OR username='$TEST_USER';"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "INSERT INTO users (id,username,password_hash,salt,display_name,created_at,role) VALUES ('$TEST_USER_ID','$TEST_USER','$HASH','$TEST_SALT','Phase D Test','$NOW','admin'); INSERT INTO properties (id,name) VALUES ('$TEST_PROPERTY_ID','Phase D Isolation Test'); INSERT INTO property_admins (property_id,user_id,access_role,created_at) VALUES ('$TEST_PROPERTY_ID','$TEST_USER_ID','owner','$NOW');"
+
+      - name: Verify scoped reads and cross-property denial
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT id FROM properties WHERE id <> '$TEST_PROPERTY_ID' ORDER BY id LIMIT 1;" --json | jq -r '.[0].results[0].id')"
+          test -n "$TARGET"
+
+          LOGIN="$(curl -fsS -X POST "$PROD_URL/api" -H 'content-type: text/plain;charset=utf-8' --data "$(jq -nc --arg u "$TEST_USER" --arg p "$TEST_PASSWORD" '{action:"login",username:$u,password:$p}')")"
+          TOKEN="$(echo "$LOGIN" | jq -r '.token // empty')"
+          test -n "$TOKEN"
+
+          SCOPED="$(curl -fsS -X POST "$PROD_URL/api" -H 'content-type: text/plain;charset=utf-8' --data "$(jq -nc --arg t "$TOKEN" '{action:"getAdminScoped",token:$t}')")"
+          test "$(echo "$SCOPED" | jq '.properties|length')" = "1"
+          test "$(echo "$SCOPED" | jq -r '.properties[0].id')" = "$TEST_PROPERTY_ID"
+
+          USERS="$(curl -fsS -X POST "$PROD_URL/api" -H 'content-type: text/plain;charset=utf-8' --data "$(jq -nc --arg t "$TOKEN" '{action:"adminListUsers",token:$t}')")"
+          test "$(echo "$USERS" | jq '.users|length')" = "1"
+          test "$(echo "$USERS" | jq -r '.users[0].username')" = "$TEST_USER"
+
+          DENY="$(curl -fsS -X POST "$PROD_URL/api" -H 'content-type: text/plain;charset=utf-8' --data "$(jq -nc --arg t "$TOKEN" --arg id "$TARGET" '{action:"updateProperty",token:$t,item:{id:$id,name:"SHOULD_NOT_WRITE"}}')")"
+          test "$(echo "$DENY" | jq -r '.error')" = "forbidden"
+
+          LEGACY="$(curl -fsS -X POST "$PROD_URL/api" -H 'content-type: text/plain;charset=utf-8' --data "$(jq -nc --arg t "$TOKEN" '{action:"getAll",token:$t}')")"
+          test "$(echo "$LEGACY" | jq -r '.error')" = "legacy_global_read_disabled"
+
+          echo "phase_d_isolation=PASS"
+
+      - name: Cleanup isolated test account
+        if: always()
+        shell: bash
+        run: |
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "DELETE FROM audit_logs WHERE user_id='$TEST_USER_ID'; DELETE FROM property_admins WHERE user_id='$TEST_USER_ID' OR property_id='$TEST_PROPERTY_ID'; DELETE FROM properties WHERE id='$TEST_PROPERTY_ID'; DELETE FROM users WHERE id='$TEST_USER_ID' OR username='$TEST_USER';"
