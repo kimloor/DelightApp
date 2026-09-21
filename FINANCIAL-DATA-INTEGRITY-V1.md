@@ -118,8 +118,29 @@ Required:
 - tenant isolation still succeeds
 - no historical records are changed by migration
 
-## 9. Lead rollout decision
+## 9. Production audit — 2026-09-21
 
-First action: production duplicate audit.
+Duplicate audit result:
+- duplicate room number within property: 0
+- multiple tenants in one room: 0
+- duplicate bill room/month: 0
+- duplicate invoice number: 0
+- multiple receipts for one bill: 0
+- duplicate receipt number: 0
+- duplicate deposit receipt number: 0
+- duplicate room-layout row: 0
+- receipt referencing missing bill: 0
+- receipt/bill room mismatch: 0
+- meter referencing missing bill: 0
+- meter/bill room mismatch: 0
 
-No UNIQUE migration will be applied until the audit confirms whether cleanup is needed.
+Observed for S3 follow-up:
+- paid bills without a receipt: 2
+
+The two paid-without-receipt records are not auto-corrected in S2 because they may represent manual/legacy payment status. S3 must define the accounting lifecycle before changing historical records.
+
+## 10. Lead rollout decision
+
+Production duplicate state is clean for S2 constraints.
+
+Proceed with forward-only UNIQUE indexes plus Worker-side stable error/retry behavior. Historical financial values and document numbers must remain unchanged.
