@@ -841,6 +841,7 @@
     <div class="topbar-brand">DelightApp · ผู้เช่า</div>
     <div class="topbar-right">
       <button class="settings-btn" type="button" onclick="openChangePassword()">🔑 <span class="label">เปลี่ยนรหัสผ่าน</span></button>
+      <button class="settings-btn" type="button" onclick="openLogoutAllConfirm()">🛡 <span class="label">ออกทุกอุปกรณ์</span></button>
       <button class="settings-btn" type="button" onclick="doLogout()">ออกจากระบบ</button>
     </div>
   </header>
@@ -1116,6 +1117,18 @@ function doLogout(){
   clearLocalDataCache();
   dataReady = false;
   showLoginScreen();
+}
+
+async function openLogoutAllConfirm(){
+  if(!confirm('ออกจากระบบทุกอุปกรณ์ที่ใช้บัญชีนี้?')) return;
+  try{
+    await remoteAuthPost({action:'logoutAll'});
+    doLogout();
+    showToast('ออกจากระบบทุกอุปกรณ์แล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('ออกจากระบบทุกอุปกรณ์ไม่สำเร็จ');
+  }
 }
 
 async function wsGet(key){
@@ -1549,9 +1562,12 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
     showAppScreen();
     await loadData();
   }catch(e){
-    msg.textContent = (String(e.message)==='invalid_credentials')
+    const em=String(e.message);
+    msg.textContent = em==='invalid_credentials'
       ? 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'
-      : 'เข้าสู่ระบบไม่สำเร็จ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่';
+      : em==='too_many_attempts'
+        ? 'ลองเข้าสู่ระบบผิดหลายครั้งเกินไป กรุณารอประมาณ 15 นาทีแล้วลองใหม่'
+        : 'เข้าสู่ระบบไม่สำเร็จ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่';
   }finally{
     btn.disabled = false; btn.textContent = 'เข้าสู่ระบบ';
   }
@@ -1566,6 +1582,8 @@ function escapeAuthHtml(v){
 function pwErrorText(e){
   const m = String((e && e.message) || e || '');
   if(m === 'wrong_old_password') return 'รหัสผ่านเดิมไม่ถูกต้อง';
+  if(m === 'password_too_short') return 'รหัสผ่านสั้นเกินไป (อย่างน้อย 8 ตัวอักษร)';
+  if(m === 'too_many_attempts') return 'ลองเข้าสู่ระบบผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่';
   if(m === 'forbidden') return 'ไม่มีสิทธิ์ทำรายการนี้ (ต้องเป็นแอดมิน)';
   if(/^(HTTP |Failed to fetch|NetworkError|Load failed)/i.test(m) || !m) return 'ทำรายการไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่';
   return m; // ข้อความภาษาไทยจาก backend เช่น "รหัสผ่านสั้นเกินไป..."
@@ -1616,7 +1634,7 @@ function changePasswordFormHtml(){
       <input id="cp-old" type="password" autocomplete="current-password">
     </div>
     <div class="field">
-      <label>รหัสผ่านใหม่ (อย่างน้อย 4 ตัวอักษร)</label>
+      <label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</label>
       <input id="cp-new" type="password" autocomplete="new-password">
     </div>
     <div class="field">
@@ -1648,14 +1666,18 @@ async function onChangePassword(){
   const btn = document.getElementById('cpSaveBtn');
   msg.textContent = '';
   if(!oldPassword){ msg.textContent = 'กรอกรหัสผ่านเดิม'; return; }
-  if(newPassword.length < 4){ msg.textContent = 'รหัสผ่านใหม่สั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
+  if(newPassword.length < 8){ msg.textContent = 'รหัสผ่านใหม่สั้นเกินไป (อย่างน้อย 8 ตัวอักษร)'; return; }
   if(newPassword !== confirmPassword){ msg.textContent = 'รหัสผ่านใหม่ที่ยืนยันไม่ตรงกัน'; return; }
   if(newPassword === oldPassword){ msg.textContent = 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสเดิม'; return; }
   btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
   try{
-    await remoteAuthPost({action:'changePassword', oldPassword, newPassword});
+    const data=await remoteAuthPost({action:'changePassword', oldPassword, newPassword});
+    if(data && data.token){
+      authToken=data.token;
+      try{ localStorage.setItem('dorm:authToken',authToken); }catch(err){}
+    }
     closeModal();
-    showToast('เปลี่ยนรหัสผ่านเรียบร้อยแล้ว');
+    showToast('เปลี่ยนรหัสผ่านเรียบร้อยแล้ว และยกเลิกเซสชันเก่าแล้ว');
   }catch(e){
     if(handleUnauthorized(e)) return;
     msg.textContent = pwErrorText(e);
@@ -1715,7 +1737,7 @@ function showAdminCreateUserForm(){
       ${adminOwnerProperties.map(p=>`<label style="display:flex;gap:8px;align-items:center;margin:6px 0;"><input type="checkbox" class="acu-property" value="${escapeAuthHtml(p.propertyId)}" style="width:auto;"> ${escapeAuthHtml(p.propertyName)}</label>`).join('')}
     </div>
     <div class="field">
-      <label>รหัสผ่านเริ่มต้น (อย่างน้อย 4 ตัวอักษร)</label>
+      <label>รหัสผ่านเริ่มต้น (อย่างน้อย 8 ตัวอักษร)</label>
       <input id="acu-password" type="password" autocomplete="new-password">
     </div>
     <div class="field">
@@ -1743,7 +1765,7 @@ async function onAdminCreateUser(){
   msg.textContent='';
   if(!username){ msg.textContent='กรอกชื่อผู้ใช้'; return; }
   if(!propertyIds.length){ msg.textContent='เลือกอพาร์ทเมนท์อย่างน้อย 1 แห่ง'; return; }
-  if(password.length<4){ msg.textContent='รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
+  if(password.length<8){ msg.textContent='รหัสผ่านสั้นเกินไป (อย่างน้อย 8 ตัวอักษร)'; return; }
   if(password!==confirmPassword){ msg.textContent='รหัสผ่านที่ยืนยันไม่ตรงกัน'; return; }
   btn.disabled=true; btn.textContent='กำลังสร้าง…';
   try{
@@ -1820,7 +1842,7 @@ function showAdminResetForm(userId){
     <p style="margin:0 0 12px;font-size:13.5px;color:var(--ink);">ตั้งรหัสผ่านใหม่ให้
       <b>${escapeAuthHtml(u.displayName || u.username)}</b> (${escapeAuthHtml(u.username)})</p>
     <div class="field">
-      <label>รหัสผ่านใหม่ (อย่างน้อย 4 ตัวอักษร)</label>
+      <label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</label>
       <input id="ar-new" type="password" autocomplete="new-password">
     </div>
     <div class="field">
@@ -1846,7 +1868,7 @@ async function onAdminResetPassword(u){
   const msg = document.getElementById('arMsg');
   const btn = document.getElementById('arSaveBtn');
   msg.textContent = '';
-  if(newPassword.length < 4){ msg.textContent = 'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
+  if(newPassword.length < 8){ msg.textContent = 'รหัสผ่านสั้นเกินไป (อย่างน้อย 8 ตัวอักษร)'; return; }
   if(newPassword !== confirmPassword){ msg.textContent = 'รหัสผ่านที่ยืนยันไม่ตรงกัน'; return; }
   btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
   try{
@@ -1882,7 +1904,7 @@ document.getElementById('registerForm').addEventListener('submit', async (e)=>{
   const btn = document.getElementById('registerSubmitBtn');
   msg.textContent = '';
   if(!username || !password){ msg.textContent = 'กรอกชื่อผู้ใช้และรหัสผ่านให้ครบ'; return; }
-  if(password.length < 4){ msg.textContent = 'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
+  if(password.length < 8){ msg.textContent = 'รหัสผ่านสั้นเกินไป (อย่างน้อย 8 ตัวอักษร)'; return; }
   if(password !== confirmPassword){ msg.textContent = 'รหัสผ่านที่ยืนยันไม่ตรงกัน'; return; }
   btn.disabled = true; btn.textContent = 'กำลังสมัคร…';
   try{
@@ -2161,7 +2183,8 @@ function settingsFormHtml(){
     <div style="display:grid;gap:8px;">
       ${adminButton}
       <button class="btn ghost" id="settingsChangePwBtn">🔑 เปลี่ยนรหัสผ่าน</button>
-      <button class="btn danger" id="settingsLogoutBtn">⎋ ออกจากระบบ</button>
+      <button class="btn ghost" id="settingsLogoutAllBtn">🛡 ออกจากระบบทุกอุปกรณ์</button>
+      <button class="btn danger" id="settingsLogoutBtn">⎋ ออกจากระบบเครื่องนี้</button>
     </div>
     <div class="modal-actions">
       <button class="btn ghost" id="cancelBtn">ปิด</button>
@@ -2175,6 +2198,22 @@ function wireSettingsActions(){
 
   const changeBtn = document.getElementById('settingsChangePwBtn');
   if(changeBtn) changeBtn.onclick = openChangePassword;
+
+  const logoutAllBtn = document.getElementById('settingsLogoutAllBtn');
+  if(logoutAllBtn) logoutAllBtn.onclick = async ()=>{
+    if(!confirm('ออกจากระบบทุกอุปกรณ์ที่ใช้บัญชีนี้?')) return;
+    logoutAllBtn.disabled=true;
+    try{
+      await remoteAuthPost({action:'logoutAll'});
+      closeModal();
+      doLogout();
+      showToast('ออกจากระบบทุกอุปกรณ์แล้ว');
+    }catch(e){
+      if(handleUnauthorized(e)) return;
+      logoutAllBtn.disabled=false;
+      showToast('ออกจากระบบทุกอุปกรณ์ไม่สำเร็จ');
+    }
+  };
 
   const logoutBtn = document.getElementById('settingsLogoutBtn');
   if(logoutBtn) logoutBtn.onclick = ()=>{
