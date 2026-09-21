@@ -12,10 +12,9 @@ Target architecture:
 Browser / PWA
     |
     v
-Cloudflare Worker API
-    |
-    v
-Cloudflare D1
+Cloudflare Worker: delightapp
+    |-- static assets from /หอพัก
+    `-- /api/* -> API code -> D1
 ```
 
 Google Sheets remains the production source and rollback copy until D1 has been migrated, validated and cut over successfully.
@@ -247,8 +246,8 @@ Status: **repository implementation prepared on `feat/d1-backend`; Cloudflare pr
 Prepared on the feature branch:
 
 - `migrations/0001_initial_d1.sql`
-- `src/d1-api.js` — API-only compatibility Worker
-- `wrangler.d1.jsonc` — isolated D1 Worker config; does not replace the production static-app config
+- `src/d1-api.js` — compatibility API code executed by the existing `delightapp` Worker for `/api` routes
+- `wrangler.jsonc` — single Worker configuration for static assets + `/api/*` + D1 binding
 - `.dev.vars.example` — secret names only, no real secrets
 
 Current external blocker:
@@ -262,9 +261,9 @@ Required Cloudflare-side actions:
 3. set Worker secret `AUTH_SECRET`
 4. set `BOT_API_KEY` if the Messenger/public availability integration is kept
 5. apply migrations remotely
-6. deploy the API-only Worker for staging
+6. deploy the existing `delightapp` Worker from the feature branch for staging verification
 
-Production `wrangler.jsonc` and the existing frontend remain unchanged.
+The production frontend files remain unchanged. The feature branch changes `wrangler.jsonc` so the existing Worker named `delightapp` becomes the single frontend + API Worker after staging approval.
 
 Repository artifact:
 
