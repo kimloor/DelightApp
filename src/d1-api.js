@@ -293,6 +293,154 @@ async function nextNumericId(env, table) {
   return String((Number(row?.max_id)||0)+1);
 }
 
+
+async function adminHasProperty(env, userId, propertyId) {
+  const row = await env.DB.prepare(
+    'SELECT 1 AS ok FROM property_admins WHERE user_id=? AND property_id=? LIMIT 1'
+  ).bind(String(userId), String(propertyId)).first();
+  return !!row;
+}
+
+async function requireAdminProperty(env, user, propertyId) {
+  if (!user || user.role !== 'admin') throw new Error('forbidden');
+  if (!await adminHasProperty(env, user.id, propertyId)) throw new Error('forbidden');
+}
+
+async function dbRoom(env, roomId) {
+  return env.DB.prepare('SELECT * FROM rooms WHERE id=?').bind(String(roomId)).first();
+}
+
+async function insertLogicalRow(env, tableName, item) {
+  const cfg = TABLES[tableName];
+  if (!cfg) throw new Error('unknown table: ' + tableName);
+  const dbTable = cfg.dbTable || tableName;
+  const cols = cfg.columns;
+  const row = cfg.fromClient(item);
+  const sql = `INSERT INTO ${dbTable} (${cols.join(',')}) VALUES (${cols.map(()=>'?').join(',')})`;
+  await env.DB.prepare(sql).bind(...row).run();
+}
+
+async function updateLogicalRow(env, tableName, item) {
+  const cfg = TABLES[tableName];
+  if (!cfg) throw new Error('unknown table: ' + tableName);
+  const dbTable = cfg.dbTable || tableName;
+  const cols = cfg.columns;
+  const row = cfg.fromClient(item);
+  const setters = cols.slice(1).map(c=>c+'=?').join(',');
+  await env.DB.prepare(`UPDATE ${dbTable} SET ${setters} WHERE id=?`)
+    .bind(...row.slice(1), row[0]).run();
+}
+
+async function createPropertyRow(env, user, item) {
+  if (user.role !== 'admin') throw new Error('forbidden');
+  const id = await nextNumericId(env,'properties');
+  const next = {
+    ...(item || {}),
+    id,
+    ownerId:String(user.id),
+    name:s(item?.name).trim(),
+  };
+  if (!next.name) throw new Error('property_name_required');
+
+  const dup = await env.DB.prepare('SELECT id FROM properties WHERE name=? LIMIT 1').bind(next.name).first();
+  if (dup) throw new Error('property_name_exists');
+
+  await insertLogicalRow(env,'properties',next);
+  await env.DB.prepare(
+    "INSERT INTO property_admins (property_id,user_id,access_role,created_at) VALUES (?,?, 'owner', ?)"
+  ).bind(id,String(user.id),new Date().toISOString()).run();
+  await appendLog(env,user,'create','properties',[id],1,'');
+  return rowProperty(await env.DB.prepare('SELECT * FROM properties WHERE id=?').bind(id).first());
+}
+
+async function updatePropertyRow(env, user, item) {
+  const id=s(item?.id);
+  if (!id) throw new Error('property_id_required');
+  await requireAdminProperty(env,user,id);
+  const existing = await env.DB.prepare('SELECT * FROM properties WHERE id=?').bind(id).first();
+  if (!existing) throw new Error('property_not_found');
+
+  const name=s(item?.name).trim();
+  if (!name) throw new Error('property_name_required');
+  const dup = await env.DB.prepare('SELECT id FROM properties WHERE name=? AND id<>? LIMIT 1').bind(name,id).first();
+  if (dup) throw new Error('property_name_exists');
+
+  const next={...(item||{}),id,name,ownerId:existing.owner_id||''};
+  await updateLogicalRow(env,'properties',next);
+  await appendLog(env,user,'update','properties',[id],1,'');
+  return rowProperty(await env.DB.prepare('SELECT * FROM properties WHERE id=?').bind(id).first());
+}
+
+async function createRoomRow(env, user, item) {
+  if (user.role !== 'admin') throw new Error('forbidden');
+  const propertyId=s(item?.propertyId);
+  await requireAdminProperty(env,user,propertyId);
+  const number=s(item?.number).trim();
+  if (!number) throw new Error('room_number_required');
+  const dup=await env.DB.prepare('SELECT id FROM rooms WHERE property_id=? AND room_number=? LIMIT 1').bind(propertyId,number).first();
+  if (dup) throw new Error('room_number_exists');
+
+  const id=await nextNumericId(env,'rooms');
+  const next={...(item||{}),id,propertyId,number};
+  await insertLogicalRow(env,'rooms',next);
+  await appendLog(env,user,'create','rooms',[id],1,'');
+  return rowRoom(await dbRoom(env,id));
+}
+
+async function updateRoomRow(env, user, item) {
+  const id=s(item?.id);
+  const existing=await dbRoom(env,id);
+  if (!existing) throw new Error('room_not_found');
+  await requireAdminProperty(env,user,existing.property_id);
+
+  const propertyId=s(item?.propertyId);
+  await requireAdminProperty(env,user,propertyId);
+  const number=s(item?.number).trim();
+  if (!number) throw new Error('room_number_required');
+  const dup=await env.DB.prepare(
+    'SELECT id FROM rooms WHERE property_id=? AND room_number=? AND id<>? LIMIT 1'
+  ).bind(propertyId,number,id).first();
+  if (dup) throw new Error('room_number_exists');
+
+  const next={...(item||{}),id,propertyId,number};
+  await updateLogicalRow(env,'rooms',next);
+  await appendLog(env,user,'update','rooms',[id],1,'');
+  return rowRoom(await dbRoom(env,id));
+}
+
+async function batchUpdateRooms(env, user, items) {
+  if (user.role !== 'admin') throw new Error('forbidden');
+  const list=Array.isArray(items)?items:[];
+  const out=[];
+  for (const raw of list) {
+    out.push(await updateRoomRow(env,user,raw));
+  }
+  return out;
+}
+
+async function deleteRoomRow(env, user, roomId) {
+  const id=s(roomId);
+  const existing=await dbRoom(env,id);
+  if (!existing) throw new Error('room_not_found');
+  await requireAdminProperty(env,user,existing.property_id);
+
+  const checks=await Promise.all([
+    env.DB.prepare('SELECT COUNT(*) AS c FROM tenants WHERE room_id=?').bind(id).first(),
+    env.DB.prepare('SELECT COUNT(*) AS c FROM bills WHERE room_id=?').bind(id).first(),
+    env.DB.prepare('SELECT COUNT(*) AS c FROM deposits WHERE room_id=?').bind(id).first(),
+    env.DB.prepare('SELECT COUNT(*) AS c FROM meter_readings WHERE room_id=?').bind(id).first(),
+    env.DB.prepare('SELECT COUNT(*) AS c FROM receipts WHERE room_id=?').bind(id).first(),
+  ]);
+  if (checks.some(x=>(Number(x?.c)||0)>0)) throw new Error('room_has_related_data');
+
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM room_layouts WHERE room_id=?').bind(id),
+    env.DB.prepare('DELETE FROM rooms WHERE id=?').bind(id),
+  ]);
+  await appendLog(env,user,'delete','rooms',[id],1,'');
+  return {success:true,id};
+}
+
 async function handlePost(request, env, body) {
   if (body.action === 'login') {
     const username = s(body.username).trim();
@@ -333,6 +481,36 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'getTenantHome') {
     try { return await getTenantHome(env, x.user); }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'createProperty') {
+    try { return {success:true,property:await createPropertyRow(env,x.user,body.item||{})}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'updateProperty') {
+    try { return {success:true,property:await updatePropertyRow(env,x.user,body.item||{})}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'createRoom') {
+    try { return {success:true,room:await createRoomRow(env,x.user,body.item||{})}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'updateRoom') {
+    try { return {success:true,room:await updateRoomRow(env,x.user,body.item||{})}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'batchUpdateRooms') {
+    try { return {success:true,rooms:await batchUpdateRooms(env,x.user,body.items)}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'deleteRoom') {
+    try { return await deleteRoomRow(env,x.user,body.id); }
     catch(e) { return {error:e.message}; }
   }
 
