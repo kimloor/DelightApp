@@ -1,6 +1,6 @@
 # DelightApp — Auth / Session Hardening V2
 
-> Status: PLANNED
+> Status: DONE — production verified 2026-09-21
 > Parent: STABILIZATION.md / S1
 > Goal: upgrade password/session security without breaking existing accounts.
 
@@ -158,3 +158,17 @@ Not part of V2:
 - refresh-token architecture
 
 Those may be added later if product needs justify them.
+
+
+## 9. Production verification
+
+Completed 2026-09-21:
+- migration 0004 applied successfully
+- existing pre-V2 sessions invalidated at rollout
+- production Worker deployed successfully
+- legacy SHA-256 login upgraded to PBKDF2-SHA-256 on successful login
+- password change revoked the old token and returned a fresh token
+- logoutAll revoked the active token
+- re-login with the changed password succeeded
+- temporary E2E account was removed after verification
+- temporary migration/E2E workflows were removed after successful use
