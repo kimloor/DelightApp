@@ -17,7 +17,7 @@
 
 ## 0. Multi-Tenant Access Control Foundation
 
-**Status:** PLANNED
+**Status:** IN PROGRESS — Phase A/B/C complete, Phase D next
 
 เป้าหมาย: แยกข้อมูลของแต่ละผู้ดูแลออกจากกันอย่างปลอดภัย และรองรับหลาย admin ต่อ property
 
@@ -29,7 +29,8 @@
 - ใช้ `property_admins` เป็น permission mapping
 - tenant account แยก mapping ผ่าน `tenant_accounts`
 - backend ต้อง enforce access ทุก read/write
-- ต้องเปลี่ยน whole-table writes เป็น row-level CRUD ก่อนเปิด strict isolation
+- whole-table writes เปลี่ยนเป็น row-level CRUD แล้ว
+- ขั้นถัดไป: เปิด strict admin property isolation และทดสอบ cross-admin denial
 
 รายละเอียด: `ACCESS-CONTROL-V1.md`
 
@@ -250,7 +251,6 @@ Privacy / Security:
 
 - public
 - tenant
-- staff
 - admin
 
 ---
