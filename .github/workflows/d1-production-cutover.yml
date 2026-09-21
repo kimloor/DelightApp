@@ -1,0 +1,64 @@
+name: D1 Production Cutover
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: contains(github.event.head_commit.message, '[D1-PROD-CUTOVER]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Checkout tested main
+        uses: actions/checkout@v6
+
+      - name: Verify final D1 baseline
+        run: |
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS users FROM users;"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS rooms FROM rooms;"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS bills FROM bills;"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT ROUND(SUM(total),2) AS grand_total FROM bills;"
+
+      - name: Upload production candidate
+        id: upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 versions upload --message "DelightApp D1 production cutover" --tag "d1-production-cutover" | tee upload.log
+          VERSION_ID="$(grep -Eo 'Worker Version ID: [0-9a-f-]+' upload.log | awk '{print $4}' | tail -1)"
+          test -n "$VERSION_ID"
+          echo "version_id=$VERSION_ID" >> "$GITHUB_OUTPUT"
+          echo "Uploaded version $VERSION_ID"
+
+      - name: Deploy candidate to 100 percent
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 versions deploy "${{ steps.upload.outputs.version_id }}@100%" -y --message "DelightApp D1 production cutover"
+
+      - name: Production smoke test
+        shell: bash
+        env:
+          PROD_URL: https://delightapp.ekqtjl.workers.dev
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS "$PROD_URL/api?action=ping" | grep -q '"backend":"d1"'; then
+              break
+            fi
+            sleep 5
+          done
+          curl -fsS "$PROD_URL/api?action=ping" | grep -q '"backend":"d1"'
+          curl -fsS "$PROD_URL/" -o /tmp/index.html
+          grep -q "Cloudflare D1" /tmp/index.html
+          grep -q "dorm:d1CutoverV1" /tmp/index.html
+          echo "production_smoke=PASS"
