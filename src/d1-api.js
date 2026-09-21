@@ -146,7 +146,14 @@ async function appendLog(env, user, action, tableName='', ids=[], count=0, note=
     await env.DB.prepare(
       'INSERT INTO audit_logs (created_at,user_id,username,action,table_name,affected_ids,item_count,note) VALUES (?,?,?,?,?,?,?,?)'
     ).bind(new Date().toISOString(), user?.id || '', user?.username || '', action, tableName, ids.join(','), count, note).run();
-  } catch {}
+  } catch (e) {
+    console.error('audit_log_write_failed', {
+      action,
+      tableName,
+      userId: user?.id || '',
+      error: String(e?.message || e),
+    });
+  }
 }
 
 function rowProperty(r) {
@@ -222,21 +229,9 @@ async function handlePost(request, env, body) {
   }
 
   if (body.action === 'register') {
-    const username = s(body.username).trim();
-    const password = s(body.password);
-    const displayName = s(body.displayName).trim() || username;
-    if (!username) return {error:'username ห้ามว่าง'};
-    if (password.length < 4) return {error:'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'};
-    if (await userByUsername(env, username)) return {error:'username นี้มีผู้ใช้แล้ว'};
-    const id = await nextNumericId(env,'users');
-    const salt = crypto.randomUUID();
-    const passwordHash = await sha256Hex(password+':'+salt);
-    const createdAt = new Date().toISOString();
-    await env.DB.prepare('INSERT INTO users (id,username,password_hash,salt,display_name,created_at,role) VALUES (?,?,?,?,?,?,?)')
-      .bind(id,username,passwordHash,salt,displayName,createdAt,'').run();
-    const user = await userById(env,id);
-    await appendLog(env,user,'register','users',[id],1,'');
-    return {success:true, token:await createToken(env,user), user:publicUser(user)};
+    // Public self-registration is intentionally disabled in production.
+    // New staff/tenant account provisioning must use an explicitly authorized flow.
+    return {error:'registration_disabled'};
   }
 
   if (body.action === 'getPublicAvailability') {
@@ -249,6 +244,9 @@ async function handlePost(request, env, body) {
   if (!x) return {error:'unauthorized'};
 
   if (body.action === 'me') return {success:true,user:publicUser(x.user)};
+
+  // Authenticated full snapshot read via POST so auth tokens are not placed in URLs.
+  if (body.action === 'getAll') return await getAll(env);
 
   if (body.action === 'changePassword') {
     if (await sha256Hex(s(body.oldPassword)+':'+x.user.salt) !== x.user.password_hash) return {error:'wrong_old_password'};
