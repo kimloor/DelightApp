@@ -1,0 +1,51 @@
+name: Data Integrity Production Audit
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: contains(github.event.head_commit.message, '[DATA-INTEGRITY-AUDIT]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Duplicate and consistency audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          runq() {
+            local label="$1"
+            local sql="$2"
+            echo "AUDIT:$label"
+            npx --yes wrangler@4 d1 execute delightapp-db --remote --command "$sql"
+          }
+
+          runq rooms_duplicate_number "SELECT COUNT(*) AS count FROM (SELECT property_id,room_number,COUNT(*) c FROM rooms GROUP BY property_id,room_number HAVING c>1);"
+          runq tenants_duplicate_room "SELECT COUNT(*) AS count FROM (SELECT room_id,COUNT(*) c FROM tenants GROUP BY room_id HAVING c>1);"
+          runq bills_duplicate_room_month "SELECT COUNT(*) AS count FROM (SELECT room_id,month,COUNT(*) c FROM bills GROUP BY room_id,month HAVING c>1);"
+          runq bills_duplicate_invoice "SELECT COUNT(*) AS count FROM (SELECT invoice_no,COUNT(*) c FROM bills WHERE invoice_no<>'' GROUP BY invoice_no HAVING c>1);"
+          runq receipts_duplicate_bill "SELECT COUNT(*) AS count FROM (SELECT bill_id,COUNT(*) c FROM receipts WHERE bill_id<>'' GROUP BY bill_id HAVING c>1);"
+          runq receipts_duplicate_number "SELECT COUNT(*) AS count FROM (SELECT receipt_no,COUNT(*) c FROM receipts WHERE receipt_no<>'' GROUP BY receipt_no HAVING c>1);"
+          runq deposits_duplicate_number "SELECT COUNT(*) AS count FROM (SELECT receipt_no,COUNT(*) c FROM deposits WHERE receipt_no<>'' GROUP BY receipt_no HAVING c>1);"
+          runq layouts_duplicate_room "SELECT COUNT(*) AS count FROM (SELECT room_id,COUNT(*) c FROM room_layouts GROUP BY room_id HAVING c>1);"
+
+          runq paid_bill_without_receipt "SELECT COUNT(*) AS count FROM bills b LEFT JOIN receipts r ON r.bill_id=b.id WHERE b.status='paid' AND r.id IS NULL;"
+          runq receipt_for_unpaid_bill "SELECT COUNT(*) AS count FROM receipts r JOIN bills b ON b.id=r.bill_id WHERE b.status<>'paid';"
+          runq receipt_missing_bill "SELECT COUNT(*) AS count FROM receipts r LEFT JOIN bills b ON b.id=r.bill_id WHERE r.bill_id<>'' AND b.id IS NULL;"
+          runq receipt_room_mismatch "SELECT COUNT(*) AS count FROM receipts r JOIN bills b ON b.id=r.bill_id WHERE r.room_id<>b.room_id;"
+          runq meter_missing_bill "SELECT COUNT(*) AS count FROM meter_readings m LEFT JOIN bills b ON b.id=m.bill_id WHERE m.bill_id<>'' AND b.id IS NULL;"
+          runq meter_room_mismatch "SELECT COUNT(*) AS count FROM meter_readings m JOIN bills b ON b.id=m.bill_id WHERE m.room_id<>b.room_id;"
+
+          echo "data_integrity_audit=PASS"
