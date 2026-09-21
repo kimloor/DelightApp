@@ -806,6 +806,7 @@ let meterReadings = [];
 let properties = [];
 let receipts = [];
 let roomLayouts = [];
+let propertyAdmins = [];
 let currentPropertyId = null;
 try{ currentPropertyId = localStorage.getItem('dorm:currentProperty') || null; }catch(e){}
 let currentPage = 'dashboard';
@@ -1027,7 +1028,7 @@ function showAppScreen(){
 function clearLocalDataCache(){
   ['dorm:rooms','dorm:tenants','dorm:bills','dorm:properties','dorm:deposits','dorm:meterReadings','dorm:receipts','dorm:roomLayouts','dorm:currentProperty']
     .forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
-  rooms=[]; tenants=[]; bills=[]; properties=[]; deposits=[]; meterReadings=[]; receipts=[]; roomLayouts=[]; currentPropertyId=null;
+  rooms=[]; tenants=[]; bills=[]; properties=[]; deposits=[]; meterReadings=[]; receipts=[]; roomLayouts=[]; propertyAdmins=[]; currentPropertyId=null;
 }
 
 function doLogout(){
@@ -1264,6 +1265,7 @@ async function loadData(){
       meterReadings = data.meterReadings || [];
       receipts = data.receipts || [];
       roomLayouts = data.roomLayouts || [];
+      propertyAdmins = data.propertyAdmins || [];
       syncState = 'ok';
       cacheLocally();
     }catch(e){
@@ -1932,10 +1934,13 @@ function settingsFormHtml(){
   const adminButton = (currentUser && currentUser.isAdmin)
     ? '<button class="btn ghost" id="settingsAdminUsersBtn">👥 จัดการผู้ใช้</button>'
     : '';
+  const platformLabel = currentUser && currentUser.isSuperadmin
+    ? ' <span class="badge-admin">Superadmin</span>'
+    : '';
   return `
     <h3>ตั้งค่า</h3>
     <div style="font-size:13px;line-height:1.7;color:var(--ink-soft);margin-bottom:16px;">
-      <div><b style="color:var(--ink);">บัญชี:</b> ${escapeAuthHtml(userName)}</div>
+      <div><b style="color:var(--ink);">บัญชี:</b> ${escapeAuthHtml(userName)}${platformLabel}</div>
       <div><b style="color:var(--ink);">ฐานข้อมูล:</b> Cloudflare D1</div>
       <div><b style="color:var(--ink);">การเชื่อมต่อ:</b> <span style="color:#2f9e44;font-weight:600;">● เชื่อมต่ออัตโนมัติ</span></div>
     </div>
@@ -2818,9 +2823,21 @@ async function onDeleteBill(billId){
 
 function ratesFormHtml(){
   const prop = currentProperty() || {};
+  const managers = propertyAdmins.filter(a=>String(a.propertyId)===String(prop.id));
+  const managerHtml = managers.length
+    ? managers.map(a=>`
+        <div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);">
+          <span><b>${escapeAuthHtml(a.displayName || a.username)}</b><span class="user-sub" style="margin-left:6px;">${escapeAuthHtml(a.username)}</span></span>
+          <span class="badge-admin">${a.accessRole==='owner'?'Owner':'Admin'}</span>
+        </div>`).join('')
+    : '<div class="sub" style="font-size:12.5px;">ยังไม่มีข้อมูลผู้ดูแล</div>';
   return `
     <h3>ตั้งค่าอพาร์ทเมนท์ — ${prop.name||''}</h3>
     <p class="sub" style="font-size:13px;line-height:1.6;margin:0 0 14px;">ใช้คำนวณค่าน้ำ-ไฟจากเลขมิเตอร์ และแสดงบนหัวใบแจ้งหนี้ที่พิมพ์</p>
+    <div class="field" style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--bg);">
+      <label style="margin-bottom:6px;">ผู้ดูแลอพาร์ทเมนท์</label>
+      ${managerHtml}
+    </div>
     <div class="field"><label>ชื่ออพาร์ทเมนท์</label><input id="f-propname" value="${(prop.name||'').replace(/"/g,'&quot;')}" placeholder="เช่น อพาร์ทเมนท์ 1"></div>
     <div class="field-row">
       <div class="field"><label>ค่าน้ำ (บาท/หน่วย)</label><input id="f-waterrate" type="number" value="${Number(prop.waterRate)||0}"></div>
