@@ -221,7 +221,25 @@ Key examples:
 - admin permission checks
 - audit logging
 
-## 9. Known technical debt / follow-up items
+## 9. Current stabilization work
+
+A post-foundation stabilization phase is now active before major new product features.
+
+Current priority:
+- S1 Auth / Session Hardening
+
+Planned stabilization:
+- financial/database integrity
+- paid bill/receipt lifecycle hardening
+- tenant account lifecycle
+- frontend XSS/output escaping audit
+- superadmin console
+- offline read-only behavior
+- audit log viewer
+
+See `STABILIZATION.md` and `AUTH-SESSION-HARDENING-V2.md`.
+
+## 10. Known technical debt / follow-up items
 
 ### Monolithic frontend
 
@@ -265,7 +283,7 @@ The D1 Worker implements `getPublicAvailability`, but does not currently reprodu
 
 Resolve this only if that legacy bot-key management flow is still needed.
 
-## 10. Production deployment
+## 11. Production deployment
 
 Production code lives on `main`.
 
@@ -277,7 +295,7 @@ Current production deployment uses the guarded GitHub Actions cutover/deploy wor
 
 Do not deploy arbitrary untested changes directly to production without validation.
 
-## 11. Migration status
+## 12. Migration status
 
 The Google Sheets -> Cloudflare D1 production cutover completed successfully on 2026-09-21.
 
@@ -300,7 +318,7 @@ Google Sheets remains temporarily as a rollback copy.
 
 See `D1-MIGRATION.md` for migration history and stabilization notes.
 
-## 12. Documentation roles
+## 13. Documentation roles
 
 Use these documents as follows:
 
