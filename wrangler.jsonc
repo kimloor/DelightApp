@@ -2,6 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "delightapp",
   "main": "src/d1-api.js",
+  "account_id": "72a2af0ff5c5e4a83d037953f8a35356",
   "compatibility_date": "2026-07-20",
   "observability": {
     "enabled": true
