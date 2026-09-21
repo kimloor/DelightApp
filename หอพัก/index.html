@@ -880,13 +880,12 @@ function nextId(items){
 function logMeterReading({roomId, billId, month, type, prev, curr, rate}){
   const units = Math.max((Number(curr)||0) - (Number(prev)||0), 0);
   const cost = units * (Number(rate)||0);
-  meterReadings.push({
-    id: nextId(meterReadings),
+  return {
     roomId, billId, month, type,
     prev: Number(prev)||0, curr: Number(curr)||0,
     units, rate: Number(rate)||0, cost,
     recordedAt: new Date().toISOString()
-  });
+  };
 }
 const monthLabel = (ym) => {
   if(!ym || !/^\d{4}-\d{2}$/.test(ym)) return 'ไม่ระบุเดือน';
@@ -2661,31 +2660,44 @@ async function onSaveMeter(){
   const units = curr - prev;
   const cost = units * rate;
 
-  // อัตราที่แก้ในฟอร์มนี้ ให้มีผลกับทั้งอพาร์ทเมนท์ (บันทึกกลับไปที่ property ด้วย)
   const room = rooms.find(r=>r.id===bill.roomId);
   const prop = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId));
-  if(prop){
-    if(type==='water') prop.waterRate = rate; else prop.electricRate = rate;
-    await saveProperties();
+  try{
+    if(prop){
+      const propDraft={...prop};
+      if(type==='water') propDraft.waterRate = rate; else propDraft.electricRate = rate;
+      const pd=await remoteAuthPost({action:'updateProperty',item:propDraft});
+      const pi=properties.findIndex(p=>p.id===pd.property.id);
+      if(pi>=0) properties[pi]=pd.property;
+    }
+
+    if(type==='water'){ bill.waterPrev=prev; bill.waterCurr=curr; bill.water=cost; }
+    else { bill.electricPrev=prev; bill.electricCurr=curr; bill.electric=cost; }
+    applyBillVat(bill);
+
+    const readingDraft=logMeterReading({roomId: bill.roomId, billId: bill.id, month: bill.month, type, prev, curr, rate});
+
+    const cascadeFixed = recheckRoomMeterChain(bill.roomId);
+    const roomBills=bills.filter(b=>b.roomId===bill.roomId);
+    const bd=await remoteAuthPost({action:'batchUpdateBills',items:roomBills});
+    (bd.bills||[]).forEach(saved=>{
+      const i=bills.findIndex(b=>b.id===saved.id);
+      if(i>=0) bills[i]=saved;
+    });
+
+    const md=await remoteAuthPost({action:'createMeterReadings',items:[readingDraft]});
+    meterReadings.push(...(md.meterReadings||[]));
+
+    cacheLocally();
+    onSaveMeter._billId = null;
+    onSaveMeter._type = null;
+    closeModal();
+    render();
+    showToast(cascadeFixed>0 ? `บันทึกแล้ว และปรับบิลเดือนถัดไปอีก ${cascadeFixed} รายการให้ต่อเนื่องกัน` : 'บันทึกเลขมิเตอร์แล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('บันทึกเลขมิเตอร์ไม่สำเร็จ');
   }
-
-  if(type==='water'){ bill.waterPrev=prev; bill.waterCurr=curr; bill.water=cost; }
-  else { bill.electricPrev=prev; bill.electricCurr=curr; bill.electric=cost; }
-  applyBillVat(bill);
-
-  logMeterReading({roomId: bill.roomId, billId: bill.id, month: bill.month, type, prev, curr, rate});
-  await saveMeterReadings();
-
-  // รีเช็คต่อทันที เผื่อบิลนี้ไม่ใช่เดือนล่าสุดของห้องนี้ — บิลเดือนถัดๆ ไปที่เคยสร้างไว้แล้ว
-  // จะได้ปรับ "เลขเดิม" ให้ตรงกับเลขปัจจุบันที่เพิ่งแก้นี้ และคำนวณยอดใหม่ให้อัตโนมัติ ไม่ต้องกดรีเช็คเอง
-  const cascadeFixed = recheckRoomMeterChain(bill.roomId);
-
-  onSaveMeter._billId = null;
-  onSaveMeter._type = null;
-  await saveBills();
-  closeModal();
-  render();
-  showToast(cascadeFixed>0 ? `บันทึกแล้ว และปรับบิลเดือนถัดไปอีก ${cascadeFixed} รายการให้ต่อเนื่องกัน` : 'บันทึกเลขมิเตอร์แล้ว');
 }
 
 /* ============ แก้ไข / ลบ บิล ============ */
@@ -2746,18 +2758,26 @@ function wireBillEditVatCalc(prop){
 async function onSaveBillEdit(billId){
   const bill = bills.find(b=>b.id===billId);
   if(!bill){ showToast('ไม่พบบิลนี้'); return; }
-  const rent = Number(document.getElementById('f-bill-rent').value)||0;
-  const water = Number(document.getElementById('f-bill-water').value)||0;
-  const electric = Number(document.getElementById('f-bill-electric').value)||0;
-  const status = document.getElementById('f-bill-status').value;
-  bill.rent = rent; bill.water = water; bill.electric = electric; bill.status = status;
+  const draft={...bill};
+  draft.rent = Number(document.getElementById('f-bill-rent').value)||0;
+  draft.water = Number(document.getElementById('f-bill-water').value)||0;
+  draft.electric = Number(document.getElementById('f-bill-electric').value)||0;
+  draft.status = document.getElementById('f-bill-status').value;
   const taxInvoiceNoEl = document.getElementById('f-bill-taxinvoiceno');
-  if(taxInvoiceNoEl) bill.taxInvoiceNo = taxInvoiceNoEl.value.trim();
-  applyBillVat(bill);
-  await saveBills();
-  closeModal();
-  render();
-  showToast('บันทึกบิลแล้ว');
+  if(taxInvoiceNoEl) draft.taxInvoiceNo = taxInvoiceNoEl.value.trim();
+  applyBillVat(draft);
+  try{
+    const data=await remoteAuthPost({action:'updateBill',item:draft});
+    const i=bills.findIndex(b=>b.id===data.bill.id);
+    if(i>=0) bills[i]=data.bill;
+    cacheLocally();
+    closeModal();
+    render();
+    showToast('บันทึกบิลแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('บันทึกบิลไม่สำเร็จ');
+  }
 }
 
 async function onDeleteBill(billId){
@@ -2768,11 +2788,17 @@ async function onDeleteBill(billId){
     `คำเตือน: เลขที่บิลนี้จะไม่ถูกนำกลับมาใช้ซ้ำ — ลำดับเลขที่บิลจะโดดข้ามเลขนี้ไปตลอด`
   );
   if(!ok) return;
-  bills = bills.filter(b=>b.id!==billId);
-  await saveBills();
-  closeModal();
-  render();
-  showToast('ลบบิลแล้ว');
+  try{
+    await remoteAuthPost({action:'deleteBill',id:billId});
+    bills = bills.filter(b=>b.id!==billId);
+    cacheLocally();
+    closeModal();
+    render();
+    showToast('ลบบิลแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('ลบบิลไม่สำเร็จ');
+  }
 }
 
 function ratesFormHtml(){
@@ -3042,15 +3068,23 @@ function wireBulkMeterLiveCalc(){
 async function bulkSetBillStatus(status){
   const ids = renderBills._selected || new Set();
   if(ids.size===0) return;
-  let updated = 0;
-  bills.forEach(b=>{
-    if(ids.has(b.id) && b.status!==status){ b.status = status; updated++; }
-  });
-  if(updated>0) await saveBills();
-  render();
-  showToast(status==='paid'
-    ? `ทำเครื่องหมายว่าชำระแล้ว ${ids.size} ห้อง`
-    : `ทำเครื่องหมายว่าค้างชำระ ${ids.size} ห้อง`);
+  const updates=bills.filter(b=>ids.has(b.id) && b.status!==status).map(b=>({...b,status}));
+  if(!updates.length) return;
+  try{
+    const data=await remoteAuthPost({action:'batchUpdateBills',items:updates});
+    (data.bills||[]).forEach(saved=>{
+      const i=bills.findIndex(b=>b.id===saved.id);
+      if(i>=0) bills[i]=saved;
+    });
+    cacheLocally();
+    render();
+    showToast(status==='paid'
+      ? `ทำเครื่องหมายว่าชำระแล้ว ${updates.length} ห้อง`
+      : `ทำเครื่องหมายว่าค้างชำระ ${updates.length} ห้อง`);
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('อัปเดตสถานะบิลไม่สำเร็จ');
+  }
 }
 
 /* ย้ายบิลที่เลือกไว้ไปอยู่เดือนอื่น — ใช้แก้กรณีกดสร้างบิลผิดเดือน (เช่น ระบบเคยมีบั๊ก
@@ -3081,24 +3115,25 @@ async function onConfirmMoveBills(){
   const ids = Array.from(renderBills._selected || []);
   if(ids.length===0){ showToast('ยังไม่ได้เลือกบิล'); return; }
 
-  let moved = 0, skipped = 0;
-  ids.forEach(id=>{
-    const bill = bills.find(b=>b.id===id);
-    if(!bill) return;
-    if(bill.month === targetMonth) return;
-    if(bills.find(b=>b.roomId===bill.roomId && b.month===targetMonth)){ skipped++; return; }
-    bill.month = targetMonth;
-    bill.invoiceNo = genInvoiceNo(targetMonth);
-    moved++;
-  });
-
-  if(moved>0) await saveBills();
-  renderBills._selected = new Set();
-  closeModal();
-  render();
-  showToast(skipped>0
-    ? `ย้ายบิลไปเดือน${monthLabel(targetMonth)}แล้ว ${moved} ห้อง (ข้าม ${skipped} ห้องที่มีบิลเดือนปลายทางอยู่แล้ว)`
-    : `ย้ายบิลไปเดือน${monthLabel(targetMonth)}แล้ว ${moved} ห้อง`);
+  try{
+    const data=await remoteAuthPost({action:'moveBills',ids,targetMonth});
+    const movedBills=data.bills||[];
+    movedBills.forEach(saved=>{
+      const i=bills.findIndex(b=>b.id===saved.id);
+      if(i>=0) bills[i]=saved;
+    });
+    cacheLocally();
+    renderBills._selected = new Set();
+    closeModal();
+    render();
+    const skipped=Number(data.skipped)||0;
+    showToast(skipped>0
+      ? `ย้ายบิลไปเดือน${monthLabel(targetMonth)}แล้ว ${movedBills.length} ห้อง (ข้าม ${skipped} ห้องที่มีบิลเดือนปลายทางอยู่แล้ว)`
+      : `ย้ายบิลไปเดือน${monthLabel(targetMonth)}แล้ว ${movedBills.length} ห้อง`);
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('ย้ายบิลไม่สำเร็จ');
+  }
 }
 
 async function onSaveBulkMeter(){
@@ -3106,7 +3141,8 @@ async function onSaveBulkMeter(){
   const waterRate = Number(prop.waterRate)||0;
   const electricRate = Number(prop.electricRate)||0;
   const rows = document.querySelectorAll('#modalBody tr[data-bill]');
-  let updated = 0, skipped = 0;
+  const updates=[], readingDrafts=[];
+  let skipped = 0;
   rows.forEach(tr=>{
     const bill = bills.find(b=>b.id===tr.dataset.bill);
     if(!bill) return;
@@ -3117,20 +3153,35 @@ async function onSaveBulkMeter(){
     const wCurr = Number(wInput.value)||0;
     const eCurr = Number(eInput.value)||0;
     if(wCurr < wPrev || eCurr < ePrev){ skipped++; return; }
-    bill.waterCurr = wCurr; bill.water = Math.max(wCurr-wPrev,0)*waterRate;
-    bill.electricCurr = eCurr; bill.electric = Math.max(eCurr-ePrev,0)*electricRate;
-    applyBillVat(bill);
-    logMeterReading({roomId: bill.roomId, billId: bill.id, month: bill.month, type:'water', prev:wPrev, curr:wCurr, rate:waterRate});
-    logMeterReading({roomId: bill.roomId, billId: bill.id, month: bill.month, type:'electric', prev:ePrev, curr:eCurr, rate:electricRate});
-    updated++;
+    const draft={...bill};
+    draft.waterCurr = wCurr; draft.water = Math.max(wCurr-wPrev,0)*waterRate;
+    draft.electricCurr = eCurr; draft.electric = Math.max(eCurr-ePrev,0)*electricRate;
+    applyBillVat(draft);
+    updates.push(draft);
+    readingDrafts.push(logMeterReading({roomId: draft.roomId, billId: draft.id, month: draft.month, type:'water', prev:wPrev, curr:wCurr, rate:waterRate}));
+    readingDrafts.push(logMeterReading({roomId: draft.roomId, billId: draft.id, month: draft.month, type:'electric', prev:ePrev, curr:eCurr, rate:electricRate}));
   });
-  if(updated>0){ await saveBills(); await saveMeterReadings(); }
-  render();
-  if(skipped>0){
-    showToast(`บันทึกแล้ว ${updated} ห้อง (ข้าม ${skipped} ห้อง — เลขปัจจุบันน้อยกว่าเลขเดิม)`);
-  } else {
-    closeModal();
-    showToast(`บันทึกมิเตอร์ ${updated} ห้องเรียบร้อย`);
+  try{
+    if(updates.length){
+      const bd=await remoteAuthPost({action:'batchUpdateBills',items:updates});
+      (bd.bills||[]).forEach(saved=>{
+        const i=bills.findIndex(b=>b.id===saved.id);
+        if(i>=0) bills[i]=saved;
+      });
+      const md=await remoteAuthPost({action:'createMeterReadings',items:readingDrafts});
+      meterReadings.push(...(md.meterReadings||[]));
+      cacheLocally();
+    }
+    render();
+    if(skipped>0){
+      showToast(`บันทึกแล้ว ${updates.length} ห้อง (ข้าม ${skipped} ห้อง — เลขปัจจุบันน้อยกว่าเลขเดิม)`);
+    } else {
+      closeModal();
+      showToast(`บันทึกมิเตอร์ ${updates.length} ห้องเรียบร้อย`);
+    }
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('บันทึกมิเตอร์ไม่สำเร็จ');
   }
 }
 
@@ -4593,14 +4644,22 @@ function recheckRoomMeterChain(roomId){
    (2) เลขมิเตอร์ระหว่างบิลเดือนต่อเดือนไม่ต่อเนื่องกัน (เช่น ย้อนไปแก้เดือนเก่าแล้วเดือนถัดไปไม่อัปเดต) */
 async function recheckAllMeters(){
   let totalFixed = 0;
-  // ขั้น 1: ดึงค่าล่าสุดจาก "จดมิเตอร์" มาแก้ "บิล" ของมันเองก่อน เผื่อบันทึกไม่ตรงกันจากการ sync ล้มเหลว
   currentBills().forEach(bill=>{ totalFixed += reconcileBillFromMeterLog(bill); });
-  // ขั้น 2: ไล่เช็คความต่อเนื่องระหว่างบิลเดือนต่อเดือนของแต่ละห้องต่อ (เหมือนเดิม)
   currentRooms().forEach(room=>{ totalFixed += recheckRoomMeterChain(room.id); });
   if(totalFixed>0){
-    await saveBills();
-    render();
-    showToast(`รีเช็คเสร็จแล้ว — แก้ไขบิลที่เลขมิเตอร์ไม่ต่อเนื่องกัน ${totalFixed} รายการ`);
+    try{
+      const data=await remoteAuthPost({action:'batchUpdateBills',items:currentBills()});
+      (data.bills||[]).forEach(saved=>{
+        const i=bills.findIndex(b=>b.id===saved.id);
+        if(i>=0) bills[i]=saved;
+      });
+      cacheLocally();
+      render();
+      showToast(`รีเช็คเสร็จแล้ว — แก้ไขบิลที่เลขมิเตอร์ไม่ต่อเนื่องกัน ${totalFixed} รายการ`);
+    }catch(e){
+      if(handleUnauthorized(e)) return;
+      showToast('รีเช็คบิลไม่สำเร็จ');
+    }
   } else {
     showToast('ตรวจสอบแล้ว ทุกบิลมีเลขมิเตอร์ต่อเนื่องกันถูกต้องดีอยู่แล้ว');
   }
@@ -4684,37 +4743,53 @@ async function onSaveTaxInvoiceRange(){
     bill.taxInvoiceNo = prefix + String(startNum + i).padStart(digits, '0');
   });
 
-  await saveBills();
-  closeModal();
-  render();
-  showToast(`กำหนดเลขที่ใบกำกับภาษีให้ ${selectedBills.length} รายการแล้ว`);
+  try{
+    const data=await remoteAuthPost({action:'batchUpdateBills',items:selectedBills});
+    (data.bills||[]).forEach(saved=>{
+      const i=bills.findIndex(b=>b.id===saved.id);
+      if(i>=0) bills[i]=saved;
+    });
+    cacheLocally();
+    closeModal();
+    render();
+    showToast(`กำหนดเลขที่ใบกำกับภาษีให้ ${selectedBills.length} รายการแล้ว`);
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('บันทึกเลขที่ใบกำกับภาษีไม่สำเร็จ');
+  }
 }
 
 async function generateBills(){
   const month = renderBills._month || defaultBillingMonth();
   const occupiedRooms = currentRooms().filter(r=>r.status==='occupied');
-  let created = 0;
+  const drafts=[];
   occupiedRooms.forEach(room=>{
-    const exists = bills.find(b=>b.roomId===room.id && b.month===month);
-    if(exists) return;
+    if(bills.find(b=>b.roomId===room.id && b.month===month)) return;
     const prev = lastBillForRoom(room.id, month);
     const waterPrev = prev ? Number(prev.waterCurr||0) : 0;
     const electricPrev = prev ? Number(prev.electricCurr||0) : 0;
-    bills.push({
-      id: nextId(bills), roomId:room.id, month,
-      invoiceNo: genInvoiceNo(month),
+    const draft={
+      roomId:room.id, month,
       rent:Number(room.rent)||0,
       waterPrev, waterCurr:waterPrev, water:0,
       electricPrev, electricCurr:electricPrev, electric:0,
       total:0, vatSubtotal:0, vatAmount:0, taxInvoiceNo:'', status:'unpaid'
-    });
-    applyBillVat(bills[bills.length-1]);
-    created++;
+    };
+    applyBillVat(draft);
+    drafts.push(draft);
   });
-  await saveBills();
-  renderBills._month = month;
-  render();
-  showToast(created>0 ? `สร้างบิลใหม่ ${created} ห้อง — อย่าลืมจดเลขมิเตอร์น้ำ-ไฟปัจจุบัน` : 'มีบิลของเดือนนี้ครบทุกห้องแล้ว');
+  try{
+    const data=await remoteAuthPost({action:'createBills',items:drafts});
+    const created=data.bills||[];
+    bills.push(...created);
+    cacheLocally();
+    renderBills._month = month;
+    render();
+    showToast(created.length>0 ? `สร้างบิลใหม่ ${created.length} ห้อง — อย่าลืมจดเลขมิเตอร์น้ำ-ไฟปัจจุบัน` : 'มีบิลของเดือนนี้ครบทุกห้องแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('สร้างบิลไม่สำเร็จ');
+  }
 }
 
 /* patch modal open to remember edit id */
