@@ -15,6 +15,7 @@ Start here:
 
 - [PROJECT.md](PROJECT.md) — current production architecture, behavior and technical state
 - [D1-MIGRATION.md](D1-MIGRATION.md) — completed Google Sheets -> D1 migration record and rollback notes
+- [ROADMAP.md](ROADMAP.md) — future product features and planned capabilities
 
 Planned/future features should be documented separately from the current production-state document.
 
