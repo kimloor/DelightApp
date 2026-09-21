@@ -960,7 +960,7 @@ async function remoteGetAll(){
   const res = await fetch(sheetUrl, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({action:'getAll', token:authToken})
+    body: JSON.stringify({action:'getAdminScoped', token:authToken})
   });
   if(!res.ok) throw new Error('HTTP '+res.status);
   const data = await res.json();
@@ -1449,21 +1449,28 @@ async function onChangePassword(){
 
 /* --- แอดมิน: จัดการผู้ใช้ / รีเซ็ตรหัสผ่านให้คนอื่น --- */
 let adminUsersCache = [];
+let adminOwnerProperties = [];
+let adminScopedProperties = [];
 
 async function openAdminUsers(){
   openModal(`
     <h3>จัดการผู้ใช้</h3>
     <div style="display:flex;justify-content:flex-end;margin:-2px 0 10px;">
-      <button class="btn" id="auCreateBtn">+ เพิ่มผู้ใช้</button>
+      <button class="btn" id="auCreateBtn" style="display:none;">+ เพิ่มแอดมิน</button>
     </div>
     <div id="auBody" style="font-size:13px;color:var(--ink-soft);">กำลังโหลด…</div>
     <div class="modal-actions"><button class="btn ghost" id="cancelBtn">ปิด</button></div>
   `);
-  const createBtn=document.getElementById('auCreateBtn');
-  if(createBtn) createBtn.onclick=showAdminCreateUserForm;
   try{
     const data = await remoteAuthPost({action:'adminListUsers'});
     adminUsersCache = data.users || [];
+    adminOwnerProperties = data.ownerProperties || [];
+    adminScopedProperties = data.properties || [];
+    const createBtn=document.getElementById('auCreateBtn');
+    if(createBtn && adminOwnerProperties.length){
+      createBtn.style.display='';
+      createBtn.onclick=showAdminCreateUserForm;
+    }
     renderAdminUsers();
   }catch(e){
     if(handleUnauthorized(e)) return;
@@ -1476,7 +1483,9 @@ async function openAdminUsers(){
 function showAdminCreateUserForm(){
   const body=document.getElementById('auBody');
   if(!body) return;
+  if(!adminOwnerProperties.length){ body.textContent='เฉพาะ Owner ของอพาร์ทเมนท์เท่านั้นที่เพิ่มแอดมินได้'; return; }
   body.innerHTML=`
+    <p class="sub" style="font-size:12.5px;">สร้างบัญชีแอดมินและกำหนดเฉพาะอพาร์ทเมนท์ที่คุณเป็น Owner</p>
     <div class="field">
       <label>ชื่อผู้ใช้</label>
       <input id="acu-username" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -1484,6 +1493,10 @@ function showAdminCreateUserForm(){
     <div class="field">
       <label>ชื่อที่แสดง</label>
       <input id="acu-display" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>อพาร์ทเมนท์ที่ให้ดูแล</label>
+      ${adminOwnerProperties.map(p=>`<label style="display:flex;gap:8px;align-items:center;margin:6px 0;"><input type="checkbox" class="acu-property" value="${escapeAuthHtml(p.propertyId)}" style="width:auto;"> ${escapeAuthHtml(p.propertyName)}</label>`).join('')}
     </div>
     <div class="field">
       <label>รหัสผ่านเริ่มต้น (อย่างน้อย 4 ตัวอักษร)</label>
@@ -1496,7 +1509,7 @@ function showAdminCreateUserForm(){
     <div id="acuMsg" style="font-size:12.5px;color:var(--rust);min-height:18px;margin-bottom:8px;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn ghost" id="acuBackBtn">กลับ</button>
-      <button class="btn" id="acuSaveBtn">สร้างผู้ใช้</button>
+      <button class="btn" id="acuSaveBtn">สร้างแอดมิน</button>
     </div>`;
   document.getElementById('acuBackBtn').onclick=renderAdminUsers;
   document.getElementById('acuSaveBtn').onclick=onAdminCreateUser;
@@ -1508,18 +1521,22 @@ async function onAdminCreateUser(){
   const displayName=document.getElementById('acu-display').value.trim();
   const password=document.getElementById('acu-password').value;
   const confirmPassword=document.getElementById('acu-confirm').value;
+  const propertyIds=Array.from(document.querySelectorAll('.acu-property:checked')).map(el=>el.value);
   const msg=document.getElementById('acuMsg');
   const btn=document.getElementById('acuSaveBtn');
   msg.textContent='';
   if(!username){ msg.textContent='กรอกชื่อผู้ใช้'; return; }
+  if(!propertyIds.length){ msg.textContent='เลือกอพาร์ทเมนท์อย่างน้อย 1 แห่ง'; return; }
   if(password.length<4){ msg.textContent='รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
   if(password!==confirmPassword){ msg.textContent='รหัสผ่านที่ยืนยันไม่ตรงกัน'; return; }
   btn.disabled=true; btn.textContent='กำลังสร้าง…';
   try{
-    await remoteAuthPost({action:'adminCreateUser',username,password,displayName});
+    await remoteAuthPost({action:'adminCreateUser',username,password,displayName,propertyIds});
     showToast('สร้างบัญชี '+username+' เรียบร้อยแล้ว');
     const data=await remoteAuthPost({action:'adminListUsers'});
     adminUsersCache=data.users||[];
+    adminOwnerProperties=data.ownerProperties||[];
+    adminScopedProperties=data.properties||[];
     renderAdminUsers();
   }catch(e){
     if(handleUnauthorized(e)) return;
@@ -1532,18 +1549,50 @@ function renderAdminUsers(){
   const body = document.getElementById('auBody');
   if(!body) return;
   body.style.color = '';
-  if(!adminUsersCache.length){ body.textContent = 'ยังไม่มีผู้ใช้ในระบบ'; return; }
-  body.innerHTML = '<div class="user-list">' + adminUsersCache.map(u => `
-    <div class="user-row">
-      <div>
-        <b>${escapeAuthHtml(u.displayName || u.username)}</b>${u.isAdmin ? '<span class="badge-admin">แอดมิน</span>' : ''}
-        <div class="user-sub">${escapeAuthHtml(u.username)}</div>
-      </div>
-      <button class="btn ghost" data-reset-uid="${escapeAuthHtml(u.id)}">รีเซ็ตรหัส</button>
-    </div>`).join('') + '</div>';
+  if(!adminUsersCache.length){ body.textContent = 'ยังไม่มีผู้ใช้ที่เกี่ยวข้องกับอพาร์ทเมนท์ของคุณ'; return; }
+  const ownerIds=new Set(adminOwnerProperties.map(p=>String(p.propertyId)));
+  body.innerHTML = '<div class="user-list">' + adminUsersCache.map(u => {
+    const accesses=Array.isArray(u.propertyAccess)?u.propertyAccess:[];
+    const accessHtml=u.isAdmin
+      ? accesses.map(a=>`<span class="user-sub" style="display:inline-block;margin-right:8px;">${escapeAuthHtml(a.propertyName)} · ${a.accessRole==='owner'?'Owner':'Admin'}</span>`).join('')
+      : (u.tenantPropertyName ? `<span class="user-sub">ผู้เช่า · ${escapeAuthHtml(u.tenantPropertyName)}</span>` : '');
+    const removable=accesses.filter(a=>a.accessRole!=='owner' && ownerIds.has(String(a.propertyId)));
+    return `
+      <div class="user-row" style="align-items:flex-start;">
+        <div style="min-width:0;flex:1;">
+          <b>${escapeAuthHtml(u.displayName || u.username)}</b>${u.isAdmin ? '<span class="badge-admin">แอดมิน</span>' : ''}
+          <div class="user-sub">${escapeAuthHtml(u.username)}</div>
+          <div style="margin-top:4px;">${accessHtml}</div>
+          ${removable.map(a=>`<button class="btn ghost small" style="margin-top:6px;" data-remove-uid="${escapeAuthHtml(u.id)}" data-remove-pid="${escapeAuthHtml(a.propertyId)}">เอาออกจาก ${escapeAuthHtml(a.propertyName)}</button>`).join('')}
+        </div>
+        <button class="btn ghost" data-reset-uid="${escapeAuthHtml(u.id)}">รีเซ็ตรหัส</button>
+      </div>`;
+  }).join('') + '</div>';
   body.querySelectorAll('[data-reset-uid]').forEach(b=>{
     b.onclick = ()=> showAdminResetForm(b.dataset.resetUid);
   });
+  body.querySelectorAll('[data-remove-uid]').forEach(b=>{
+    b.onclick = ()=> onAdminRemovePropertyAccess(b.dataset.removeUid,b.dataset.removePid);
+  });
+}
+
+async function onAdminRemovePropertyAccess(userId, propertyId){
+  const u=adminUsersCache.find(x=>String(x.id)===String(userId));
+  const p=adminScopedProperties.find(x=>String(x.propertyId)===String(propertyId));
+  if(!u || !p) return;
+  if(!confirm(`เอา ${u.displayName||u.username} ออกจากการดูแล "${p.propertyName}" ?`)) return;
+  try{
+    await remoteAuthPost({action:'adminRemovePropertyAccess',userId,propertyId});
+    const data=await remoteAuthPost({action:'adminListUsers'});
+    adminUsersCache=data.users||[];
+    adminOwnerProperties=data.ownerProperties||[];
+    adminScopedProperties=data.properties||[];
+    renderAdminUsers();
+    showToast('อัปเดตสิทธิ์แอดมินแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast(String(e.message||e)==='cannot_remove_owner' ? 'ไม่สามารถลบ Owner ได้' : 'อัปเดตสิทธิ์ไม่สำเร็จ');
+  }
 }
 
 function showAdminResetForm(userId){
