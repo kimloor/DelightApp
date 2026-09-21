@@ -15,7 +15,7 @@ This phase must preserve current business behavior unless a change is explicitly
 ## 2. Priority order
 
 ### S1 — Auth / Session Hardening
-Status: NEXT
+Status: DONE
 
 Goals:
 - replace legacy password hashing with a stronger KDF using backward-compatible rehash-on-login
@@ -27,7 +27,7 @@ Goals:
 - preserve existing accounts and avoid forced password resets unless necessary
 
 ### S2 — Financial / Database Integrity
-Status: PLANNED
+Status: NEXT
 
 Goals:
 - enforce critical uniqueness at the database layer
@@ -126,6 +126,8 @@ Major roadmap features may resume after S1-S5 unless a later audit identifies a 
 
 ## 5. Current lead decision
 
-Start with S1 — Auth / Session Hardening.
+S1 — Auth / Session Hardening is production-verified.
 
-Detailed implementation contract: `AUTH-SESSION-HARDENING-V2.md`.
+Next: S2 — Financial / Database Integrity.
+
+Detailed S1 implementation contract: `AUTH-SESSION-HARDENING-V2.md`.
