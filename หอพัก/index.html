@@ -4123,41 +4123,54 @@ async function onSaveTenant(){
   if(!name && !phone){ showToast('กรุณากรอกอย่างน้อยชื่อ หรือเบอร์โทรติดต่อ'); return; }
   if(!roomId){ showToast('กรุณาเลือกห้องพัก'); return; }
 
-  const editId = onSaveTenant._editId; // ถ้าแก้ไข: editId คือ roomId เดิม (เพราะ id ผู้เช่า = เลขห้อง)
-  if(editId && editId!==roomId){
-    // ย้ายผู้เช่าไปห้องอื่น: ปลดสถานะห้องเดิม
-    const oldRoom = rooms.find(r=>r.id===editId);
-    if(oldRoom) oldRoom.status='vacant';
-    tenants = tenants.filter(t=>t.id!==editId);
+  const editId = onSaveTenant._editId;
+  const draft = {id:editId||'', roomId, name, phone, moveIn};
+  try{
+    const data = await remoteAuthPost({action:editId?'updateTenant':'createTenant', item:draft});
+    const saved = data.tenant;
+    const idx=tenants.findIndex(t=>t.id===saved.id);
+    if(idx>=0) tenants[idx]=saved; else tenants.push(saved);
+
+    if(data.room){
+      const ri=rooms.findIndex(r=>r.id===data.room.id);
+      if(ri>=0) rooms[ri]=data.room;
+    }
+    if(data.oldRoom){
+      const oi=rooms.findIndex(r=>r.id===data.oldRoom.id);
+      if(oi>=0) rooms[oi]=data.oldRoom;
+    }
+
+    cacheLocally();
+    onSaveTenant._editId = null;
+    closeModal();
+    render();
+    showToast('บันทึกผู้เช่าแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    const m=String(e.message||e);
+    showToast(m==='room_already_has_tenant' ? 'ห้องนี้มีผู้เช่าอยู่แล้ว' : 'บันทึกผู้เช่าไม่สำเร็จ');
   }
-  // หนึ่งห้องมีผู้เช่าได้คนเดียว — ถ้ามีอยู่แล้วในห้องเป้าหมาย ให้แทนที่
-  tenants = tenants.filter(t=>t.id!==roomId);
-  tenants.push({id:roomId, roomId, name, phone, moveIn});
-
-  const room = rooms.find(r=>r.id===roomId);
-  if(room) room.status='occupied';
-
-  onSaveTenant._editId = null;
-  await Promise.all([saveTenants(), saveRooms()]);
-  closeModal();
-  render();
-  showToast('บันทึกผู้เช่าแล้ว');
 }
 async function onDeleteTenant(){
   const editId = onSaveTenant._editId;
   if(!editId) return;
-  if(!confirm('ลบผู้เช่าคนนี้?')) return;
-  const tenant = tenants.find(t=>t.id===editId);
-  if(tenant && tenant.roomId){
-    const room = rooms.find(r=>r.id===tenant.roomId);
-    if(room) room.status='vacant';
+  if(!confirm('ลบผู้เช่าคนนี้? บัญชี tenant ที่ผูกอยู่จะถูกยกเลิกการเชื่อมกับข้อมูลผู้เช่านี้ด้วย')) return;
+  try{
+    const data=await remoteAuthPost({action:'deleteTenant', id:editId});
+    tenants = tenants.filter(t=>t.id!==editId);
+    if(data.room){
+      const ri=rooms.findIndex(r=>r.id===data.room.id);
+      if(ri>=0) rooms[ri]=data.room;
+    }
+    cacheLocally();
+    onSaveTenant._editId = null;
+    closeModal();
+    render();
+    showToast('ลบผู้เช่าแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('ลบผู้เช่าไม่สำเร็จ');
   }
-  tenants = tenants.filter(t=>t.id!==editId);
-  onSaveTenant._editId = null;
-  await Promise.all([saveTenants(), saveRooms()]);
-  closeModal();
-  render();
-  showToast('ลบผู้เช่าแล้ว');
 }
 
 /* ============ ใบรับเงินมัดจำ ============ */
