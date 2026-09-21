@@ -414,8 +414,34 @@ async function replaceLogicalTable(env, tableName, items) {
 }
 
 async function nextNumericId(env, table) {
-  const row = await env.DB.prepare(`SELECT COALESCE(MAX(CAST(id AS INTEGER)),0) AS max_id FROM ${table}`).first();
-  return String((Number(row?.max_id)||0)+1);
+  const row=await env.DB.prepare(
+    'UPDATE id_counters SET next_id=next_id+1 WHERE table_name=? RETURNING next_id-1 AS id'
+  ).bind(String(table)).first();
+  if (!row?.id) throw new Error('id_counter_missing');
+  return String(row.id);
+}
+
+async function nextDocumentSequence(env, kind) {
+  const row=await env.DB.prepare(
+    'UPDATE document_counters SET next_seq=next_seq+1 WHERE kind=? RETURNING next_seq-1 AS seq'
+  ).bind(String(kind)).first();
+  if (!row?.seq) throw new Error('document_counter_missing');
+  return Number(row.seq);
+}
+
+function businessErrorMessage(e) {
+  const m=String(e?.message || e || 'operation_failed');
+  if (!/UNIQUE constraint failed/i.test(m)) return m;
+  if (m.includes('rooms.property_id') && m.includes('rooms.room_number')) return 'room_number_exists';
+  if (m.includes('tenants.room_id')) return 'room_already_has_tenant';
+  if (m.includes('bills.room_id') && m.includes('bills.month')) return 'bill_room_month_exists';
+  if (m.includes('bills.invoice_no')) return 'invoice_no_exists';
+  if (m.includes('receipts.bill_id')) return 'receipt_already_exists';
+  if (m.includes('receipts.receipt_no')) return 'receipt_no_exists';
+  if (m.includes('deposits.receipt_no')) return 'deposit_receipt_no_exists';
+  if (m.includes('room_layouts.room_id')) return 'room_layout_exists';
+  if (m.includes('users.username')) return 'username_exists';
+  return 'conflict';
 }
 
 
@@ -660,13 +686,7 @@ async function dbBill(env, billId) {
 }
 
 async function nextInvoiceNo(env, month) {
-  const q=await env.DB.prepare("SELECT invoice_no FROM bills WHERE invoice_no<>''").all();
-  let seq=0;
-  for (const r of (q.results||[])) {
-    const m=/-([0-9]+)$/.exec(String(r.invoice_no||''));
-    if (m) seq=Math.max(seq,Number(m[1])||0);
-  }
-  seq++;
+  const seq=await nextDocumentSequence(env,'invoice');
   const ym=s(month).replace('-','');
   return `INV-${ym}-${String(seq).padStart(4,'0')}`;
 }
@@ -860,16 +880,11 @@ async function deletePropertyRow(env, user, propertyId) {
   return {success:true,id,roomIds,tenantIds};
 }
 
-async function nextDocumentNo(env, table, column, prefix, dateOrMonth) {
-  const q=await env.DB.prepare(`SELECT ${column} AS no FROM ${table} WHERE ${column}<>''`).all();
-  let seq=0;
-  for (const r of (q.results||[])) {
-    const m=/-([0-9]+)$/.exec(String(r.no||''));
-    if (m) seq=Math.max(seq,Number(m[1])||0);
-  }
+async function nextDocumentNo(env, kind, prefix, dateOrMonth) {
+  const seq=await nextDocumentSequence(env,kind);
   const source=s(dateOrMonth);
   const ym=(/^\d{4}-\d{2}/.test(source)?source.slice(0,7):new Date().toISOString().slice(0,7)).replace('-','');
-  return `${prefix}-${ym}-${String(seq+1).padStart(4,'0')}`;
+  return `${prefix}-${ym}-${String(seq).padStart(4,'0')}`;
 }
 
 async function createDepositRow(env, user, item) {
@@ -881,7 +896,7 @@ async function createDepositRow(env, user, item) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('invalid_deposit_date');
 
   const id=await nextNumericId(env,'deposits');
-  const receiptNo=await nextDocumentNo(env,'deposits','receipt_no','DEP',date);
+  const receiptNo=await nextDocumentNo(env,'deposit','DEP',date);
   const next={id,roomId,receiptNo,amount,date,note:s(item?.note)};
   await insertLogicalRow(env,'deposits',next);
   await appendLog(env,user,'create','deposits',[id],1,'room '+roomId);
@@ -904,10 +919,13 @@ async function createReceiptRow(env, user, item) {
   if (!bill) throw new Error('bill_not_found');
   await requireRoomAdminAccess(env,user,bill.room_id);
 
+  const existingReceipt=await env.DB.prepare('SELECT id FROM receipts WHERE bill_id=? LIMIT 1').bind(billId).first();
+  if (existingReceipt) throw new Error('receipt_already_exists');
+
   const date=s(item?.date);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('invalid_receipt_date');
   const id=await nextNumericId(env,'receipts');
-  const receiptNo=await nextDocumentNo(env,'receipts','receipt_no','RCP',date);
+  const receiptNo=await nextDocumentNo(env,'receipt','RCP',date);
   const receipt={
     id,
     roomId:String(bill.room_id),
@@ -1139,122 +1157,122 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'getAdminScoped') {
     try { return await getAdminScopedAll(env, x.user); }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'getTenantHome') {
     try { return await getTenantHome(env, x.user); }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'createProperty') {
     try { return {success:true,property:await createPropertyRow(env,x.user,body.item||{})}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'updateProperty') {
     try { return {success:true,property:await updatePropertyRow(env,x.user,body.item||{})}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'createRoom') {
     try { return {success:true,room:await createRoomRow(env,x.user,body.item||{})}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'updateRoom') {
     try { return {success:true,room:await updateRoomRow(env,x.user,body.item||{})}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'batchUpdateRooms') {
     try { return {success:true,rooms:await batchUpdateRooms(env,x.user,body.items)}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'deleteRoom') {
     try { return await deleteRoomRow(env,x.user,body.id); }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'createTenant') {
     try { return {success:true,...await createTenantRow(env,x.user,body.item||{})}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'updateTenant') {
     try { return {success:true,...await updateTenantRow(env,x.user,body.item||{})}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'deleteTenant') {
     try { return await deleteTenantRow(env,x.user,body.id); }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'createBills') {
     try { return {success:true,bills:await createBillsRows(env,x.user,body.items)}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'updateBill') {
     try { return {success:true,bill:await updateBillRow(env,x.user,body.item||{})}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'batchUpdateBills') {
     try { return {success:true,bills:await batchUpdateBills(env,x.user,body.items)}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'deleteBill') {
     try { return await deleteBillRow(env,x.user,body.id); }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'moveBills') {
     try { return {success:true,...await moveBillsRows(env,x.user,body.ids,body.targetMonth)}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'createMeterReadings') {
     try { return {success:true,meterReadings:await createMeterReadingRows(env,x.user,body.items)}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'createRooms') {
     try { return {success:true,...await createRoomsRows(env,x.user,body.items)}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'deleteProperty') {
     try { return await deletePropertyRow(env,x.user,body.id); }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'createDeposit') {
     try { return {success:true,deposit:await createDepositRow(env,x.user,body.item||{})}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'deleteDeposit') {
     try { return await deleteDepositRow(env,x.user,body.id); }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'createReceipt') {
     try { return {success:true,...await createReceiptRow(env,x.user,body.item||{})}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'upsertRoomLayout') {
     try { return {success:true,roomLayout:await upsertRoomLayoutRow(env,x.user,body.item||{})}; }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'deleteRoomLayouts') {
     try { return await deleteRoomLayoutsRows(env,x.user,body.roomIds); }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'changePassword') {
@@ -1280,13 +1298,13 @@ async function handlePost(request, env, body) {
     try {
       const scoped=await adminUserScope(env,x.user);
       return {success:true,...scoped};
-    } catch(e) { return {error:e.message}; }
+    } catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'adminCreateUser') {
     try {
       return {success:true,user:await createScopedAdminUser(env,x.user,body)};
-    } catch(e) { return {error:e.message}; }
+    } catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'adminResetPassword') {
@@ -1303,12 +1321,12 @@ async function handlePost(request, env, body) {
       ).bind(pw.hash,pw.salt,pw.algo,pw.iterations,target.id).run();
       await appendLog(env,x.user,'adminResetPassword','users',[String(target.id)],1,'account '+target.username+' sessions revoked');
       return {success:true};
-    } catch(e) { return {error:e.message}; }
+    } catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'adminRemovePropertyAccess') {
     try { return await removeAdminPropertyAccess(env,x.user,body.userId,body.propertyId); }
-    catch(e) { return {error:e.message}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   // Whole-table compatibility writes were retired in Access Control Phase C.
