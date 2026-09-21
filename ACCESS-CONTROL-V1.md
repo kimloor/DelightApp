@@ -316,7 +316,8 @@ Confirmed mapping for current production accounts:
 
 - `kim` -> admin access to both current properties
 - `test` -> admin access to both current properties
-- the remaining 2 existing user accounts -> tenant role
+- `test02` -> tenant role, mapped to the current tenant in ทีเอชแอล แมนชั่น
+- `pare` -> tenant role, mapped to the current tenant in ภาณุภณแมนชั่น
 
 Current properties:
 
@@ -332,13 +333,18 @@ test -> ภาณุภณแมนชั่น
 test -> ทีเอชแอล แมนชั่น
 ```
 
-Tenant account binding remains intentionally unresolved until each of the 2 tenant-role user accounts is matched to the correct existing tenant record.
+Tenant mapping confirmed:
 
-Do not guess tenant-to-user mapping.
+```text
+test02 -> current tenant under ทีเอชแอล แมนชั่น
+pare   -> current tenant under ภาณุภณแมนชั่น
+```
+
+Phase A may seed these mappings by joining the current sole tenant in each property.
 
 Strict isolation must not be enabled until:
 
-1. both admin mappings above are seeded and verified
-2. each tenant user is explicitly linked to the correct tenant record
+1. admin mappings are seeded and verified
+2. tenant mappings are seeded and verified
 3. scoped reads are validated
 4. whole-table global writes are retired or safely scoped
