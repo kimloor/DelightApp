@@ -126,7 +126,7 @@ Supported production behavior includes:
 - scoped property-authorized row-level CRUD
 - admin scoped-read API
 - tenant-specific read API
-- legacy admin global read retained temporarily until Phase D
+- legacy admin global read disabled in production
 - public availability lookup
 
 Existing users were migrated with the legacy compatible password format:
@@ -141,7 +141,7 @@ Users were required to sign in again at the D1 cutover rather than reusing Apps 
 
 ### Current access-control transition
 
-Multi-Tenant Access V1 is partially enabled in production:
+Multi-Tenant Access V1 is enabled in production through strict admin isolation and the tenant portal foundation:
 
 - `property_admins` is the authorization mapping for admin writes
 - `tenant_accounts` maps tenant logins to tenant records
@@ -150,8 +150,12 @@ Multi-Tenant Access V1 is partially enabled in production:
 - `pare` is mapped to the current tenant in ภาณุภณแมนชั่น
 - tenant accounts cannot use the legacy global admin dataset or admin write actions
 - all normal business writes are row-level and checked server-side against property access
-
-The admin frontend still reads the legacy global admin snapshot temporarily. Phase D will switch admin reads to `getAdminScoped`, completing strict cross-admin property isolation.
+- admin frontend reads use `getAdminScoped` only
+- legacy global `getAll` is disabled
+- tenant frontend is separated from the admin UI and reads only `getTenantHome`
+- tenant UI exposes its mapped property, room, tenant identity, recent/current bills, payment state, receipts and deposit information
+- tenant sessions can change their own password and logout
+- tenant sessions never fall back to the stale admin browser cache
 
 `properties.owner_id` remains legacy compatibility data and is not the primary permission source.
 
