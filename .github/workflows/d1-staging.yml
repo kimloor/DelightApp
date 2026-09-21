@@ -38,7 +38,10 @@ jobs:
 
       - name: Validate imported row counts
         run: |
-          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT 'users' AS table_name, COUNT(*) AS row_count FROM users UNION ALL SELECT 'properties', COUNT(*) FROM properties UNION ALL SELECT 'rooms', COUNT(*) FROM rooms UNION ALL SELECT 'tenants', COUNT(*) FROM tenants UNION ALL SELECT 'bills', COUNT(*) FROM bills UNION ALL SELECT 'meter_readings', COUNT(*) FROM meter_readings UNION ALL SELECT 'deposits', COUNT(*) FROM deposits UNION ALL SELECT 'receipts', COUNT(*) FROM receipts UNION ALL SELECT 'room_layouts', COUNT(*) FROM room_layouts UNION ALL SELECT 'audit_logs', COUNT(*) FROM audit_logs;"
+          for Q in             "SELECT COUNT(*) AS users FROM users;"             "SELECT COUNT(*) AS properties FROM properties;"             "SELECT COUNT(*) AS rooms FROM rooms;"             "SELECT COUNT(*) AS tenants FROM tenants;"             "SELECT COUNT(*) AS bills FROM bills;"             "SELECT COUNT(*) AS meter_readings FROM meter_readings;"             "SELECT COUNT(*) AS deposits FROM deposits;"             "SELECT COUNT(*) AS receipts FROM receipts;"             "SELECT COUNT(*) AS room_layouts FROM room_layouts;"             "SELECT COUNT(*) AS audit_logs FROM audit_logs;"
+          do
+            npx --yes wrangler@4 d1 execute delightapp-db --remote --command "$Q"
+          done
 
       - name: Validate financial baseline
         run: |
@@ -46,11 +49,15 @@ jobs:
 
       - name: Validate room and bill statuses
         run: |
-          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT 'room_' || status AS metric, COUNT(*) AS count FROM rooms GROUP BY status UNION ALL SELECT 'bill_' || status, COUNT(*) FROM bills GROUP BY status ORDER BY metric;"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT status, COUNT(*) AS count FROM rooms GROUP BY status ORDER BY status;"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT status, COUNT(*) AS count FROM bills GROUP BY status ORDER BY status;"
 
       - name: Validate referential integrity
         run: |
-          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT 'rooms_without_property' AS check_name, COUNT(*) AS problems FROM rooms r LEFT JOIN properties p ON p.id=r.property_id WHERE p.id IS NULL UNION ALL SELECT 'tenants_without_room', COUNT(*) FROM tenants t LEFT JOIN rooms r ON r.id=t.room_id WHERE r.id IS NULL UNION ALL SELECT 'bills_without_room', COUNT(*) FROM bills b LEFT JOIN rooms r ON r.id=b.room_id WHERE r.id IS NULL UNION ALL SELECT 'meters_without_room', COUNT(*) FROM meter_readings m LEFT JOIN rooms r ON r.id=m.room_id WHERE r.id IS NULL UNION ALL SELECT 'meters_without_bill', COUNT(*) FROM meter_readings m LEFT JOIN bills b ON b.id=m.bill_id WHERE m.bill_id<>'' AND b.id IS NULL;"
+          for Q in             "SELECT COUNT(*) AS rooms_without_property FROM rooms r LEFT JOIN properties p ON p.id=r.property_id WHERE p.id IS NULL;"             "SELECT COUNT(*) AS tenants_without_room FROM tenants t LEFT JOIN rooms r ON r.id=t.room_id WHERE r.id IS NULL;"             "SELECT COUNT(*) AS bills_without_room FROM bills b LEFT JOIN rooms r ON r.id=b.room_id WHERE r.id IS NULL;"             "SELECT COUNT(*) AS meters_without_room FROM meter_readings m LEFT JOIN rooms r ON r.id=m.room_id WHERE r.id IS NULL;"             "SELECT COUNT(*) AS meters_without_bill FROM meter_readings m LEFT JOIN bills b ON b.id=m.bill_id WHERE m.bill_id<>'' AND b.id IS NULL;"
+          do
+            npx --yes wrangler@4 d1 execute delightapp-db --remote --command "$Q"
+          done
 
       - name: Upload staging Worker version
         run: npx --yes wrangler@4 versions upload --message "D1 staging validation" --tag "d1-staging"
