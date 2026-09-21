@@ -65,7 +65,7 @@ jobs:
         run: |
           set -o pipefail
           npx --yes wrangler@4 versions upload --message "D1 staging smoke test" --tag "d1-staging" | tee upload.log
-          PREVIEW_URL="$(grep -Eo 'https://[A-Za-z0-9-]+\.workers\.dev' upload.log | tail -1)"
+          PREVIEW_URL="$(grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' upload.log | tail -1)"
           test -n "$PREVIEW_URL"
           echo "preview_url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
 
