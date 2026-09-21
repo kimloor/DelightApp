@@ -1,0 +1,55 @@
+name: D1 API Smoke
+
+on:
+  push:
+    branches:
+      - feat/d1-backend
+    paths:
+      - ".github/workflows/d1-api-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PREVIEW_URL: https://3f6f1279-delightapp.ekqtjl.workers.dev
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Static and unauthenticated checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(curl -sS -o /tmp/home -w '%{http_code}' "$PREVIEW_URL/")" = "200"
+          test -s /tmp/home
+          curl -fsS "$PREVIEW_URL/api?action=ping" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d=={"ok":True,"backend":"d1"}'
+          curl -fsS "$PREVIEW_URL/api?action=getAll" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("error")=="unauthorized"'
+          curl -fsS -H 'content-type: application/json' -d '{"action":"login","username":"__missing__","password":"wrong"}' "$PREVIEW_URL/api" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("error")=="invalid_credentials"'
+
+      - name: Register, login, me and getAll
+        shell: bash
+        run: |
+          set -euo pipefail
+          USER="__d1smoke_${GITHUB_RUN_ID}"
+          PASS="TmpSmoke2026"
+          echo "TEST_USER=$USER" >> "$GITHUB_ENV"
+
+          REG="$(curl -fsS -H 'content-type: application/json' -d '{"action":"register","username":"__d1smoke_fixed","password":"TmpSmoke2026","displayName":"D1Smoke"}' "$PREVIEW_URL/api")"
+          TOKEN="$(printf '%s' "$REG" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success") is True; print(d["token"])')"
+
+          LOGIN="$(curl -fsS -H 'content-type: application/json' -d '{"action":"login","username":"__d1smoke_fixed","password":"TmpSmoke2026"}' "$PREVIEW_URL/api")"
+          TOKEN2="$(printf '%s' "$LOGIN" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success") is True; print(d["token"])')"
+
+          curl -fsS -H 'content-type: application/json' -d "{"action":"me","token":"$TOKEN2"}" "$PREVIEW_URL/api" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success") is True and d["user"]["username"]=="__d1smoke_fixed"'
+
+          curl -fsS "$PREVIEW_URL/api?action=getAll&token=$TOKEN2" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert len(d["properties"])==2; assert len(d["rooms"])==84; assert len(d["tenants"])==2; assert len(d["bills"])==19; assert len(d["meterReadings"])==62'
+
+      - name: Cleanup
+        if: always()
+        run: |
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "DELETE FROM audit_logs WHERE username='__d1smoke_fixed'; DELETE FROM users WHERE username='__d1smoke_fixed';"
