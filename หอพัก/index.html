@@ -2211,18 +2211,31 @@ function getFreeformLayout(floor){
 
 /* บันทึกตำแหน่งห้องเดียว (ตอนลากวางเสร็จ) — อัปเดตแถวเดิมถ้ามี หรือเพิ่มแถวใหม่ */
 async function saveRoomLayoutPosition(roomId, x, y){
-  let entry = roomLayouts.find(rl=>rl.roomId===roomId);
-  if(entry){ entry.x = x; entry.y = y; }
-  else { entry = { id: nextId(roomLayouts), roomId, x, y }; roomLayouts.push(entry); }
-  await saveRoomLayouts();
+  try{
+    const data=await remoteAuthPost({action:'upsertRoomLayout',item:{roomId,x,y}});
+    const saved=data.roomLayout;
+    const i=roomLayouts.findIndex(rl=>rl.roomId===roomId);
+    if(i>=0) roomLayouts[i]=saved; else roomLayouts.push(saved);
+    cacheLocally();
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('บันทึกตำแหน่งไม่สำเร็จ');
+  }
 }
 
 /* รีเซ็ตผังของชั้นหนึ่งกลับเป็นกริดเริ่มต้น — ลบตำแหน่งที่เคยบันทึกของห้องในชั้นนั้นทิ้งทั้งหมด
    (ห้องชั้นอื่นไม่กระทบ) แล้วปล่อยให้ defaultFreeformPositions() คำนวณตำแหน่งกริดให้ใหม่ */
 async function resetFreeformLayout(floor){
-  const floorRoomIds = new Set(currentRooms().filter(r=>(r.floor||'ไม่ระบุชั้น')===floor).map(r=>r.id));
-  roomLayouts = roomLayouts.filter(rl=>!floorRoomIds.has(rl.roomId));
-  await saveRoomLayouts();
+  const roomIds=currentRooms().filter(r=>(r.floor||'ไม่ระบุชั้น')===floor).map(r=>r.id);
+  try{
+    await remoteAuthPost({action:'deleteRoomLayouts',roomIds});
+    const ids=new Set(roomIds);
+    roomLayouts=roomLayouts.filter(rl=>!ids.has(rl.roomId));
+    cacheLocally();
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    throw e;
+  }
 }
 
 function attachFreeformDragEvents(){
@@ -2336,21 +2349,22 @@ async function onSaveBulkRooms(){
 
   if(numbers.length===0){ showToast('กรุณากรอกเลขห้องอย่างน้อย 1 ห้อง'); return; }
 
-  const existing = new Set(rooms.filter(r=>r.propertyId===currentPropertyId).map(r=>r.number));
-  let added = 0, skipped = 0;
-  numbers.forEach(number=>{
-    if(existing.has(number)){ skipped++; return; }
-    rooms.push({ id: nextId(rooms), propertyId: currentPropertyId, number, floor, rent, status });
-    existing.add(number);
-    added++;
-  });
-
-  if(added>0) await saveRooms();
-  closeModal();
-  render();
-  showToast(skipped>0
-    ? `เพิ่มห้องแล้ว ${added} ห้อง (ข้าม ${skipped} ห้องที่มีเลขซ้ำอยู่แล้ว)`
-    : `เพิ่มห้องแล้ว ${added} ห้อง`);
+  const drafts=numbers.map(number=>({propertyId:currentPropertyId,number,floor,rent,status}));
+  try{
+    const data=await remoteAuthPost({action:'createRooms',items:drafts});
+    const created=data.rooms||[];
+    rooms.push(...created);
+    cacheLocally();
+    closeModal();
+    render();
+    const skipped=Number(data.skipped)||0;
+    showToast(skipped>0
+      ? `เพิ่มห้องแล้ว ${created.length} ห้อง (ข้าม ${skipped} ห้องที่มีเลขซ้ำอยู่แล้ว)`
+      : `เพิ่มห้องแล้ว ${created.length} ห้อง`);
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('เพิ่มห้องหลายห้องไม่สำเร็จ');
+  }
 }
 
 /* ============ แก้ไขประเภทห้อง & ค่ามัดจำ หลายห้องพร้อมกัน ============
@@ -2962,22 +2976,33 @@ async function onDeleteProperty(){
   const prop = currentProperty();
   if(!prop) return;
   if(properties.length<=1){ showToast('ต้องมีอย่างน้อย 1 อพาร์ทเมนท์ ลบไม่ได้'); return; }
-  if(!confirm(`ลบอพาร์ทเมนท์ "${prop.name}"?\n\nห้องพัก ผู้เช่า และบิลทั้งหมดในอพาร์ทเมนท์นี้จะถูกลบไปด้วย และไม่สามารถกู้คืนได้`)) return;
-  const propId = prop.id;
-  const roomIds = new Set(rooms.filter(r=>r.propertyId===propId).map(r=>r.id));
-  rooms = rooms.filter(r=>r.propertyId!==propId);
-  tenants = tenants.filter(t=>!roomIds.has(t.roomId));
-  bills = bills.filter(b=>!roomIds.has(b.roomId));
-  deposits = deposits.filter(d=>!roomIds.has(d.roomId));
-  meterReadings = meterReadings.filter(m=>!roomIds.has(m.roomId));
-  properties = properties.filter(p=>p.id!==propId);
-  currentPropertyId = properties[0].id;
-  try{ localStorage.setItem('dorm:currentProperty', currentPropertyId); }catch(e){}
-  await Promise.all([saveRooms(), saveTenants(), saveBills(), saveProperties(), saveDeposits(), saveMeterReadings()]);
-  closeModal();
-  renderPropertySelect();
-  render();
-  showToast('ลบอพาร์ทเมนท์แล้ว');
+  if(!confirm(`ลบอพาร์ทเมนท์ "${prop.name}"?\n\nห้องพัก ผู้เช่า บิล มิเตอร์ มัดจำ ใบเสร็จ และผังห้องทั้งหมดในอพาร์ทเมนท์นี้จะถูกลบ และไม่สามารถกู้คืนได้\n\nเฉพาะ owner ของอพาร์ทเมนท์เท่านั้นที่ลบได้`)) return;
+
+  try{
+    const data=await remoteAuthPost({action:'deleteProperty',id:prop.id});
+    const roomIds=new Set(data.roomIds||[]);
+    properties=properties.filter(p=>p.id!==prop.id);
+    rooms=rooms.filter(r=>!roomIds.has(r.id));
+    tenants=tenants.filter(t=>!roomIds.has(t.roomId));
+    bills=bills.filter(b=>!roomIds.has(b.roomId));
+    deposits=deposits.filter(d=>!roomIds.has(d.roomId));
+    meterReadings=meterReadings.filter(m=>!roomIds.has(m.roomId));
+    receipts=receipts.filter(r=>!roomIds.has(r.roomId));
+    roomLayouts=roomLayouts.filter(r=>!roomIds.has(r.roomId));
+    currentPropertyId=properties[0]?.id||null;
+    try{
+      if(currentPropertyId) localStorage.setItem('dorm:currentProperty',currentPropertyId);
+      else localStorage.removeItem('dorm:currentProperty');
+    }catch(err){}
+    cacheLocally();
+    closeModal();
+    renderPropertySelect();
+    render();
+    showToast('ลบอพาร์ทเมนท์แล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast(String(e.message||e)==='owner_required' ? 'ลบไม่ได้ — ต้องเป็น owner ของอพาร์ทเมนท์นี้' : 'ลบอพาร์ทเมนท์ไม่สำเร็จ');
+  }
 }
 
 /* ============ Bills ============ */
@@ -3449,8 +3474,7 @@ function invoiceHtml(bill){
   const room = rooms.find(r=>r.id===bill.roomId);
   const tenant = tenants.find(t=>t.roomId===bill.roomId);
   const property = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId)) || {};
-  if(!bill.invoiceNo){ bill.invoiceNo = genInvoiceNo(bill.month); saveBills(); }
-  const invoiceNo = bill.invoiceNo;
+  const invoiceNo = bill.invoiceNo || '—';
   const vatOn = !!property.vatEnabled;
 
   const waterUnits = Math.max((Number(bill.waterCurr)||0)-(Number(bill.waterPrev)||0),0);
@@ -4070,10 +4094,20 @@ function attachPageEvents(){
   document.querySelectorAll('.bill-status').forEach(el=>{
     el.onchange = async (e)=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
-      bill.status = e.target.value;
-      await saveBills();
-      render();
-      showToast(bill.status==='paid' ? 'บันทึกว่าชำระแล้ว' : 'บันทึกว่าค้างชำระ');
+      if(!bill) return;
+      const draft={...bill,status:e.target.value};
+      try{
+        const data=await remoteAuthPost({action:'updateBill',item:draft});
+        const i=bills.findIndex(b=>b.id===data.bill.id);
+        if(i>=0) bills[i]=data.bill;
+        cacheLocally();
+        render();
+        showToast(data.bill.status==='paid' ? 'บันทึกว่าชำระแล้ว' : 'บันทึกว่าค้างชำระ');
+      }catch(err){
+        if(handleUnauthorized(err)) return;
+        render();
+        showToast('อัปเดตสถานะบิลไม่สำเร็จ');
+      }
     };
   });
   document.querySelectorAll('.edit-water').forEach(el=>{
@@ -4389,35 +4423,41 @@ async function onSaveDeposit(tenantId, alsoPrint){
   if(!amount || amount<=0){ showToast('กรุณากรอกจำนวนเงินมัดจำ'); return; }
   if(!date){ showToast('กรุณาเลือกวันที่รับเงิน'); return; }
 
-  const deposit = {
-    id: nextId(deposits),
-    roomId: tenant.roomId,
-    tenantId: tenant.id,
-    receiptNo: genDepositReceiptNo(date),
-    amount, date, note
-  };
-  deposits.push(deposit);
-  await saveDeposits();
+  try{
+    const data=await remoteAuthPost({action:'createDeposit',item:{roomId:tenant.roomId,amount,date,note}});
+    const deposit={...data.deposit,tenantId:tenant.id};
+    deposits.push(deposit);
+    cacheLocally();
 
-  if(alsoPrint){
-    closeModal();
-    render();
-    showToast('บันทึกใบรับมัดจำแล้ว: '+deposit.receiptNo);
-    printDepositReceipt(deposit);
-  } else {
-    render();
-    openModal(depositModalHtml(tenant), {wide:true});
-    showToast('บันทึกใบรับมัดจำแล้ว: '+deposit.receiptNo);
+    if(alsoPrint){
+      closeModal();
+      render();
+      showToast('บันทึกใบรับมัดจำแล้ว: '+deposit.receiptNo);
+      printDepositReceipt(deposit);
+    } else {
+      render();
+      openModal(depositModalHtml(tenant), {wide:true});
+      showToast('บันทึกใบรับมัดจำแล้ว: '+deposit.receiptNo);
+    }
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('บันทึกใบรับมัดจำไม่สำเร็จ');
   }
 }
 
 async function onDeleteDeposit(depositId, tenantId){
   if(!confirm('ลบใบรับมัดจำนี้? (เลขที่ใบรับจะไม่ถูกนำกลับมาใช้ซ้ำ)')) return;
-  deposits = deposits.filter(d=>d.id!==depositId);
-  await saveDeposits();
-  const tenant = tenants.find(t=>t.id===tenantId);
-  openModal(depositModalHtml(tenant), {wide:true});
-  showToast('ลบใบรับมัดจำแล้ว');
+  try{
+    await remoteAuthPost({action:'deleteDeposit',id:depositId});
+    deposits = deposits.filter(d=>d.id!==depositId);
+    cacheLocally();
+    const tenant = tenants.find(t=>t.id===tenantId);
+    openModal(depositModalHtml(tenant), {wide:true});
+    showToast('ลบใบรับมัดจำแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('ลบใบรับมัดจำไม่สำเร็จ');
+  }
 }
 
 /* ============ ใบเสร็จรับเงิน (ออกตอนบิลชำระแล้ว) ============ */
@@ -4471,24 +4511,21 @@ async function onSaveReceipt(billId){
   const note = document.getElementById('f-rcpt-note').value.trim();
   if(!date){ showToast('กรุณาเลือกวันที่รับเงิน'); return; }
 
-  const receipt = {
-    id: nextId(receipts),
-    roomId: bill.roomId,
-    billId: bill.id,
-    receiptNo: genReceiptNo(date),
-    amount: bill.total,
-    date, note,
-    vatSubtotal: bill.vatSubtotal || 0,
-    vatAmount: bill.vatAmount || 0
-  };
-  receipts.push(receipt);
-  bill.status = 'paid';
-
-  await Promise.all([saveReceipts(), saveBills()]);
-  closeModal();
-  render();
-  showToast('ออกใบเสร็จรับเงินแล้ว: '+receipt.receiptNo+' (ปรับสถานะบิลเป็นชำระแล้ว)');
-  printReceipt(receipt);
+  try{
+    const data=await remoteAuthPost({action:'createReceipt',item:{billId,date,note}});
+    const receipt=data.receipt;
+    receipts.push(receipt);
+    const bi=bills.findIndex(b=>b.id===data.bill.id);
+    if(bi>=0) bills[bi]=data.bill;
+    cacheLocally();
+    closeModal();
+    render();
+    showToast('ออกใบเสร็จรับเงินแล้ว: '+receipt.receiptNo+' (ปรับสถานะบิลเป็นชำระแล้ว)');
+    printReceipt(receipt);
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('ออกใบเสร็จไม่สำเร็จ');
+  }
 }
 
 function depositReceiptHtml(deposit){
