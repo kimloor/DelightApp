@@ -836,6 +836,147 @@ async function deleteRoomLayoutsRows(env, user, roomIds) {
   return {success:true,roomIds:ids};
 }
 
+
+async function adminUserScope(env, user) {
+  if (!user || user.role !== 'admin') throw new Error('forbidden');
+
+  const accessQ = await env.DB.prepare(
+    `SELECT pa.property_id,pa.access_role,p.name
+     FROM property_admins pa
+     JOIN properties p ON p.id=pa.property_id
+     WHERE pa.user_id=?
+     ORDER BY p.name,p.id`
+  ).bind(String(user.id)).all();
+  const access=(accessQ.results||[]).map(r=>({
+    propertyId:String(r.property_id),
+    propertyName:r.name||'',
+    accessRole:r.access_role||'admin'
+  }));
+  const propertyIds=access.map(a=>a.propertyId);
+
+  const users=new Map();
+  const me=await userById(env,user.id);
+  if(me) users.set(String(me.id),{...publicUser(me),createdAt:me.created_at||'',propertyAccess:[]});
+
+  if(propertyIds.length){
+    const qs=propertyIds.map(()=>'?').join(',');
+
+    const adminsQ=await env.DB.prepare(
+      `SELECT DISTINCT u.id,u.username,u.display_name,u.created_at,u.role
+       FROM users u
+       JOIN property_admins pa ON pa.user_id=u.id
+       WHERE pa.property_id IN (${qs})
+       ORDER BY CAST(u.id AS INTEGER),u.id`
+    ).bind(...propertyIds).all();
+    for(const u of (adminsQ.results||[])){
+      users.set(String(u.id),{...publicUser(u),createdAt:u.created_at||'',propertyAccess:[]});
+    }
+
+    const tenantsQ=await env.DB.prepare(
+      `SELECT DISTINCT u.id,u.username,u.display_name,u.created_at,u.role,
+              r.property_id,p.name AS property_name
+       FROM users u
+       JOIN tenant_accounts ta ON ta.user_id=u.id
+       JOIN tenants t ON t.id=ta.tenant_id
+       JOIN rooms r ON r.id=t.room_id
+       JOIN properties p ON p.id=r.property_id
+       WHERE r.property_id IN (${qs})
+       ORDER BY CAST(u.id AS INTEGER),u.id`
+    ).bind(...propertyIds).all();
+    for(const u of (tenantsQ.results||[])){
+      users.set(String(u.id),{
+        ...publicUser(u),
+        createdAt:u.created_at||'',
+        tenantPropertyId:String(u.property_id),
+        tenantPropertyName:u.property_name||'',
+        propertyAccess:[]
+      });
+    }
+
+    const paQ=await env.DB.prepare(
+      `SELECT pa.user_id,pa.property_id,pa.access_role,p.name
+       FROM property_admins pa
+       JOIN properties p ON p.id=pa.property_id
+       WHERE pa.property_id IN (${qs})
+       ORDER BY p.name,p.id`
+    ).bind(...propertyIds).all();
+    for(const r of (paQ.results||[])){
+      const item=users.get(String(r.user_id));
+      if(item) item.propertyAccess.push({
+        propertyId:String(r.property_id),
+        propertyName:r.name||'',
+        accessRole:r.access_role||'admin'
+      });
+    }
+  }
+
+  return {
+    users:[...users.values()],
+    properties:access,
+    ownerProperties:access.filter(a=>a.accessRole==='owner')
+  };
+}
+
+async function adminCanManageUser(env, admin, targetUserId) {
+  if (!admin || admin.role!=='admin') return false;
+  if (String(admin.id)===String(targetUserId)) return true;
+  const scoped=await adminUserScope(env,admin);
+  return scoped.users.some(u=>String(u.id)===String(targetUserId));
+}
+
+async function createScopedAdminUser(env, admin, body) {
+  if (!admin || admin.role!=='admin') throw new Error('forbidden');
+  const propertyIds=[...new Set((Array.isArray(body.propertyIds)?body.propertyIds:[]).map(s).filter(Boolean))];
+  if (!propertyIds.length) throw new Error('property_access_required');
+
+  for(const propertyId of propertyIds){
+    await requirePropertyOwner(env,admin,propertyId);
+  }
+
+  const username=s(body.username).trim();
+  const password=s(body.password);
+  const displayName=s(body.displayName).trim() || username;
+  if(!username) throw new Error('username_required');
+  if(password.length<4) throw new Error('password_too_short');
+  if(await userByUsername(env,username)) throw new Error('username_exists');
+
+  const id=await nextNumericId(env,'users');
+  const salt=crypto.randomUUID();
+  const hash=await sha256Hex(password+':'+salt);
+  const createdAt=new Date().toISOString();
+
+  const stmts=[
+    env.DB.prepare(
+      "INSERT INTO users (id,username,password_hash,salt,display_name,created_at,role) VALUES (?,?,?,?,?,?, 'admin')"
+    ).bind(id,username,hash,salt,displayName,createdAt)
+  ];
+  for(const propertyId of propertyIds){
+    stmts.push(env.DB.prepare(
+      "INSERT INTO property_admins (property_id,user_id,access_role,created_at) VALUES (?,?, 'admin', ?)"
+    ).bind(propertyId,id,createdAt));
+  }
+  await env.DB.batch(stmts);
+  await appendLog(env,admin,'adminCreateUser','users',[id],1,'properties '+propertyIds.join(','));
+  return publicUser(await userById(env,id));
+}
+
+async function removeAdminPropertyAccess(env, admin, targetUserId, propertyId) {
+  await requirePropertyOwner(env,admin,propertyId);
+  const targetId=s(targetUserId);
+  if(String(admin.id)===targetId) throw new Error('cannot_remove_self_owner_access');
+
+  const access=await env.DB.prepare(
+    'SELECT access_role FROM property_admins WHERE property_id=? AND user_id=?'
+  ).bind(s(propertyId),targetId).first();
+  if(!access) throw new Error('access_not_found');
+  if(access.access_role==='owner') throw new Error('cannot_remove_owner');
+
+  await env.DB.prepare('DELETE FROM property_admins WHERE property_id=? AND user_id=?')
+    .bind(s(propertyId),targetId).run();
+  await appendLog(env,admin,'removePropertyAdmin','property_admins',[targetId],1,'property '+propertyId);
+  return {success:true,userId:targetId,propertyId:s(propertyId)};
+}
+
 async function handlePost(request, env, body) {
   if (body.action === 'login') {
     const username = s(body.username).trim();
@@ -861,14 +1002,9 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'me') return {success:true,user:publicUser(x.user)};
 
-  // Legacy full snapshot remains temporarily for the current admin UI until row-level writes replace whole-table saves.
-  // Tenant accounts must never receive the global admin dataset.
-  if (body.action === 'getAll') {
-    if (x.user.role !== 'admin') return {error:'forbidden'};
-    return await getAll(env);
-  }
+  // Global shared reads are retired. Admin data is always scoped by property_admins.
+  if (body.action === 'getAll') return {error:'legacy_global_read_disabled'};
 
-  // Phase B shadow reads: scoped by server-side access mappings, not yet used by the legacy write UI.
   if (body.action === 'getAdminScoped') {
     try { return await getAdminScopedAll(env, x.user); }
     catch(e) { return {error:e.message}; }
@@ -1001,42 +1137,38 @@ async function handlePost(request, env, body) {
   }
 
   if (body.action === 'adminListUsers') {
-    try { await requireAdmin(env,body.token); } catch(e) { return {error:e.message}; }
-    const q = await env.DB.prepare('SELECT id,username,display_name,created_at,role FROM users ORDER BY CAST(id AS INTEGER), id').all();
-    return {success:true,users:(q.results||[]).map(u=>({...publicUser(u),createdAt:u.created_at||''}))};
+    try {
+      const scoped=await adminUserScope(env,x.user);
+      return {success:true,...scoped};
+    } catch(e) { return {error:e.message}; }
   }
 
   if (body.action === 'adminCreateUser') {
-    let admin;
-    try { admin=(await requireAdmin(env,body.token)).user; } catch(e) { return {error:e.message}; }
-    const username=s(body.username).trim();
-    const password=s(body.password);
-    const displayName=s(body.displayName).trim() || username;
-    if(!username) return {error:'username ห้ามว่าง'};
-    if(password.length<4) return {error:'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'};
-    if(await userByUsername(env,username)) return {error:'username นี้มีผู้ใช้แล้ว'};
-    const id=await nextNumericId(env,'users');
-    const salt=crypto.randomUUID();
-    const hash=await sha256Hex(password+':'+salt);
-    await env.DB.prepare('INSERT INTO users (id,username,password_hash,salt,display_name,created_at,role) VALUES (?,?,?,?,?,?,?)')
-      .bind(id,username,hash,salt,displayName,new Date().toISOString(),'').run();
-    const created=await userById(env,id);
-    await appendLog(env,admin,'adminCreateUser','users',[id],1,'บัญชี '+username);
-    return {success:true,user:publicUser(created)};
+    try {
+      return {success:true,user:await createScopedAdminUser(env,x.user,body)};
+    } catch(e) { return {error:e.message}; }
   }
 
   if (body.action === 'adminResetPassword') {
-    let admin;
-    try { admin=(await requireAdmin(env,body.token)).user; } catch(e) { return {error:e.message}; }
-    const target = await userById(env,s(body.userId));
-    if (!target) return {error:'ไม่พบผู้ใช้นี้'};
-    const p=s(body.newPassword);
-    if (p.length<4) return {error:'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'};
-    const salt=crypto.randomUUID();
-    const hash=await sha256Hex(p+':'+salt);
-    await env.DB.prepare('UPDATE users SET password_hash=?, salt=? WHERE id=?').bind(hash,salt,target.id).run();
-    await appendLog(env,admin,'adminResetPassword','users',[String(target.id)],1,'บัญชี '+target.username);
-    return {success:true};
+    try {
+      if(x.user.role!=='admin') throw new Error('forbidden');
+      const target = await userById(env,s(body.userId));
+      if (!target) throw new Error('user_not_found');
+      if(!await adminCanManageUser(env,x.user,target.id)) throw new Error('forbidden');
+      const p=s(body.newPassword);
+      if (p.length<4) throw new Error('password_too_short');
+      const salt=crypto.randomUUID();
+      const hash=await sha256Hex(p+':'+salt);
+      await env.DB.prepare('UPDATE users SET password_hash=?, salt=? WHERE id=?')
+        .bind(hash,salt,target.id).run();
+      await appendLog(env,x.user,'adminResetPassword','users',[String(target.id)],1,'account '+target.username);
+      return {success:true};
+    } catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'adminRemovePropertyAccess') {
+    try { return await removeAdminPropertyAccess(env,x.user,body.userId,body.propertyId); }
+    catch(e) { return {error:e.message}; }
   }
 
   // Whole-table compatibility writes were retired in Access Control Phase C.
