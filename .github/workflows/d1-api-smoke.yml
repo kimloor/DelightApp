@@ -21,35 +21,74 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Static and unauthenticated checks
+      - name: Full preview API smoke test
         shell: bash
         run: |
           set -euo pipefail
-          test "$(curl -sS -o /tmp/home -w '%{http_code}' "$PREVIEW_URL/")" = "200"
-          test -s /tmp/home
-          curl -fsS "$PREVIEW_URL/api?action=ping" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d=={"ok":True,"backend":"d1"}'
-          curl -fsS "$PREVIEW_URL/api?action=getAll" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("error")=="unauthorized"'
-          curl -fsS -H 'content-type: application/json' -d '{"action":"login","username":"__missing__","password":"wrong"}' "$PREVIEW_URL/api" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("error")=="invalid_credentials"'
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.parse
 
-      - name: Register, login, me and getAll
-        shell: bash
-        run: |
-          set -euo pipefail
-          USER="__d1smoke_${GITHUB_RUN_ID}"
-          PASS="TmpSmoke2026"
-          echo "TEST_USER=$USER" >> "$GITHUB_ENV"
+          base = os.environ["PREVIEW_URL"]
+          user = "__d1smoke_python"
+          password = "TmpSmoke2026"
 
-          REG="$(curl -fsS -H 'content-type: application/json' -d '{"action":"register","username":"__d1smoke_fixed","password":"TmpSmoke2026","displayName":"D1Smoke"}' "$PREVIEW_URL/api")"
-          TOKEN="$(printf '%s' "$REG" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success") is True; print(d["token"])')"
+          def get(path):
+              with urllib.request.urlopen(base + path) as r:
+                  return r.status, r.read().decode()
 
-          LOGIN="$(curl -fsS -H 'content-type: application/json' -d '{"action":"login","username":"__d1smoke_fixed","password":"TmpSmoke2026"}' "$PREVIEW_URL/api")"
-          TOKEN2="$(printf '%s' "$LOGIN" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success") is True; print(d["token"])')"
+          def post(obj):
+              data = json.dumps(obj).encode()
+              req = urllib.request.Request(
+                  base + "/api",
+                  data=data,
+                  headers={"content-type":"application/json"},
+                  method="POST",
+              )
+              with urllib.request.urlopen(req) as r:
+                  return r.status, json.loads(r.read().decode())
 
-          curl -fsS -H 'content-type: application/json' -d "{"action":"me","token":"$TOKEN2"}" "$PREVIEW_URL/api" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success") is True and d["user"]["username"]=="__d1smoke_fixed"'
+          status, html = get("/")
+          assert status == 200 and html
+          print("static_home=PASS")
 
-          curl -fsS "$PREVIEW_URL/api?action=getAll&token=$TOKEN2" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert len(d["properties"])==2; assert len(d["rooms"])==84; assert len(d["tenants"])==2; assert len(d["bills"])==19; assert len(d["meterReadings"])==62'
+          status, body = get("/api?action=ping")
+          assert json.loads(body) == {"ok": True, "backend": "d1"}
+          print("ping=PASS")
+
+          status, body = get("/api?action=getAll")
+          assert json.loads(body).get("error") == "unauthorized"
+          print("getAll_unauthorized=PASS")
+
+          status, bad = post({"action":"login","username":"__missing__","password":"wrong"})
+          assert bad.get("error") == "invalid_credentials"
+          print("invalid_login=PASS")
+
+          status, reg = post({"action":"register","username":user,"password":password,"displayName":"D1Smoke"})
+          assert reg.get("success") is True and reg.get("token")
+          print("register=PASS")
+
+          status, login = post({"action":"login","username":user,"password":password})
+          assert login.get("success") is True and login.get("token")
+          token = login["token"]
+          print("login=PASS")
+
+          status, me = post({"action":"me","token":token})
+          assert me.get("success") is True
+          assert me.get("user",{}).get("username") == user
+          print("me=PASS")
+
+          q = urllib.parse.urlencode({"action":"getAll","token":token})
+          status, body = get("/api?" + q)
+          all_data = json.loads(body)
+          assert len(all_data.get("properties",[])) == 2
+          assert len(all_data.get("rooms",[])) == 84
+          assert len(all_data.get("tenants",[])) == 2
+          assert len(all_data.get("bills",[])) == 19
+          assert len(all_data.get("meterReadings",[])) == 62
+          print("getAll_authenticated=PASS")
+          PY
 
       - name: Cleanup
         if: always()
         run: |
-          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "DELETE FROM audit_logs WHERE username='__d1smoke_fixed'; DELETE FROM users WHERE username='__d1smoke_fixed';"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "DELETE FROM audit_logs WHERE username='__d1smoke_python'; DELETE FROM users WHERE username='__d1smoke_python';"
