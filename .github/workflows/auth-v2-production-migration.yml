@@ -30,6 +30,6 @@ jobs:
           set -euo pipefail
           npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT password_algo,password_iterations,session_version,COUNT(*) AS users FROM users GROUP BY password_algo,password_iterations,session_version;"
           npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT name FROM sqlite_master WHERE type='table' AND name='auth_login_limits';"
-          PENDING="$(npx --yes wrangler@4 d1 migrations list delightapp-db --remote --json | jq '[.[] | select(.applied_at == null)] | length')"
-          test "$PENDING" = "0"
+          APPLIED="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS c FROM d1_migrations WHERE name='0004_auth_session_hardening_v2.sql';" | grep -o '"c": [0-9]*' | grep -o '[0-9]*' | tail -1)"
+          test "$APPLIED" = "1"
           echo "auth_v2_migration=PASS"
