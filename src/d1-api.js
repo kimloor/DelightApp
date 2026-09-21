@@ -265,6 +265,25 @@ async function handlePost(request, env, body) {
     return {success:true,users:(q.results||[]).map(u=>({...publicUser(u),createdAt:u.created_at||''}))};
   }
 
+  if (body.action === 'adminCreateUser') {
+    let admin;
+    try { admin=(await requireAdmin(env,body.token)).user; } catch(e) { return {error:e.message}; }
+    const username=s(body.username).trim();
+    const password=s(body.password);
+    const displayName=s(body.displayName).trim() || username;
+    if(!username) return {error:'username ห้ามว่าง'};
+    if(password.length<4) return {error:'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'};
+    if(await userByUsername(env,username)) return {error:'username นี้มีผู้ใช้แล้ว'};
+    const id=await nextNumericId(env,'users');
+    const salt=crypto.randomUUID();
+    const hash=await sha256Hex(password+':'+salt);
+    await env.DB.prepare('INSERT INTO users (id,username,password_hash,salt,display_name,created_at,role) VALUES (?,?,?,?,?,?,?)')
+      .bind(id,username,hash,salt,displayName,new Date().toISOString(),'').run();
+    const created=await userById(env,id);
+    await appendLog(env,admin,'adminCreateUser','users',[id],1,'บัญชี '+username);
+    return {success:true,user:publicUser(created)};
+  }
+
   if (body.action === 'adminResetPassword') {
     let admin;
     try { admin=(await requireAdmin(env,body.token)).user; } catch(e) { return {error:e.message}; }
