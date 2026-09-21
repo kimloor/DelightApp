@@ -17,7 +17,7 @@
 
 ## 0. Multi-Tenant Access Control Foundation
 
-**Status:** IN PROGRESS — Phase A/B/C complete, Phase D next
+**Status:** DONE — Phase A/B/C/D/E complete
 
 เป้าหมาย: แยกข้อมูลของแต่ละผู้ดูแลออกจากกันอย่างปลอดภัย และรองรับหลาย admin ต่อ property
 
@@ -30,7 +30,8 @@
 - tenant account แยก mapping ผ่าน `tenant_accounts`
 - backend ต้อง enforce access ทุก read/write
 - whole-table writes เปลี่ยนเป็น row-level CRUD แล้ว
-- ขั้นถัดไป: เปิด strict admin property isolation และทดสอบ cross-admin denial
+- strict admin property isolation เปิดใช้งานและผ่าน production verification แล้ว
+- tenant foundation แยก tenant UI ออกจาก admin UI และใช้ `getTenantHome` เท่านั้น
 
 รายละเอียด: `ACCESS-CONTROL-V1.md`
 
@@ -40,7 +41,7 @@ Progress:
 - Phase B scoped reads: DONE
 - Phase C row-level CRUD: DONE
 - Phase D strict property isolation: DONE
-- Phase E tenant foundation: NEXT
+- Phase E tenant foundation: DONE
 
 ---
 
