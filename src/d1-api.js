@@ -291,11 +291,16 @@ async function handlePost(request, env, body) {
 
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+    const isApi = url.pathname === '/api' || url.pathname.startsWith('/api/');
+
+    // Single Worker architecture: only /api and /api/* execute backend logic.
+    // Static frontend/assets are served by the same Worker via the ASSETS binding.
+    if (!isApi) return env.ASSETS.fetch(request);
+
     if (request.method === 'OPTIONS') return json({ok:true},204,request,env);
     try {
       if (!env.DB) return json({error:'d1_binding_missing'},500,request,env);
-      const url = new URL(request.url);
-
       if (request.method === 'GET') {
         const action = url.searchParams.get('action') || 'getAll';
         if (action === 'ping') return json({ok:true,backend:'d1'},200,request,env);
