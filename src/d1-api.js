@@ -1039,17 +1039,10 @@ async function handlePost(request, env, body) {
     return {success:true};
   }
 
-  const table = body.table;
-  if (!TABLES[table]) return {error:'unknown table: '+s(table)};
-
-  // Legacy whole-table write path is admin-only.
-  // Tenant accounts must never be able to modify administrative datasets.
-  if (x.user.role !== 'admin') return {error:'forbidden'};
-
-  await replaceLogicalTable(env, table, Array.isArray(body.items) ? body.items : []);
-  const ids=(body.items||[]).map(it=>s(it.id));
-  await appendLog(env,x.user,'save',table,ids,ids.length,'');
-  return {success:true};
+  // Whole-table compatibility writes were retired in Access Control Phase C.
+  // All mutations must use explicit row-level actions with server-side property authorization.
+  if (body.table) return {error:'legacy_whole_table_write_disabled'};
+  return {error:'unknown action'};
 }
 
 export default {
@@ -1065,13 +1058,9 @@ export default {
     try {
       if (!env.DB) return json({error:'d1_binding_missing'},500,request,env);
       if (request.method === 'GET') {
-        const action = url.searchParams.get('action') || 'getAll';
+        const action = url.searchParams.get('action') || 'ping';
         if (action === 'ping') return json({ok:true,backend:'d1'},200,request,env);
-        const token = url.searchParams.get('token') || '';
-        const x = await authenticate(env,token);
-        if (!x) return json({error:'unauthorized'},200,request,env);
-        if (action === 'getAll') return json(await getAll(env),200,request,env);
-        return json({error:'unknown action'},200,request,env);
+        return json({error:'post_required'},405,request,env);
       }
 
       if (request.method === 'POST') {
