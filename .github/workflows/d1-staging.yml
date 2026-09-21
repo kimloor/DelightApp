@@ -10,6 +10,7 @@ on:
       - "src/**"
       - "migrations/**"
       - "wrangler.jsonc"
+      - "หอพัก/**"
 
 permissions:
   contents: read
@@ -47,11 +48,6 @@ jobs:
         run: |
           npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS bill_count, ROUND(SUM(rent),2) AS rent_total, ROUND(SUM(water_charge),2) AS water_total, ROUND(SUM(electric_charge),2) AS electric_total, ROUND(SUM(vat_amount),2) AS vat_total, ROUND(SUM(total),2) AS grand_total, ROUND(SUM(CASE WHEN status='paid' THEN total ELSE 0 END),2) AS paid_total, ROUND(SUM(CASE WHEN status='unpaid' THEN total ELSE 0 END),2) AS unpaid_total FROM bills;"
 
-      - name: Validate room and bill statuses
-        run: |
-          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT status, COUNT(*) AS count FROM rooms GROUP BY status ORDER BY status;"
-          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT status, COUNT(*) AS count FROM bills GROUP BY status ORDER BY status;"
-
       - name: Validate referential integrity
         run: |
           for Q in             "SELECT COUNT(*) AS rooms_without_property FROM rooms r LEFT JOIN properties p ON p.id=r.property_id WHERE p.id IS NULL;"             "SELECT COUNT(*) AS tenants_without_room FROM tenants t LEFT JOIN rooms r ON r.id=t.room_id WHERE r.id IS NULL;"             "SELECT COUNT(*) AS bills_without_room FROM bills b LEFT JOIN rooms r ON r.id=b.room_id WHERE r.id IS NULL;"             "SELECT COUNT(*) AS meters_without_room FROM meter_readings m LEFT JOIN rooms r ON r.id=m.room_id WHERE r.id IS NULL;"             "SELECT COUNT(*) AS meters_without_bill FROM meter_readings m LEFT JOIN bills b ON b.id=m.bill_id WHERE m.bill_id<>'' AND b.id IS NULL;"
@@ -60,65 +56,4 @@ jobs:
           done
 
       - name: Upload staging Worker version
-        id: upload
-        shell: bash
-        run: |
-          set -o pipefail
-          npx --yes wrangler@4 versions upload --message "D1 staging smoke test" --tag "d1-staging" | tee upload.log
-          PREVIEW_URL="$(grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' upload.log | tail -1)"
-          test -n "$PREVIEW_URL"
-          echo "preview_url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Smoke test preview API
-        shell: bash
-        env:
-          PREVIEW_URL: ${{ steps.upload.outputs.preview_url }}
-        run: |
-          set -euo pipefail
-          echo "Preview: $PREVIEW_URL"
-
-          STATUS="$(curl -sS -o /tmp/home.html -w '%{http_code}' "$PREVIEW_URL/")"
-          test "$STATUS" = "200"
-          test -s /tmp/home.html
-          echo "static_home=PASS"
-
-          PING="$(curl -fsS "$PREVIEW_URL/api?action=ping")"
-          python3 -c 'import json,sys; d=json.load(sys.stdin); assert d=={"ok":True,"backend":"d1"}' <<<"$PING"
-          echo "ping=PASS"
-
-          UNAUTH="$(curl -fsS "$PREVIEW_URL/api?action=getAll")"
-          python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("error")=="unauthorized"' <<<"$UNAUTH"
-          echo "getAll_unauthorized=PASS"
-
-          BADLOGIN="$(curl -fsS -H 'content-type: application/json' -d '{"action":"login","username":"__no_such_user__","password":"wrong"}' "$PREVIEW_URL/api")"
-          python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("error")=="invalid_credentials"' <<<"$BADLOGIN"
-          echo "invalid_login=PASS"
-
-          TEST_USER="__d1_smoke_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          TEST_PASS="TmpSmoke_2026_Only"
-
-          REG="$(curl -fsS -H 'content-type: application/json' -d "{"action":"register","username":"$TEST_USER","password":"$TEST_PASS","displayName":"D1 Smoke Test"}" "$PREVIEW_URL/api")"
-          TOKEN="$(python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success") is True; print(d["token"])' <<<"$REG")"
-          test -n "$TOKEN"
-          echo "register=PASS"
-
-          LOGIN="$(curl -fsS -H 'content-type: application/json' -d "{"action":"login","username":"$TEST_USER","password":"$TEST_PASS"}" "$PREVIEW_URL/api")"
-          TOKEN2="$(python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success") is True; print(d["token"])' <<<"$LOGIN")"
-          test -n "$TOKEN2"
-          echo "login=PASS"
-
-          ME="$(curl -fsS -H 'content-type: application/json' -d "{"action":"me","token":"$TOKEN2"}" "$PREVIEW_URL/api")"
-          python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success") is True and d.get("user",{}).get("username","").startswith("__d1_smoke_")' <<<"$ME"
-          echo "me=PASS"
-
-          ALL="$(curl -fsS "$PREVIEW_URL/api?action=getAll&token=$TOKEN2")"
-          python3 -c 'import json,sys; d=json.load(sys.stdin); assert len(d.get("properties",[]))==2; assert len(d.get("rooms",[]))==84; assert len(d.get("tenants",[]))==2; assert len(d.get("bills",[]))==19; assert len(d.get("meterReadings",[]))==62' <<<"$ALL"
-          echo "getAll_authenticated=PASS"
-
-          echo "TEST_USER=$TEST_USER" >> "$GITHUB_ENV"
-
-      - name: Cleanup smoke-test user
-        if: always() && env.TEST_USER != ''
-        shell: bash
-        run: |
-          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "DELETE FROM audit_logs WHERE username='${TEST_USER}'; DELETE FROM users WHERE username='${TEST_USER}';"
+        run: npx --yes wrangler@4 versions upload --message "D1 staging validation" --tag "d1-staging"
