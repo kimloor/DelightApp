@@ -743,10 +743,6 @@
     </div>
     <div class="topbar-right">
       <div id="syncStatusLine">กำลังตรวจสอบ…</div>
-      <div id="currentUserLabel" style="font-size:12.5px;color:var(--bg);opacity:0.85;white-space:nowrap;"></div>
-      <button class="settings-btn" id="adminUsersBtn" style="display:none;">👥 <span class="label">จัดการผู้ใช้</span></button>
-      <button class="settings-btn" id="changePwBtn" style="display:none;">🔑 <span class="label">เปลี่ยนรหัสผ่าน</span></button>
-      <button class="settings-btn" id="logoutBtn" style="display:none;">⎋ <span class="label">ออกจากระบบ</span></button>
       <button class="settings-btn" id="openSettingsBtn">⚙︎ <span class="label">ตั้งค่า</span></button>
     </div>
   </header>
@@ -926,24 +922,18 @@ const formatThaiDate = (iso) => {
       Claude artifact.
    3. localStorage — instant local cache and offline/fallback storage. */
 
-const LEGACY_SHEET_URL = 'https://script.google.com/macros/s/AKfycbxD9bQkCdI1uVDKxUgrdtMbcJj737oHiHaCbZgY61-ckVIBekgi8vwGnTle6MKwjQDl/exec';
 const DEFAULT_API_URL = (window.location.origin && window.location.origin !== 'null')
   ? window.location.origin + '/api'
-  : LEGACY_SHEET_URL;
+  : '/api';
 
-let sheetUrl = DEFAULT_API_URL;
+// Production backend is fixed to the same-origin Cloudflare Worker + D1 API.
+const sheetUrl = DEFAULT_API_URL;
 try{
-  const saved = localStorage.getItem('dorm:sheetUrl');
-  // ย้ายค่ามาตรฐานเดิมจาก Apps Script ไป D1 อัตโนมัติ แต่คง custom URL/โหมด local-only ไว้
-  if(saved === LEGACY_SHEET_URL){
-    sheetUrl = DEFAULT_API_URL;
-    localStorage.setItem('dorm:sheetUrl', sheetUrl);
-  }else if(saved !== null){
-    sheetUrl = saved; // '' หมายถึงผู้ใช้เลือกเก็บข้อมูลในเครื่องเท่านั้น
-  }
+  // Remove legacy/custom endpoint preference so all production clients stay on D1.
+  localStorage.removeItem('dorm:sheetUrl');
 
   // token เดิมของ Apps Script ใช้กับ Worker ไม่ได้: บังคับ login ใหม่เพียงครั้งเดียวหลัง cutover
-  if(sheetUrl === DEFAULT_API_URL && localStorage.getItem('dorm:d1CutoverV1') !== '1'){
+  if(localStorage.getItem('dorm:d1CutoverV1') !== '1'){
     authToken = null;
     currentUser = null;
     localStorage.removeItem('dorm:authToken');
@@ -951,7 +941,7 @@ try{
     localStorage.setItem('dorm:d1CutoverV1', '1');
   }
 }catch(e){}
-let syncState = sheetUrl ? 'unknown' : 'local'; // 'local' | 'unknown' | 'ok' | 'error'
+let syncState = 'unknown'; // 'unknown' | 'ok' | 'error'
 
 function updateSyncLine(){
   const el = document.getElementById('syncStatusLine');
@@ -1043,14 +1033,6 @@ function showLoginScreen(){
 function showAppScreen(){
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('appRoot').style.display = 'flex';
-  const logoutBtn = document.getElementById('logoutBtn');
-  if(logoutBtn) logoutBtn.style.display = loginRequired() ? '' : 'none';
-  const changePwBtn = document.getElementById('changePwBtn');
-  if(changePwBtn) changePwBtn.style.display = loginRequired() ? '' : 'none';
-  const adminUsersBtn = document.getElementById('adminUsersBtn');
-  if(adminUsersBtn) adminUsersBtn.style.display = (loginRequired() && currentUser && currentUser.isAdmin) ? '' : 'none';
-  const label = document.getElementById('currentUserLabel');
-  if(label) label.textContent = currentUser ? ('👤 ' + (currentUser.displayName || currentUser.username)) : '';
 }
 
 /* ล้างข้อมูลตารางที่แคชไว้ในเครื่อง (localStorage) กันไม่ให้ข้อมูลของบัญชีก่อนหน้าเหลือค้าง
@@ -1408,11 +1390,6 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   }
 });
 
-document.getElementById('logoutBtn').addEventListener('click', ()=>{
-  doLogout();
-  showToast('ออกจากระบบแล้ว');
-});
-
 /* ============ รหัสผ่าน: ลืมรหัส / เปลี่ยนรหัสตัวเอง / แอดมินรีเซ็ตให้ผู้ใช้ (v16) ============ */
 function escapeAuthHtml(v){
   return String(v==null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1487,14 +1464,14 @@ function changePasswordFormHtml(){
   `;
 }
 
-document.getElementById('changePwBtn').addEventListener('click', ()=>{
+function openChangePassword(){
   openModal(changePasswordFormHtml());
   document.getElementById('cpSaveBtn').onclick = onChangePassword;
   ['cp-old','cp-new','cp-confirm'].forEach(id=>{
     document.getElementById(id).addEventListener('keydown', (ev)=>{ if(ev.key === 'Enter') onChangePassword(); });
   });
   document.getElementById('cp-old').focus();
-});
+}
 
 async function onChangePassword(){
   const oldPassword = document.getElementById('cp-old').value;
@@ -1521,8 +1498,6 @@ async function onChangePassword(){
 
 /* --- แอดมิน: จัดการผู้ใช้ / รีเซ็ตรหัสผ่านให้คนอื่น --- */
 let adminUsersCache = [];
-
-document.getElementById('adminUsersBtn').addEventListener('click', openAdminUsers);
 
 async function openAdminUsers(){
   openModal(`
@@ -1875,77 +1850,52 @@ function attachModalEvents(){
   if(saveTaxInvoiceRangeBtn) saveTaxInvoiceRangeBtn.onclick = onSaveTaxInvoiceRange;
   wireMeterLiveCalc();
 
-  const testSheetBtn = document.getElementById('testSheetBtn');
-  if(testSheetBtn) testSheetBtn.onclick = onTestAndSaveSheet;
-  const clearSheetBtn = document.getElementById('clearSheetBtn');
-  if(clearSheetBtn) clearSheetBtn.onclick = onClearSheet;
 }
 function closeModal(){
   document.getElementById('overlay').classList.remove('open');
 }
 document.getElementById('openSettingsBtn').addEventListener('click', ()=>{
   openModal(settingsFormHtml());
+  wireSettingsActions();
 });
 
 function settingsFormHtml(){
+  const userName = currentUser ? (currentUser.displayName || currentUser.username || '') : '';
+  const adminButton = (currentUser && currentUser.isAdmin)
+    ? '<button class="btn ghost" id="settingsAdminUsersBtn">👥 จัดการผู้ใช้</button>'
+    : '';
   return `
-    <h3>ตั้งค่าซิงก์ข้อมูล</h3>
-    <p class="sub" style="font-size:13px;line-height:1.6;margin:0 0 14px;">
-      โดยปกติแอปจะเชื่อมต่อ Cloudflare D1 ผ่าน <span class="mono">/api</span> อัตโนมัติ
-      ใช้ช่องนี้เฉพาะเมื่อต้องการเปลี่ยน API endpoint สำหรับการทดสอบหรือระบบอื่น
-    </p>
-    <div class="field">
-      <label>API URL</label>
-      <input id="f-sheeturl" value="${sheetUrl}" placeholder="https://your-worker.example/api">
+    <h3>ตั้งค่า</h3>
+    <div style="font-size:13px;line-height:1.7;color:var(--ink-soft);margin-bottom:16px;">
+      <div><b style="color:var(--ink);">บัญชี:</b> ${escapeAuthHtml(userName)}</div>
+      <div><b style="color:var(--ink);">ฐานข้อมูล:</b> Cloudflare D1</div>
+      <div><b style="color:var(--ink);">การเชื่อมต่อ:</b> <span style="color:#2f9e44;font-weight:600;">● เชื่อมต่ออัตโนมัติ</span></div>
     </div>
-    <div id="settingsMsg" style="font-size:12.5px;color:var(--ink-soft);min-height:18px;margin-bottom:4px;"></div>
+    <div style="display:grid;gap:8px;">
+      ${adminButton}
+      <button class="btn ghost" id="settingsChangePwBtn">🔑 เปลี่ยนรหัสผ่าน</button>
+      <button class="btn danger" id="settingsLogoutBtn">⎋ ออกจากระบบ</button>
+    </div>
     <div class="modal-actions">
-      ${sheetUrl?`<button class="btn danger" id="clearSheetBtn">ปิดการซิงก์</button>`:''}
-      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
-      <button class="btn" id="testSheetBtn">ทดสอบ &amp; บันทึก</button>
+      <button class="btn ghost" id="cancelBtn">ปิด</button>
     </div>
   `;
 }
 
-async function onTestAndSaveSheet(){
-  const input = document.getElementById('f-sheeturl').value.trim();
-  const msg = document.getElementById('settingsMsg');
-  if(!input){
-    sheetUrl = '';
-    try{ localStorage.setItem('dorm:sheetUrl', ''); }catch(e){}
-    syncState = 'local';
-    closeModal(); updateSyncLine();
-    showToast('ปิดการซิงก์แล้ว ใช้ข้อมูลในเครื่องนี้');
-    return;
-  }
-  msg.textContent = 'กำลังทดสอบการเชื่อมต่อ…';
-  try{
-    const testUrl = new URL(input);
-    testUrl.searchParams.set('action','ping');
-    const res = await fetch(testUrl.toString());
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    await res.json();
-    sheetUrl = input;
-    try{ localStorage.setItem('dorm:sheetUrl', sheetUrl); }catch(e){}
-    syncState = 'ok';
-    updateSyncLine();
-    closeModal();
-    showToast('เชื่อมต่อสำเร็จ กำลังโหลดข้อมูลจาก D1…');
-    await loadData();
-  }catch(e){
-    msg.textContent = 'เชื่อมต่อไม่สำเร็จ ตรวจสอบ API URL และการตั้งค่า Worker อีกครั้ง';
-    msg.style.color = 'var(--rust)';
-  }
-}
-async function onClearSheet(){
-  sheetUrl = '';
-  try{ localStorage.setItem('dorm:sheetUrl', ''); }catch(e){}
-  syncState = 'local';
-  closeModal();
-  updateSyncLine();
-  showToast('ปิดการซิงก์แล้ว กลับไปใช้ข้อมูลในเครื่องนี้');
-}
+function wireSettingsActions(){
+  const adminBtn = document.getElementById('settingsAdminUsersBtn');
+  if(adminBtn) adminBtn.onclick = openAdminUsers;
 
+  const changeBtn = document.getElementById('settingsChangePwBtn');
+  if(changeBtn) changeBtn.onclick = openChangePassword;
+
+  const logoutBtn = document.getElementById('settingsLogoutBtn');
+  if(logoutBtn) logoutBtn.onclick = ()=>{
+    closeModal();
+    doLogout();
+    showToast('ออกจากระบบแล้ว');
+  };
+}
 /* ตั้งใจไม่ปิด modal เมื่อคลิกพื้นหลังนอกกล่อง (overlay) แล้ว — เพื่อกันข้อมูลที่กำลังกรอก/แก้ไข
    หายไปโดยไม่ตั้งใจจากการคลิกพลาดออกนอกฟอร์ม ผู้ใช้ต้องกดปุ่ม "ยกเลิก"/กากบาท หรือกดบันทึก
    เพื่อปิดหน้าต่างเท่านั้น */
