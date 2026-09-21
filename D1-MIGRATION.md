@@ -242,7 +242,29 @@ A final repeat audit is still required immediately before production cutover.
 
 ### Phase 1 — D1 schema preparation
 
-Status: **schema file prepared; D1 database not yet provisioned from this chat**
+Status: **repository implementation prepared on `feat/d1-backend`; Cloudflare provisioning pending**
+
+Prepared on the feature branch:
+
+- `migrations/0001_initial_d1.sql`
+- `src/d1-api.js` — API-only compatibility Worker
+- `wrangler.d1.jsonc` — isolated D1 Worker config; does not replace the production static-app config
+- `.dev.vars.example` — secret names only, no real secrets
+
+Current external blocker:
+
+This chat has GitHub and Google Drive access but no authenticated Cloudflare control-plane connector. Therefore it cannot create the account-level D1 database or obtain its real `database_id` directly. No Cloudflare plugin is currently available through the connected Plugin Directory.
+
+Required Cloudflare-side actions:
+
+1. create D1 database `delightapp-db` in APAC
+2. copy the generated D1 database ID into `wrangler.d1.jsonc`
+3. set Worker secret `AUTH_SECRET`
+4. set `BOT_API_KEY` if the Messenger/public availability integration is kept
+5. apply migrations remotely
+6. deploy the API-only Worker for staging
+
+Production `wrangler.jsonc` and the existing frontend remain unchanged.
 
 Repository artifact:
 
