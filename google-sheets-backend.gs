@@ -21,10 +21,18 @@
  *       "VAT ใน" (ราคาที่ตั้งรวมภาษีอยู่แล้ว แยกออกมาให้). คำนวณแยกทีละช่องแล้วรวมยอด VAT เข้าด้วยกัน
  *       เก็บผลคำนวณ (ยอดก่อนภาษี/VAT) ไว้ที่ตัวบิลตอนออกบิลเลย ไม่คำนวณสดใหม่ทุกครั้งที่เปิดดู กัน
  *       ปัญหาบิลเก่าเพี้ยนถ้าอัตรา VAT ถูกแก้ไขภายหลัง. เพิ่มเลขที่ใบกำกับภาษีแยกชุดจากเลขที่บิลปกติ
+ *  v16: เพิ่มคอลัมน์ "role" ท้ายชีต "ผู้ใช้งาน" (ต่อท้าย ไม่กระทบคอลัมน์เดิม) — พิมพ์ admin ในช่องนี้ด้วยมือ
+ *       ให้บัญชีที่เป็นแอดมิน ช่องว่าง = ผู้ใช้ทั่วไป (บัญชีที่สมัครเองจะเป็นช่องว่างเสมอ ไม่รับค่า role
+ *       จาก client). เพิ่ม requireAdmin_(token) สำหรับใช้เช็คสิทธิ์แอดมินฝั่ง backend (อ่าน role สดจากชีต
+ *       ทุกครั้ง ไม่ฝังใน token เพื่อให้ถอนสิทธิ์ได้ทันที) และ RUN_resetPassword() สำหรับรีเซ็ตรหัสผ่าน
+ *       ให้ผู้ใช้ที่ลืมรหัสผ่านผ่าน Apps Script editor
+ *       และเพิ่ม action ใน doPost (ต้องแนบ token): me, changePassword (เปลี่ยนรหัสตัวเอง ต้องใส่รหัสเดิม),
+ *       adminListUsers และ adminResetPassword (เฉพาะ role=admin) — หน้าจอ "เปลี่ยนรหัสผ่าน"/"จัดการผู้ใช้"
+ *       อยู่ใน index.html; login/register ส่ง isAdmin กลับไปด้วยเพื่อโชว์เมนูแอดมิน
  * ------------------------------------------------------------
  * โครงสร้าง (9 ชีต):
  *
- *   ผู้ใช้งาน   : รหัส | username | รหัสผ่าน(hash) | salt | ชื่อที่แสดง | วันที่สมัคร   ← ใหม่ใน v11
+ *   ผู้ใช้งาน   : รหัส | username | รหัสผ่าน(hash) | salt | ชื่อที่แสดง | วันที่สมัคร | role   ← ใหม่ใน v11 (role ใหม่ใน v16)
  *   อพาร์ทเมนท์ : รหัส | ชื่ออพาร์ทเมนท์ | อัตราค่าน้ำ | อัตราค่าไฟ | ที่อยู่ | หมายเหตุท้ายบิล | QR | รหัสเจ้าของ
  *                                                                                    (คอลัมน์ "รหัสเจ้าของ" ใหม่ใน v11)
  *   ห้องพัก     : รหัส | รหัสอพาร์ทเมนท์ | เลขห้อง | ชั้น | ค่าเช่า | สถานะ
@@ -60,12 +68,13 @@
  *    ขั้นตอนนี้จะ "โอน" อพาร์ทเมนท์เดิมทั้งหมดที่ยังไม่มีเจ้าของ ให้เป็นของบัญชีคุณ ไม่งั้นข้อมูลเดิม
  *    จะไม่โผล่ให้ใครเห็นเลยหลังอัปเดต (รันซ้ำได้ปลอดภัย จะข้ามอพาร์ทเมนท์ที่มีเจ้าของแล้ว)
  * 4) สร้างบัญชีเพิ่มให้คนอื่น (ถ้ามี) ด้วย ADMIN_createUser อีกครั้ง คนละ username
- * 5) ยังไม่มีหน้า "ลืมรหัสผ่าน"/สมัครเอง ใน v1 นี้ — ถ้าใครลืมรหัส ให้รัน ADMIN_createUser ซ้ำไม่ได้
- *    (username ซ้ำจะ error) ต้องลบแถวเดิมในชีต "ผู้ใช้งาน" ก่อน แล้วค่อยสร้างใหม่
+ * 5) ถ้าใครลืมรหัสผ่าน (v16): แอดมินรีเซ็ตให้ได้จากเมนู "จัดการผู้ใช้" ในแอป (หรือสำรอง: แก้ค่า
+ *    username/รหัสผ่านใหม่ในฟังก์ชัน RUN_resetPassword ใน editor แล้วกด Run — เสร็จแล้วลบรหัสผ่านออกจากโค้ด)
+ * 6) ตั้งแอดมิน (v16): เปิดชีต "ผู้ใช้งาน" พิมพ์ admin ในคอลัมน์ role (คอลัมน์ G) ของบัญชีนั้น
  */
 
 var SHEETS = {
-  users: { name: 'ผู้ใช้งาน', headers: ['รหัส','username','รหัสผ่าน(hash)','salt','ชื่อที่แสดง','วันที่สมัคร'] },
+  users: { name: 'ผู้ใช้งาน', headers: ['รหัส','username','รหัสผ่าน(hash)','salt','ชื่อที่แสดง','วันที่สมัคร','role'] },
   properties: { name: 'อพาร์ทเมนท์', headers: [
                   'รหัส','ชื่ออพาร์ทเมนท์','อัตราค่าน้ำ(บาท/หน่วย)','อัตราค่าไฟ(บาท/หน่วย)','ที่อยู่',
                   'หมายเหตุท้ายบิล','QR ชำระเงิน (base64)','รหัสเจ้าของ',
@@ -410,21 +419,69 @@ function hashPassword_(password, salt) {
 
 /* หาแถวผู้ใช้จาก username — ไม่ผ่าน CONVERTERS/readTable_ ทั่วไป เพราะ users ไม่ใช่ตารางที่
    ถูก sync แบบ getAll/save เหมือนตารางอื่น (กัน password hash หลุดไปฝั่ง client) */
+function userRowToObj_(values, rowIndex) {
+  return {
+    id: String(values[0]), username: String(values[1]),
+    passwordHash: String(values[2]), salt: String(values[3]),
+    displayName: String(values[4] || ''), createdAt: String(values[5] || ''),
+    role: String(values[6] || '').trim().toLowerCase(),
+    row: rowIndex // เลขแถวในชีต (ใช้ตอนแก้ไขแถวนี้)
+  };
+}
+
 function findUserByUsername_(username) {
   var sheet = getOrCreateSheet_('users');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return null;
   var values = sheet.getRange(2, 1, lastRow - 1, SHEETS.users.headers.length).getValues();
   for (var i = 0; i < values.length; i++) {
-    if (String(values[i][1]) === username) {
-      return {
-        id: String(values[i][0]), username: String(values[i][1]),
-        passwordHash: String(values[i][2]), salt: String(values[i][3]),
-        displayName: String(values[i][4] || ''), createdAt: String(values[i][5] || '')
-      };
-    }
+    if (String(values[i][1]) === username) return userRowToObj_(values[i], i + 2);
   }
   return null;
+}
+
+function findUserById_(uid) {
+  var sheet = getOrCreateSheet_('users');
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  var values = sheet.getRange(2, 1, lastRow - 1, SHEETS.users.headers.length).getValues();
+  for (var i = 0; i < values.length; i++) {
+    if (String(values[i][0]) === String(uid)) return userRowToObj_(values[i], i + 2);
+  }
+  return null;
+}
+
+/* เช็คว่า token นี้เป็นของแอดมินหรือไม่ — อ่าน role สดจากชีตทุกครั้ง (ไม่ฝังใน token) เพื่อให้ถอนสิทธิ์
+   ได้ทันทีโดยแก้ชีต. ใช้ต้น action ที่เป็นของแอดมินเท่านั้น; ไม่ผ่านจะ throw 'unauthorized' (token
+   ไม่ถูกต้อง/หมดอายุ) หรือ 'forbidden' (ล็อกอินได้แต่ไม่ใช่แอดมิน) — คืนค่า user ถ้าผ่าน */
+function requireAdmin_(token) {
+  var auth = verifyToken_(token);
+  if (!auth) throw new Error('unauthorized');
+  var user = findUserById_(auth.uid);
+  if (!user || user.role !== 'admin') throw new Error('forbidden');
+  return user;
+}
+
+/* ข้อมูลผู้ใช้ที่ส่งกลับให้ client ได้ (ไม่มี hash/salt/role ดิบ) — isAdmin ใช้แค่ตัดสินใจว่าจะ "แสดงเมนู"
+   แอดมินหรือไม่; สิทธิ์จริงเช็คที่ backend ผ่าน requireAdmin_ ทุกครั้งอยู่แล้ว */
+function publicUser_(u) {
+  return { id: u.id, username: u.username, displayName: u.displayName, isAdmin: u.role === 'admin' };
+}
+
+/* รายชื่อผู้ใช้ทั้งหมด (สำหรับหน้าแอดมิน) — ไม่ส่ง hash/salt ออกไปเด็ดขาด */
+function listUsers_() {
+  var sheet = getOrCreateSheet_('users');
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var values = sheet.getRange(2, 1, lastRow - 1, SHEETS.users.headers.length).getValues();
+  var out = [];
+  for (var i = 0; i < values.length; i++) {
+    if (values[i].join('') === '') continue;
+    var u = publicUser_(userRowToObj_(values[i], i + 2));
+    u.createdAt = String(values[i][5] || '');
+    out.push(u);
+  }
+  return out;
 }
 
 /* ชุดอพาร์ทเมนท์/ห้องที่เป็นของ user นี้ ณ ตอนนี้ (ใช้ทั้งกรองตอนอ่าน และกันเขตตอนเขียน) */
@@ -543,7 +600,7 @@ function doPost(e) {
       return jsonOutput_({
         success: true,
         token: createToken_(user),
-        user: { id: user.id, username: user.username, displayName: user.displayName }
+        user: publicUser_(user)
       });
     }
 
@@ -560,7 +617,7 @@ function doPost(e) {
         return jsonOutput_({
           success: true,
           token: createToken_(newUser),
-          user: { id: newUser.id, username: newUser.username, displayName: newUser.displayName }
+          user: publicUser_(newUser)
         });
       } catch (regErr) {
         return jsonOutput_({ error: String(regErr.message || regErr) });
@@ -596,6 +653,57 @@ function doPost(e) {
     var auth = verifyToken_(body.token);
     if (!auth) return jsonOutput_({ error: 'unauthorized' });
     var uid = auth.uid;
+
+    /* ============================================================
+     * v16: จัดการรหัสผ่าน / สิทธิ์แอดมิน — ทุก action ต้องแนบ token (ผ่านด่านด้านบนมาแล้ว)
+     * error ส่งกลับเป็นข้อความสั้นๆ (เช่น 'forbidden') เพื่อให้ฝั่ง client แยกแยะได้ตรงๆ
+     * ไม่บันทึกรหัสผ่านลงชีต "ล็อก" เด็ดขาด (บันทึกแค่ว่าใครทำอะไรกับบัญชีไหน)
+     * ============================================================ */
+    if (body.action === 'me') {
+      var meUser = findUserById_(uid);
+      if (!meUser) return jsonOutput_({ error: 'unauthorized' });
+      return jsonOutput_({ success: true, user: publicUser_(meUser) });
+    }
+
+    /* เปลี่ยนรหัสผ่านของตัวเอง — ต้องยืนยันรหัสเดิมก่อน */
+    if (body.action === 'changePassword') {
+      try {
+        var cpUser = findUserById_(uid);
+        if (!cpUser) return jsonOutput_({ error: 'unauthorized' });
+        if (hashPassword_(String(body.oldPassword || ''), cpUser.salt) !== cpUser.passwordHash) {
+          return jsonOutput_({ error: 'wrong_old_password' });
+        }
+        ADMIN_resetPassword(cpUser.username, body.newPassword); // ตรวจความยาวรหัสใหม่ในนี้
+        appendLog_(uid, auth.u, 'changePassword', 'users', [uid], 1, '');
+        return jsonOutput_({ success: true });
+      } catch (cpErr) {
+        return jsonOutput_({ error: String(cpErr.message || cpErr) });
+      }
+    }
+
+    /* แอดมิน: ดูรายชื่อผู้ใช้ */
+    if (body.action === 'adminListUsers') {
+      try {
+        requireAdmin_(body.token);
+        return jsonOutput_({ success: true, users: listUsers_() });
+      } catch (luErr) {
+        return jsonOutput_({ error: String(luErr.message || luErr) });
+      }
+    }
+
+    /* แอดมิน: ตั้งรหัสผ่านใหม่ให้ผู้ใช้คนอื่น (ระบุด้วย userId) */
+    if (body.action === 'adminResetPassword') {
+      try {
+        requireAdmin_(body.token);
+        var targetUser = findUserById_(String(body.userId || ''));
+        if (!targetUser) return jsonOutput_({ error: 'ไม่พบผู้ใช้นี้' });
+        ADMIN_resetPassword(targetUser.username, body.newPassword);
+        appendLog_(uid, auth.u, 'adminResetPassword', 'users', [targetUser.id], 1, 'บัญชี ' + targetUser.username);
+        return jsonOutput_({ success: true });
+      } catch (arErr) {
+        return jsonOutput_({ error: String(arErr.message || arErr) });
+      }
+    }
 
     var table = body.table;
     if (!SHEETS[table] || table === 'users' || table === 'logs') throw new Error('unknown table: ' + table);
@@ -769,7 +877,7 @@ function ADMIN_createUser(username, password, displayName) {
   var hash = hashPassword_(String(password), salt);
   var createdAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
 
-  sheet.appendRow([newId, username, hash, salt, displayName || username, createdAt]);
+  sheet.appendRow([newId, username, hash, salt, displayName || username, createdAt, '']); // role ว่างเสมอ = ผู้ใช้ทั่วไป
   Logger.log('สร้างบัญชีสำเร็จ — userId = ' + newId + ', username = ' + username);
   return newId;
 }
@@ -798,6 +906,39 @@ function RUN_createUser() {
   var newId = ADMIN_createUser('เจ้าของหอ', 'เปลี่ยนรหัสผ่านนี้ก่อนใช้จริง', 'เจ้าของหอ');
   // ถ้าอยากให้อพาร์ทเมนท์เดิมทั้งหมดเป็นของบัญชีนี้เลยในรอบเดียว ลบเครื่องหมาย // หน้าบรรทัดล่างออก:
   // ADMIN_assignAllPropertiesToUser(newId);
+}
+
+/* รีเซ็ตรหัสผ่านของผู้ใช้ที่มีอยู่แล้ว — สร้าง salt ใหม่ + hash ใหม่ เขียนทับเฉพาะคอลัมน์ hash/salt
+   ของแถวนั้น (ไม่แตะ id/ชื่อ/role/ข้อมูลอื่น จึงไม่กระทบข้อมูลของบัญชี).
+   หมายเหตุ: token ที่ออกไปแล้วเป็นแบบ stateless จึงยังใช้ได้จนหมดอายุ (30 วัน) แม้เปลี่ยนรหัสแล้ว */
+function ADMIN_resetPassword(username, newPassword) {
+  username = String(username || '').trim();
+  if (!username) throw new Error('username ห้ามว่าง');
+  if (!newPassword || String(newPassword).length < 4) throw new Error('รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)');
+  var user = findUserByUsername_(username);
+  if (!user) throw new Error('ไม่พบ username นี้: ' + username);
+
+  var sheet = getOrCreateSheet_('users');
+  var salt = Utilities.getUuid();
+  var hash = hashPassword_(String(newPassword), salt);
+  sheet.getRange(user.row, 3, 1, 2).setValues([[hash, salt]]); // คอลัมน์ 3-4 = hash, salt
+  Logger.log('รีเซ็ตรหัสผ่านสำเร็จ — userId = ' + user.id + ', username = ' + username);
+  return user.id;
+}
+
+/* ---- แก้ username / รหัสผ่านใหม่ด้านล่างนี้ แล้วเลือกรันฟังก์ชัน RUN_resetPassword จาก Apps Script
+   editor ครั้งเดียว — รันเสร็จให้ลบรหัสผ่านที่พิมพ์ไว้ออกจากโค้ดทันที ---- */
+function RUN_resetPassword() {
+  var username = 'ใส่ username ที่ลืมรหัส';
+  var newPassword = 'ใส่รหัสผ่านใหม่';
+  var lock = LockService.getScriptLock(); // กันชนกับ request จากหน้าเว็บที่กำลังเขียนชีตอยู่
+  lock.waitLock(10000);
+  try {
+    var userId = ADMIN_resetPassword(username, newPassword);
+    appendLog_(userId, username, 'resetPassword', 'users', [userId], 1, 'รีเซ็ตผ่าน editor'); // ไม่บันทึกรหัสผ่านลง log
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* ============================================================

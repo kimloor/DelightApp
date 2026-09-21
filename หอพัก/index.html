@@ -642,6 +642,20 @@
     #billsTable td.actions-cell{display:flex;gap:8px;padding-top:8px;flex-wrap:wrap;}
     #billsTable td.actions-cell button{flex:1;}
   }
+  /* ---------- เปลี่ยนรหัสผ่าน / จัดการผู้ใช้ (v16) ---------- */
+  .login-card .login-forgot{
+    font-size:12.5px;line-height:1.6;background:var(--bg);border:1px solid var(--line);
+    border-radius:8px;padding:10px 12px;margin:0 0 12px;color:var(--ink);
+  }
+  .user-list{display:flex;flex-direction:column;gap:8px;max-height:52vh;overflow:auto;margin:6px 0 4px;}
+  .user-row{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);
+  }
+  .user-row .user-sub{font-size:12px;color:var(--ink-soft);}
+  .user-row .badge-admin{
+    margin-left:8px;font-size:11px;padding:1px 7px;border-radius:999px;background:var(--teal);color:#fff;
+  }
 </style>
 </head>
 <body>
@@ -674,7 +688,12 @@
         <input id="loginPassword" type="password" autocomplete="current-password" required>
       </div>
       <div class="login-msg" id="loginMsg"></div>
+      <div class="login-forgot" id="forgotBox" style="display:none;">
+        ลืมรหัสผ่าน? กรุณาติดต่อผู้ดูแลระบบเพื่อขอรีเซ็ตรหัสผ่านใหม่
+        <span id="forgotContact"></span>
+      </div>
       <button type="submit" class="btn login-submit" id="loginSubmitBtn">เข้าสู่ระบบ</button>
+      <p class="login-switch" style="margin-top:10px;"><a href="#" id="showForgotLink">ลืมรหัสผ่าน?</a></p>
       <p class="login-switch">ยังไม่มีบัญชี? <a href="#" id="showRegisterLink">สมัครสมาชิก</a></p>
     </form>
 
@@ -725,6 +744,8 @@
     <div class="topbar-right">
       <div id="syncStatusLine">กำลังตรวจสอบ…</div>
       <div id="currentUserLabel" style="font-size:12.5px;color:var(--bg);opacity:0.85;white-space:nowrap;"></div>
+      <button class="settings-btn" id="adminUsersBtn" style="display:none;">👥 <span class="label">จัดการผู้ใช้</span></button>
+      <button class="settings-btn" id="changePwBtn" style="display:none;">🔑 <span class="label">เปลี่ยนรหัสผ่าน</span></button>
       <button class="settings-btn" id="logoutBtn" style="display:none;">⎋ <span class="label">ออกจากระบบ</span></button>
       <button class="settings-btn" id="openSettingsBtn">⚙︎ <span class="label">ตั้งค่า</span></button>
     </div>
@@ -802,6 +823,9 @@ try{
   const savedUser = localStorage.getItem('dorm:currentUser');
   currentUser = savedUser ? JSON.parse(savedUser) : null;
 }catch(e){}
+/* ช่องทางติดต่อผู้ดูแลระบบ — แสดงใต้ข้อความ "ลืมรหัสผ่าน?" ในหน้า login
+   (ใส่เองได้ เช่น 'LINE: @xxxx หรือโทร 08x-xxx-xxxx' ปล่อยว่างไว้ก็ได้ จะแสดงแค่ข้อความให้ติดต่อผู้ดูแล) */
+const ADMIN_CONTACT = '';
 
 const THB = n => Number(n||0).toLocaleString('th-TH', {maximumFractionDigits:0});
 
@@ -981,6 +1005,19 @@ async function remoteRegister(username, password, displayName){
   return data; // { success, token, user }
 }
 
+/* เรียก action ที่ต้องแนบ token (me / changePassword / adminListUsers / adminResetPassword) */
+async function remoteAuthPost(payload){
+  const res = await fetch(sheetUrl, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(Object.assign({token: authToken}, payload))
+  });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data = await res.json();
+  if(data && data.error) throw new Error(data.error);
+  return data;
+}
+
 /* ต้องล็อกอินก็ต่อเมื่อมีการซิงก์กับ Google Sheets ส่วนกลางอยู่ (มี sheetUrl) —
    ถ้าผู้ใช้เลือกปิดการซิงก์ (เก็บข้อมูลในเครื่องคนเดียว) จะไม่มีระบบบัญชีให้ล็อกอินอยู่แล้ว */
 function loginRequired(){ return !!sheetUrl; }
@@ -996,6 +1033,10 @@ function showAppScreen(){
   document.getElementById('appRoot').style.display = 'flex';
   const logoutBtn = document.getElementById('logoutBtn');
   if(logoutBtn) logoutBtn.style.display = loginRequired() ? '' : 'none';
+  const changePwBtn = document.getElementById('changePwBtn');
+  if(changePwBtn) changePwBtn.style.display = loginRequired() ? '' : 'none';
+  const adminUsersBtn = document.getElementById('adminUsersBtn');
+  if(adminUsersBtn) adminUsersBtn.style.display = (loginRequired() && currentUser && currentUser.isAdmin) ? '' : 'none';
   const label = document.getElementById('currentUserLabel');
   if(label) label.textContent = currentUser ? ('👤 ' + (currentUser.displayName || currentUser.username)) : '';
 }
@@ -1359,6 +1400,201 @@ document.getElementById('logoutBtn').addEventListener('click', ()=>{
   doLogout();
   showToast('ออกจากระบบแล้ว');
 });
+
+/* ============ รหัสผ่าน: ลืมรหัส / เปลี่ยนรหัสตัวเอง / แอดมินรีเซ็ตให้ผู้ใช้ (v16) ============ */
+function escapeAuthHtml(v){
+  return String(v==null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* แปลง error จาก backend/เครือข่าย เป็นข้อความที่ผู้ใช้อ่านเข้าใจ */
+function pwErrorText(e){
+  const m = String((e && e.message) || e || '');
+  if(m === 'wrong_old_password') return 'รหัสผ่านเดิมไม่ถูกต้อง';
+  if(m === 'forbidden') return 'ไม่มีสิทธิ์ทำรายการนี้ (ต้องเป็นแอดมิน)';
+  if(/^(HTTP |Failed to fetch|NetworkError|Load failed)/i.test(m) || !m) return 'ทำรายการไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่';
+  return m; // ข้อความภาษาไทยจาก backend เช่น "รหัสผ่านสั้นเกินไป..."
+}
+
+/* token ใช้ไม่ได้แล้ว (หมดอายุ) — เด้งกลับหน้า login เหมือนที่อื่นในแอป; คืน true ถ้าจัดการให้แล้ว */
+function handleUnauthorized(e){
+  if(String((e && e.message) || '') === 'unauthorized'){
+    closeModal();
+    doLogout();
+    return true;
+  }
+  return false;
+}
+
+/* หน้า login: "ลืมรหัสผ่าน?" — แสดงข้อความให้ติดต่อผู้ดูแลระบบ */
+document.getElementById('forgotContact').textContent = ADMIN_CONTACT ? ('ช่องทางติดต่อ: ' + ADMIN_CONTACT) : '';
+document.getElementById('showForgotLink').addEventListener('click', (e)=>{
+  e.preventDefault();
+  const box = document.getElementById('forgotBox');
+  box.style.display = (box.style.display === 'none') ? 'block' : 'none';
+});
+
+/* ให้ backend ยืนยันข้อมูลผู้ใช้ปัจจุบัน (รวมสิทธิ์แอดมิน) — เผื่อเซสชันเก่าที่ล็อกอินค้างไว้ก่อนมีฟีเจอร์นี้
+   หรือถูกเปลี่ยนสิทธิ์ทีหลัง; ล้มเหลวเพราะเน็ต = ใช้ค่าที่จำไว้ต่อ ไม่รบกวนผู้ใช้ */
+async function refreshCurrentUser(){
+  if(!loginRequired() || !authToken) return;
+  const tokenAtStart = authToken;
+  try{
+    const data = await remoteAuthPost({action:'me'});
+    if(authToken !== tokenAtStart) return; // ระหว่างรอมีการ logout/สลับบัญชีไปแล้ว
+    if(data && data.user){
+      currentUser = data.user;
+      try{ localStorage.setItem('dorm:currentUser', JSON.stringify(currentUser)); }catch(err){}
+      showAppScreen();
+    }
+  }catch(e){
+    if(authToken === tokenAtStart && String(e.message) === 'unauthorized') doLogout();
+  }
+}
+
+/* --- เปลี่ยนรหัสผ่านของตัวเอง --- */
+function changePasswordFormHtml(){
+  return `
+    <h3>เปลี่ยนรหัสผ่าน</h3>
+    <div class="field">
+      <label>รหัสผ่านเดิม</label>
+      <input id="cp-old" type="password" autocomplete="current-password">
+    </div>
+    <div class="field">
+      <label>รหัสผ่านใหม่ (อย่างน้อย 4 ตัวอักษร)</label>
+      <input id="cp-new" type="password" autocomplete="new-password">
+    </div>
+    <div class="field">
+      <label>ยืนยันรหัสผ่านใหม่</label>
+      <input id="cp-confirm" type="password" autocomplete="new-password">
+    </div>
+    <div id="cpMsg" style="font-size:12.5px;color:var(--rust);min-height:18px;margin-bottom:4px;"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+      <button class="btn" id="cpSaveBtn">เปลี่ยนรหัสผ่าน</button>
+    </div>
+  `;
+}
+
+document.getElementById('changePwBtn').addEventListener('click', ()=>{
+  openModal(changePasswordFormHtml());
+  document.getElementById('cpSaveBtn').onclick = onChangePassword;
+  ['cp-old','cp-new','cp-confirm'].forEach(id=>{
+    document.getElementById(id).addEventListener('keydown', (ev)=>{ if(ev.key === 'Enter') onChangePassword(); });
+  });
+  document.getElementById('cp-old').focus();
+});
+
+async function onChangePassword(){
+  const oldPassword = document.getElementById('cp-old').value;
+  const newPassword = document.getElementById('cp-new').value;
+  const confirmPassword = document.getElementById('cp-confirm').value;
+  const msg = document.getElementById('cpMsg');
+  const btn = document.getElementById('cpSaveBtn');
+  msg.textContent = '';
+  if(!oldPassword){ msg.textContent = 'กรอกรหัสผ่านเดิม'; return; }
+  if(newPassword.length < 4){ msg.textContent = 'รหัสผ่านใหม่สั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
+  if(newPassword !== confirmPassword){ msg.textContent = 'รหัสผ่านใหม่ที่ยืนยันไม่ตรงกัน'; return; }
+  if(newPassword === oldPassword){ msg.textContent = 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสเดิม'; return; }
+  btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
+  try{
+    await remoteAuthPost({action:'changePassword', oldPassword, newPassword});
+    closeModal();
+    showToast('เปลี่ยนรหัสผ่านเรียบร้อยแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    msg.textContent = pwErrorText(e);
+    btn.disabled = false; btn.textContent = 'เปลี่ยนรหัสผ่าน';
+  }
+}
+
+/* --- แอดมิน: จัดการผู้ใช้ / รีเซ็ตรหัสผ่านให้คนอื่น --- */
+let adminUsersCache = [];
+
+document.getElementById('adminUsersBtn').addEventListener('click', openAdminUsers);
+
+async function openAdminUsers(){
+  openModal(`
+    <h3>จัดการผู้ใช้</h3>
+    <div id="auBody" style="font-size:13px;color:var(--ink-soft);">กำลังโหลด…</div>
+    <div class="modal-actions"><button class="btn ghost" id="cancelBtn">ปิด</button></div>
+  `);
+  try{
+    const data = await remoteAuthPost({action:'adminListUsers'});
+    adminUsersCache = data.users || [];
+    renderAdminUsers();
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    const body = document.getElementById('auBody');
+    if(body){ body.style.color = 'var(--rust)'; body.textContent = pwErrorText(e); }
+  }
+}
+
+function renderAdminUsers(){
+  const body = document.getElementById('auBody');
+  if(!body) return;
+  body.style.color = '';
+  if(!adminUsersCache.length){ body.textContent = 'ยังไม่มีผู้ใช้ในระบบ'; return; }
+  body.innerHTML = '<div class="user-list">' + adminUsersCache.map(u => `
+    <div class="user-row">
+      <div>
+        <b>${escapeAuthHtml(u.displayName || u.username)}</b>${u.isAdmin ? '<span class="badge-admin">แอดมิน</span>' : ''}
+        <div class="user-sub">${escapeAuthHtml(u.username)}</div>
+      </div>
+      <button class="btn ghost" data-reset-uid="${escapeAuthHtml(u.id)}">รีเซ็ตรหัส</button>
+    </div>`).join('') + '</div>';
+  body.querySelectorAll('[data-reset-uid]').forEach(b=>{
+    b.onclick = ()=> showAdminResetForm(b.dataset.resetUid);
+  });
+}
+
+function showAdminResetForm(userId){
+  const u = adminUsersCache.find(x => String(x.id) === String(userId));
+  const body = document.getElementById('auBody');
+  if(!u || !body) return;
+  body.style.color = '';
+  body.innerHTML = `
+    <p style="margin:0 0 12px;font-size:13.5px;color:var(--ink);">ตั้งรหัสผ่านใหม่ให้
+      <b>${escapeAuthHtml(u.displayName || u.username)}</b> (${escapeAuthHtml(u.username)})</p>
+    <div class="field">
+      <label>รหัสผ่านใหม่ (อย่างน้อย 4 ตัวอักษร)</label>
+      <input id="ar-new" type="password" autocomplete="new-password">
+    </div>
+    <div class="field">
+      <label>ยืนยันรหัสผ่านใหม่</label>
+      <input id="ar-confirm" type="password" autocomplete="new-password">
+    </div>
+    <div id="arMsg" style="font-size:12.5px;color:var(--rust);min-height:18px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn ghost" id="arBackBtn">กลับ</button>
+      <button class="btn" id="arSaveBtn">ตั้งรหัสผ่านใหม่</button>
+    </div>`;
+  document.getElementById('arBackBtn').onclick = renderAdminUsers;
+  document.getElementById('arSaveBtn').onclick = ()=> onAdminResetPassword(u);
+  ['ar-new','ar-confirm'].forEach(id=>{
+    document.getElementById(id).addEventListener('keydown', (ev)=>{ if(ev.key === 'Enter') onAdminResetPassword(u); });
+  });
+  document.getElementById('ar-new').focus();
+}
+
+async function onAdminResetPassword(u){
+  const newPassword = document.getElementById('ar-new').value;
+  const confirmPassword = document.getElementById('ar-confirm').value;
+  const msg = document.getElementById('arMsg');
+  const btn = document.getElementById('arSaveBtn');
+  msg.textContent = '';
+  if(newPassword.length < 4){ msg.textContent = 'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
+  if(newPassword !== confirmPassword){ msg.textContent = 'รหัสผ่านที่ยืนยันไม่ตรงกัน'; return; }
+  btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
+  try{
+    await remoteAuthPost({action:'adminResetPassword', userId: u.id, newPassword});
+    showToast('ตั้งรหัสผ่านใหม่ให้ ' + (u.displayName || u.username) + ' แล้ว — แจ้งรหัสใหม่ให้เจ้าของบัญชีด้วย');
+    renderAdminUsers();
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    msg.textContent = pwErrorText(e);
+    btn.disabled = false; btn.textContent = 'ตั้งรหัสผ่านใหม่';
+  }
+}
 
 document.getElementById('showRegisterLink').addEventListener('click', (e)=>{
   e.preventDefault();
@@ -4434,6 +4670,7 @@ async function initApp(){
   }
   showAppScreen();
   await loadData();
+  refreshCurrentUser(); // ไม่ต้องรอ — แค่ยืนยันสิทธิ์แอดมินของเซสชันที่ล็อกอินค้างไว้
 }
 
 /* Register service worker for offline use when hosted over http(s).
