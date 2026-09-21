@@ -694,7 +694,7 @@
       </div>
       <button type="submit" class="btn login-submit" id="loginSubmitBtn">เข้าสู่ระบบ</button>
       <p class="login-switch" style="margin-top:10px;"><a href="#" id="showForgotLink">ลืมรหัสผ่าน?</a></p>
-      <p class="login-switch">ยังไม่มีบัญชี? <a href="#" id="showRegisterLink">สมัครสมาชิก</a></p>
+      <p class="login-switch" style="opacity:.72;">การสร้างบัญชีใหม่ดำเนินการโดยผู้ดูแลระบบ</p>
     </form>
 
     <form id="registerForm" style="display:none;">
@@ -958,11 +958,11 @@ function updateSyncLine(){
 }
 
 async function remoteGetAll(){
-  const url = new URL(sheetUrl);
-  url.searchParams.set('action','getAll');
-  url.searchParams.set('_', Date.now());
-  if(authToken) url.searchParams.set('token', authToken);
-  const res = await fetch(url.toString());
+  const res = await fetch(sheetUrl, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({action:'getAll', token:authToken})
+  });
   if(!res.ok) throw new Error('HTTP '+res.status);
   const data = await res.json();
   if(data && data.error) throw new Error(data.error); // 'unauthorized' คือ token ไม่ผ่าน/หมดอายุ
@@ -1583,7 +1583,8 @@ async function onAdminResetPassword(u){
   }
 }
 
-document.getElementById('showRegisterLink').addEventListener('click', (e)=>{
+const showRegisterLink = document.getElementById('showRegisterLink');
+if(showRegisterLink) showRegisterLink.addEventListener('click', (e)=>{
   e.preventDefault();
   document.getElementById('loginForm').style.display = 'none';
   document.getElementById('registerForm').style.display = 'block';
