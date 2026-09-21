@@ -1,0 +1,63 @@
+name: D1 API Smoke Final
+
+on:
+  push:
+    branches:
+      - feat/d1-backend
+    paths:
+      - ".github/workflows/d1-api-smoke-final.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PREVIEW_URL: https://3f6f1279-delightapp.ekqtjl.workers.dev
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Authenticated API smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          USERNAME="__d1smoke_final"
+          PASSWORD="TmpSmoke2026"
+
+          REG_BODY="$(jq -nc --arg u "$USERNAME" --arg p "$PASSWORD" '{action:"register",username:$u,password:$p,displayName:"D1Smoke"}')"
+          REG="$(curl -fsS -H 'content-type: application/json' -d "$REG_BODY" "$PREVIEW_URL/api")"
+          printf '%s' "$REG" | jq -e '.success == true and (.token | length > 10)' >/dev/null
+          echo "register=PASS"
+
+          LOGIN_BODY="$(jq -nc --arg u "$USERNAME" --arg p "$PASSWORD" '{action:"login",username:$u,password:$p}')"
+          LOGIN="$(curl -fsS -H 'content-type: application/json' -d "$LOGIN_BODY" "$PREVIEW_URL/api")"
+          TOKEN="$(printf '%s' "$LOGIN" | jq -r '.token')"
+          test -n "$TOKEN"
+          test "$TOKEN" != "null"
+          echo "login=PASS"
+
+          ME_BODY="$(jq -nc --arg t "$TOKEN" '{action:"me",token:$t}')"
+          ME="$(curl -fsS -H 'content-type: application/json' -d "$ME_BODY" "$PREVIEW_URL/api")"
+          printf '%s' "$ME" | jq -e '.success == true and .user.username == "__d1smoke_final"' >/dev/null
+          echo "me=PASS"
+
+          ALL="$(curl -fsS --get --data-urlencode 'action=getAll' --data-urlencode "token=$TOKEN" "$PREVIEW_URL/api")"
+          printf '%s' "$ALL" | jq -e '
+            (.properties|length)==2 and
+            (.rooms|length)==84 and
+            (.tenants|length)==2 and
+            (.bills|length)==19 and
+            (.meterReadings|length)==62
+          ' >/dev/null
+          echo "getAll_authenticated=PASS"
+
+      - name: Cleanup smoke account
+        if: always()
+        run: |
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "DELETE FROM audit_logs WHERE username='__d1smoke_final'; DELETE FROM users WHERE username='__d1smoke_final';"
