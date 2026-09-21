@@ -268,8 +268,21 @@ Guardrails:
 
 ### Phase B — Scoped reads
 
-- add property-aware admin reads
-- verify side-by-side with current behavior
+**Status: IMPLEMENTED (shadow mode)**
+
+Implemented:
+
+- `getAdminScoped` — server-scoped admin snapshot using `property_admins`
+- `getTenantHome` — tenant-specific data via `tenant_accounts`
+- legacy global `getAll` is now admin-only
+- tenant accounts cannot receive the global admin dataset
+
+Current limitation:
+
+- the existing admin frontend still uses legacy `getAll`
+- do not switch the admin UI to `getAdminScoped` until whole-table writes are replaced, otherwise a scoped client snapshot could delete rows outside its scope through the legacy replacement write path
+
+Next required phase: row-level writes.
 
 ### Phase C — Row-level writes
 
