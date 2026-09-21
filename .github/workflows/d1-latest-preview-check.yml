@@ -1,0 +1,38 @@
+name: D1 Latest Preview Check
+
+on:
+  push:
+    branches:
+      - feat/d1-backend
+    paths:
+      - ".github/workflows/d1-latest-preview-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      PREVIEW_URL: https://76981ce4-delightapp.ekqtjl.workers.dev
+
+    steps:
+      - name: Verify latest frontend and API
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          curl -fsS "$PREVIEW_URL/" -o /tmp/index.html
+          grep -q "Cloudflare D1" /tmp/index.html
+          grep -q "dorm:d1CutoverV1" /tmp/index.html
+          echo "frontend_d1_cutover=PASS"
+
+          curl -fsS "$PREVIEW_URL/service-worker.js" -o /tmp/sw.js
+          grep -q "somud-hopak-v3-d1" /tmp/sw.js
+          grep -q "url.pathname === '/api'" /tmp/sw.js
+          echo "service_worker_api_bypass=PASS"
+
+          curl -fsS "$PREVIEW_URL/api?action=ping" |
+            grep -q '"backend":"d1"'
+          echo "api_ping=PASS"
