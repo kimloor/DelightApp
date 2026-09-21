@@ -921,23 +921,35 @@ const formatThaiDate = (iso) => {
 
 /* ============ Storage ============
    Three layers, in priority order:
-   1. Google Sheets (via an Apps Script Web App URL the user sets up
-      themselves) — lets data sync across PC and phone.
+   1. Cloudflare Worker + D1 (/api) — primary shared datastore.
    2. window.storage — used automatically when running inside a
       Claude artifact.
-   3. localStorage — always used as an instant local cache, and as
-      the fallback when neither of the above is available. */
+   3. localStorage — instant local cache and offline/fallback storage. */
 
-/* ค่าเริ่มต้น: ลิงก์ Google Sheets ของคุณ ฝังไว้ในไฟล์นี้เลย
-   เพื่อให้เชื่อมต่อได้ทันทีทุกครั้งที่เปิด โดยไม่ต้องพึ่ง localStorage
-   (ซึ่งบางเบราว์เซอร์ไม่บันทึกให้เมื่อเปิดไฟล์แบบ file://) */
-const DEFAULT_SHEET_URL = 'https://script.google.com/macros/s/AKfycbxD9bQkCdI1uVDKxUgrdtMbcJj737oHiHaCbZgY61-ckVIBekgi8vwGnTle6MKwjQDl/exec';
+const LEGACY_SHEET_URL = 'https://script.google.com/macros/s/AKfycbxD9bQkCdI1uVDKxUgrdtMbcJj737oHiHaCbZgY61-ckVIBekgi8vwGnTle6MKwjQDl/exec';
+const DEFAULT_API_URL = (window.location.origin && window.location.origin !== 'null')
+  ? window.location.origin + '/api'
+  : LEGACY_SHEET_URL;
 
-let sheetUrl = DEFAULT_SHEET_URL;
+let sheetUrl = DEFAULT_API_URL;
 try{
   const saved = localStorage.getItem('dorm:sheetUrl');
-  // ถ้าเคยตั้งค่าไว้เอง (เช่นเปลี่ยนไปใช้ชีตอื่น) ให้ใช้ค่านั้นแทน
-  if (saved !== null) sheetUrl = saved; // saved === '' หมายถึงผู้ใช้เลือกปิดการซิงก์เอง
+  // ย้ายค่ามาตรฐานเดิมจาก Apps Script ไป D1 อัตโนมัติ แต่คง custom URL/โหมด local-only ไว้
+  if(saved === LEGACY_SHEET_URL){
+    sheetUrl = DEFAULT_API_URL;
+    localStorage.setItem('dorm:sheetUrl', sheetUrl);
+  }else if(saved !== null){
+    sheetUrl = saved; // '' หมายถึงผู้ใช้เลือกเก็บข้อมูลในเครื่องเท่านั้น
+  }
+
+  // token เดิมของ Apps Script ใช้กับ Worker ไม่ได้: บังคับ login ใหม่เพียงครั้งเดียวหลัง cutover
+  if(sheetUrl === DEFAULT_API_URL && localStorage.getItem('dorm:d1CutoverV1') !== '1'){
+    authToken = null;
+    currentUser = null;
+    localStorage.removeItem('dorm:authToken');
+    localStorage.removeItem('dorm:currentUser');
+    localStorage.setItem('dorm:d1CutoverV1', '1');
+  }
 }catch(e){}
 let syncState = sheetUrl ? 'unknown' : 'local'; // 'local' | 'unknown' | 'ok' | 'error'
 
@@ -947,11 +959,11 @@ function updateSyncLine(){
   if(!sheetUrl){
     el.textContent = 'เก็บข้อมูลในเครื่องนี้เท่านั้น';
   } else if(syncState === 'ok'){
-    el.textContent = '🟢 ซิงก์กับ Google Sheets แล้ว';
+    el.textContent = '🟢 ซิงก์กับ Cloudflare D1 แล้ว';
   } else if(syncState === 'error'){
-    el.textContent = '🔴 เชื่อมต่อ Sheets ไม่ได้ (ใช้ข้อมูลในเครื่อง)';
+    el.textContent = '🔴 เชื่อมต่อ D1 ไม่ได้ (ใช้ข้อมูลในเครื่อง)';
   } else {
-    el.textContent = '🟡 กำลังเชื่อมต่อ Google Sheets…';
+    el.textContent = '🟡 กำลังเชื่อมต่อ Cloudflare D1…';
   }
 }
 
@@ -1018,7 +1030,7 @@ async function remoteAuthPost(payload){
   return data;
 }
 
-/* ต้องล็อกอินก็ต่อเมื่อมีการซิงก์กับ Google Sheets ส่วนกลางอยู่ (มี sheetUrl) —
+/* ต้องล็อกอินก็ต่อเมื่อมีการซิงก์กับ backend ส่วนกลางอยู่ (มี sheetUrl) —
    ถ้าผู้ใช้เลือกปิดการซิงก์ (เก็บข้อมูลในเครื่องคนเดียว) จะไม่มีระบบบัญชีให้ล็อกอินอยู่แล้ว */
 function loginRequired(){ return !!sheetUrl; }
 
@@ -1333,7 +1345,7 @@ async function saveTable(table, items){
       await remoteSaveTable(table, items);
       syncState = 'ok';
     }catch(e){
-      console.error('sheet save error', e);
+      console.error('remote save error', e);
       if(String(e.message)==='unauthorized'){
         doLogout();
         return;
@@ -1877,19 +1889,18 @@ document.getElementById('openSettingsBtn').addEventListener('click', ()=>{
 
 function settingsFormHtml(){
   return `
-    <h3>ตั้งค่าซิงก์ข้อมูลกับ Google Sheets</h3>
+    <h3>ตั้งค่าซิงก์ข้อมูล</h3>
     <p class="sub" style="font-size:13px;line-height:1.6;margin:0 0 14px;">
-      วางลิงก์ Web App ที่ได้จาก Google Apps Script (ลงท้ายด้วย <span class="mono">/exec</span>)
-      เพื่อให้ข้อมูลซิงก์ข้ามอุปกรณ์ได้ ถ้ายังไม่ได้ตั้งค่า ดูขั้นตอนได้ในไฟล์
-      <span class="mono">google-sheets-setup.txt</span> ที่แนบมาด้วย
+      โดยปกติแอปจะเชื่อมต่อ Cloudflare D1 ผ่าน <span class="mono">/api</span> อัตโนมัติ
+      ใช้ช่องนี้เฉพาะเมื่อต้องการเปลี่ยน API endpoint สำหรับการทดสอบหรือระบบอื่น
     </p>
     <div class="field">
-      <label>Google Apps Script Web App URL</label>
-      <input id="f-sheeturl" value="${sheetUrl}" placeholder="https://script.google.com/macros/s/.../exec">
+      <label>API URL</label>
+      <input id="f-sheeturl" value="${sheetUrl}" placeholder="https://your-worker.example/api">
     </div>
     <div id="settingsMsg" style="font-size:12.5px;color:var(--ink-soft);min-height:18px;margin-bottom:4px;"></div>
     <div class="modal-actions">
-      ${sheetUrl?`<button class="btn danger" id="clearSheetBtn">เลิกใช้ Sheets</button>`:''}
+      ${sheetUrl?`<button class="btn danger" id="clearSheetBtn">ปิดการซิงก์</button>`:''}
       <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
       <button class="btn" id="testSheetBtn">ทดสอบ &amp; บันทึก</button>
     </div>
@@ -1904,7 +1915,7 @@ async function onTestAndSaveSheet(){
     try{ localStorage.setItem('dorm:sheetUrl', ''); }catch(e){}
     syncState = 'local';
     closeModal(); updateSyncLine();
-    showToast('ปิดการซิงก์ Sheets แล้ว ใช้ข้อมูลในเครื่องนี้');
+    showToast('ปิดการซิงก์แล้ว ใช้ข้อมูลในเครื่องนี้');
     return;
   }
   msg.textContent = 'กำลังทดสอบการเชื่อมต่อ…';
@@ -1919,10 +1930,10 @@ async function onTestAndSaveSheet(){
     syncState = 'ok';
     updateSyncLine();
     closeModal();
-    showToast('เชื่อมต่อสำเร็จ กำลังโหลดข้อมูลจาก Sheets…');
+    showToast('เชื่อมต่อสำเร็จ กำลังโหลดข้อมูลจาก D1…');
     await loadData();
   }catch(e){
-    msg.textContent = 'เชื่อมต่อไม่สำเร็จ ตรวจสอบลิงก์และการตั้งค่า “Anyone” ในขั้นตอน Deploy อีกครั้ง';
+    msg.textContent = 'เชื่อมต่อไม่สำเร็จ ตรวจสอบ API URL และการตั้งค่า Worker อีกครั้ง';
     msg.style.color = 'var(--rust)';
   }
 }
@@ -1932,7 +1943,7 @@ async function onClearSheet(){
   syncState = 'local';
   closeModal();
   updateSyncLine();
-  showToast('เลิกใช้ Sheets แล้ว กลับไปใช้ข้อมูลในเครื่องนี้');
+  showToast('ปิดการซิงก์แล้ว กลับไปใช้ข้อมูลในเครื่องนี้');
 }
 
 /* ตั้งใจไม่ปิด modal เมื่อคลิกพื้นหลังนอกกล่อง (overlay) แล้ว — เพื่อกันข้อมูลที่กำลังกรอก/แก้ไข
@@ -2828,7 +2839,7 @@ function resizeImageFile(file, maxDim, jpegQuality){
   });
 }
 
-/* Google Sheets จำกัดความยาวต่อ 1 เซลล์ไว้ที่ 50,000 ตัวอักษร ย่อรูปให้เล็กลงเรื่อย ๆ จนกว่าจะพอดี */
+/* ย่อรูปเพื่อไม่ให้ payload/cache ใหญ่เกินไป และให้ซิงก์ข้ามอุปกรณ์ได้เร็วขึ้น */
 async function resizeImageFileSafe(file){
   const CELL_LIMIT = 45000;
   let dataUrl = await resizeImageFile(file, 360);
