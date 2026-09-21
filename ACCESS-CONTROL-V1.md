@@ -1,6 +1,6 @@
 # DelightApp — Multi-Tenant Access Control V1
 
-> Status: IN PROGRESS — Phase A/B/C/D complete; Phase E next
+> Status: DONE — Phase A/B/C/D/E complete
 > Goal: allow multiple independent admins to use DelightApp without seeing or modifying each other's properties, while allowing one property to have multiple admins.
 
 ## 1. Roles
@@ -12,7 +12,7 @@ V1 uses only two application roles:
 
 No staff role in V1.
 
-A future platform-level `superadmin` may be added separately if needed, but it is not part of this V1 permission model.
+Platform-level `superadmin` now exists separately and remains outside property-level V1 permission mapping.
 
 ## Platform administration
 
@@ -434,4 +434,4 @@ Strict isolation prerequisites now completed:
 3. scoped read APIs implemented
 4. whole-table global writes retired
 
-Next: Phase E — tenant foundation and tenant-facing UI.
+Access Control V1 is complete. Further hardening is tracked in `STABILIZATION.md`.
