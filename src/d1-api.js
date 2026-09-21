@@ -319,7 +319,11 @@ async function handlePost(request, env, body) {
   if (body.action === 'me') return {success:true,user:publicUser(x.user)};
 
   // Legacy full snapshot remains temporarily for the current admin UI until row-level writes replace whole-table saves.
-  if (body.action === 'getAll') return await getAll(env);
+  // Tenant accounts must never receive the global admin dataset.
+  if (body.action === 'getAll') {
+    if (x.user.role !== 'admin') return {error:'forbidden'};
+    return await getAll(env);
+  }
 
   // Phase B shadow reads: scoped by server-side access mappings, not yet used by the legacy write UI.
   if (body.action === 'getAdminScoped') {
