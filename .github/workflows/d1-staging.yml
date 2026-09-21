@@ -57,3 +57,5 @@ jobs:
 
       - name: Upload staging Worker version
         run: npx --yes wrangler@4 versions upload --message "D1 staging validation" --tag "d1-staging"
+
+# final-sync-validation
