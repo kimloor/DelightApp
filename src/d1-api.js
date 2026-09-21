@@ -669,6 +669,173 @@ async function createMeterReadingRows(env, user, items) {
   return out;
 }
 
+
+async function createRoomsRows(env, user, items) {
+  if (user.role !== 'admin') throw new Error('forbidden');
+  const list=Array.isArray(items)?items:[];
+  const out=[];
+  let skipped=0;
+  for (const raw of list) {
+    const propertyId=s(raw?.propertyId);
+    await requireAdminProperty(env,user,propertyId);
+    const number=s(raw?.number).trim();
+    if (!number) { skipped++; continue; }
+    const dup=await env.DB.prepare(
+      'SELECT id FROM rooms WHERE property_id=? AND room_number=? LIMIT 1'
+    ).bind(propertyId,number).first();
+    if (dup) { skipped++; continue; }
+    out.push(await createRoomRow(env,user,{...(raw||{}),propertyId,number}));
+  }
+  return {rooms:out,skipped};
+}
+
+async function requirePropertyOwner(env, user, propertyId) {
+  if (!user || user.role !== 'admin') throw new Error('forbidden');
+  const row=await env.DB.prepare(
+    "SELECT access_role FROM property_admins WHERE property_id=? AND user_id=? LIMIT 1"
+  ).bind(String(propertyId),String(user.id)).first();
+  if (!row || row.access_role!=='owner') throw new Error('owner_required');
+}
+
+async function deletePropertyRow(env, user, propertyId) {
+  const id=s(propertyId);
+  await requirePropertyOwner(env,user,id);
+  const prop=await env.DB.prepare('SELECT * FROM properties WHERE id=?').bind(id).first();
+  if (!prop) throw new Error('property_not_found');
+
+  const roomQ=await env.DB.prepare('SELECT id FROM rooms WHERE property_id=?').bind(id).all();
+  const roomIds=(roomQ.results||[]).map(r=>String(r.id));
+  const tenantQ=roomIds.length
+    ? await env.DB.prepare(`SELECT id FROM tenants WHERE room_id IN (${roomIds.map(()=>'?').join(',')})`).bind(...roomIds).all()
+    : {results:[]};
+  const tenantIds=(tenantQ.results||[]).map(t=>String(t.id));
+
+  const stmts=[];
+  if (tenantIds.length) {
+    stmts.push(env.DB.prepare(`DELETE FROM tenant_accounts WHERE tenant_id IN (${tenantIds.map(()=>'?').join(',')})`).bind(...tenantIds));
+  }
+  if (roomIds.length) {
+    const qs=roomIds.map(()=>'?').join(',');
+    stmts.push(
+      env.DB.prepare(`DELETE FROM receipts WHERE room_id IN (${qs})`).bind(...roomIds),
+      env.DB.prepare(`DELETE FROM meter_readings WHERE room_id IN (${qs})`).bind(...roomIds),
+      env.DB.prepare(`DELETE FROM deposits WHERE room_id IN (${qs})`).bind(...roomIds),
+      env.DB.prepare(`DELETE FROM bills WHERE room_id IN (${qs})`).bind(...roomIds),
+      env.DB.prepare(`DELETE FROM tenants WHERE room_id IN (${qs})`).bind(...roomIds),
+      env.DB.prepare(`DELETE FROM room_layouts WHERE room_id IN (${qs})`).bind(...roomIds),
+      env.DB.prepare(`DELETE FROM rooms WHERE id IN (${qs})`).bind(...roomIds)
+    );
+  }
+  stmts.push(
+    env.DB.prepare('DELETE FROM property_admins WHERE property_id=?').bind(id),
+    env.DB.prepare('DELETE FROM properties WHERE id=?').bind(id)
+  );
+  await env.DB.batch(stmts);
+  await appendLog(env,user,'delete','properties',[id],1,'cascade property delete');
+  return {success:true,id,roomIds,tenantIds};
+}
+
+async function nextDocumentNo(env, table, column, prefix, dateOrMonth) {
+  const q=await env.DB.prepare(`SELECT ${column} AS no FROM ${table} WHERE ${column}<>''`).all();
+  let seq=0;
+  for (const r of (q.results||[])) {
+    const m=/-([0-9]+)$/.exec(String(r.no||''));
+    if (m) seq=Math.max(seq,Number(m[1])||0);
+  }
+  const source=s(dateOrMonth);
+  const ym=(/^\d{4}-\d{2}/.test(source)?source.slice(0,7):new Date().toISOString().slice(0,7)).replace('-','');
+  return `${prefix}-${ym}-${String(seq+1).padStart(4,'0')}`;
+}
+
+async function createDepositRow(env, user, item) {
+  const roomId=s(item?.roomId);
+  await requireRoomAdminAccess(env,user,roomId);
+  const amount=n(item?.amount);
+  if (!(amount>0)) throw new Error('invalid_deposit_amount');
+  const date=s(item?.date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('invalid_deposit_date');
+
+  const id=await nextNumericId(env,'deposits');
+  const receiptNo=await nextDocumentNo(env,'deposits','receipt_no','DEP',date);
+  const next={id,roomId,receiptNo,amount,date,note:s(item?.note)};
+  await insertLogicalRow(env,'deposits',next);
+  await appendLog(env,user,'create','deposits',[id],1,'room '+roomId);
+  return rowDeposit(await env.DB.prepare('SELECT * FROM deposits WHERE id=?').bind(id).first());
+}
+
+async function deleteDepositRow(env, user, depositId) {
+  const id=s(depositId);
+  const row=await env.DB.prepare('SELECT * FROM deposits WHERE id=?').bind(id).first();
+  if (!row) throw new Error('deposit_not_found');
+  await requireRoomAdminAccess(env,user,row.room_id);
+  await env.DB.prepare('DELETE FROM deposits WHERE id=?').bind(id).run();
+  await appendLog(env,user,'delete','deposits',[id],1,'room '+row.room_id);
+  return {success:true,id};
+}
+
+async function createReceiptRow(env, user, item) {
+  const billId=s(item?.billId);
+  const bill=await dbBill(env,billId);
+  if (!bill) throw new Error('bill_not_found');
+  await requireRoomAdminAccess(env,user,bill.room_id);
+
+  const date=s(item?.date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('invalid_receipt_date');
+  const id=await nextNumericId(env,'receipts');
+  const receiptNo=await nextDocumentNo(env,'receipts','receipt_no','RCP',date);
+  const receipt={
+    id,
+    roomId:String(bill.room_id),
+    billId,
+    receiptNo,
+    amount:n(bill.total),
+    date,
+    note:s(item?.note),
+    vatSubtotal:n(bill.vat_subtotal),
+    vatAmount:n(bill.vat_amount),
+  };
+
+  await env.DB.batch([
+    env.DB.prepare(
+      'INSERT INTO receipts (id,room_id,bill_id,receipt_no,amount,received_date,note,vat_subtotal,vat_amount) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).bind(id,receipt.roomId,billId,receiptNo,receipt.amount,date,receipt.note,receipt.vatSubtotal,receipt.vatAmount),
+    env.DB.prepare("UPDATE bills SET status='paid' WHERE id=?").bind(billId),
+  ]);
+  await appendLog(env,user,'create','receipts',[id],1,'bill '+billId);
+  return {
+    receipt:rowReceipt(await env.DB.prepare('SELECT * FROM receipts WHERE id=?').bind(id).first()),
+    bill:rowBill(await dbBill(env,billId)),
+  };
+}
+
+async function upsertRoomLayoutRow(env, user, item) {
+  const roomId=s(item?.roomId);
+  await requireRoomAdminAccess(env,user,roomId);
+  let existing=await env.DB.prepare('SELECT * FROM room_layouts WHERE room_id=? ORDER BY CAST(id AS INTEGER),id LIMIT 1')
+    .bind(roomId).first();
+  if (existing) {
+    await env.DB.prepare('UPDATE room_layouts SET x=?,y=? WHERE id=?')
+      .bind(n(item?.x),n(item?.y),String(existing.id)).run();
+  } else {
+    const id=await nextNumericId(env,'room_layouts');
+    await env.DB.prepare('INSERT INTO room_layouts (id,room_id,x,y) VALUES (?,?,?,?)')
+      .bind(id,roomId,n(item?.x),n(item?.y)).run();
+    existing=await env.DB.prepare('SELECT * FROM room_layouts WHERE id=?').bind(id).first();
+  }
+  const saved=await env.DB.prepare('SELECT * FROM room_layouts WHERE room_id=? ORDER BY CAST(id AS INTEGER),id LIMIT 1')
+    .bind(roomId).first();
+  return rowLayout(saved);
+}
+
+async function deleteRoomLayoutsRows(env, user, roomIds) {
+  const ids=[...new Set((Array.isArray(roomIds)?roomIds:[]).map(s).filter(Boolean))];
+  for (const roomId of ids) await requireRoomAdminAccess(env,user,roomId);
+  if (ids.length) {
+    await env.DB.prepare(`DELETE FROM room_layouts WHERE room_id IN (${ids.map(()=>'?').join(',')})`).bind(...ids).run();
+  }
+  return {success:true,roomIds:ids};
+}
+
 async function handlePost(request, env, body) {
   if (body.action === 'login') {
     const username = s(body.username).trim();
@@ -784,6 +951,41 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'createMeterReadings') {
     try { return {success:true,meterReadings:await createMeterReadingRows(env,x.user,body.items)}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'createRooms') {
+    try { return {success:true,...await createRoomsRows(env,x.user,body.items)}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'deleteProperty') {
+    try { return await deletePropertyRow(env,x.user,body.id); }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'createDeposit') {
+    try { return {success:true,deposit:await createDepositRow(env,x.user,body.item||{})}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'deleteDeposit') {
+    try { return await deleteDepositRow(env,x.user,body.id); }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'createReceipt') {
+    try { return {success:true,...await createReceiptRow(env,x.user,body.item||{})}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'upsertRoomLayout') {
+    try { return {success:true,roomLayout:await upsertRoomLayoutRow(env,x.user,body.item||{})}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'deleteRoomLayouts') {
+    try { return await deleteRoomLayoutsRows(env,x.user,body.roomIds); }
     catch(e) { return {error:e.message}; }
   }
 
