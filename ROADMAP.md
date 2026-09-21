@@ -45,6 +45,29 @@ Progress:
 
 ---
 
+## Stabilization Phase
+
+**Status:** IN PROGRESS — S1 Auth / Session Hardening next
+
+ก่อนเพิ่มฟีเจอร์หลักใหม่ ให้ปิดช่องว่างด้าน security / financial integrity / tenant lifecycle ที่ตรวจพบหลัง D1 + Access Control + Tenant Foundation ขึ้น production
+
+ลำดับ:
+- S1 Auth / Session Hardening
+- S2 Financial / Database Integrity
+- S3 Paid Bill Lock + Void Workflow
+- S4 Tenant Account Lifecycle
+- S5 Frontend Security / XSS Audit
+- S6 Superadmin Console V1
+- S7 Admin Offline Read-Only Mode
+- S8 Audit Log Viewer
+- S9 Frontend Modularization / Legacy Cleanup (later)
+
+Major roadmap features resume after S1-S5 production verification unless a later audit identifies a blocker.
+
+รายละเอียด: `STABILIZATION.md`
+
+---
+
 ## 1. Payment Slip Verification
 
 **Status:** IDEA
