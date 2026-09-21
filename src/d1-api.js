@@ -191,6 +191,79 @@ async function getAll(env) {
   };
 }
 
+async function adminPropertyIds(env, userId) {
+  const q = await env.DB.prepare(
+    'SELECT property_id FROM property_admins WHERE user_id=? ORDER BY property_id'
+  ).bind(String(userId)).all();
+  return (q.results || []).map(r => String(r.property_id));
+}
+
+async function getAdminScopedAll(env, user) {
+  if (user.role !== 'admin') throw new Error('forbidden');
+  const propertyIds = await adminPropertyIds(env, user.id);
+  if (!propertyIds.length) {
+    return {properties:[],rooms:[],tenants:[],bills:[],deposits:[],meterReadings:[],receipts:[],roomLayouts:[]};
+  }
+
+  const qs = propertyIds.map(()=>'?').join(',');
+  const roomScope = `SELECT id FROM rooms WHERE property_id IN (${qs})`;
+
+  const results = await Promise.all([
+    env.DB.prepare(`SELECT * FROM properties WHERE id IN (${qs}) ORDER BY CAST(id AS INTEGER), id`).bind(...propertyIds).all(),
+    env.DB.prepare(`SELECT * FROM rooms WHERE property_id IN (${qs}) ORDER BY CAST(id AS INTEGER), id`).bind(...propertyIds).all(),
+    env.DB.prepare(`SELECT * FROM tenants WHERE room_id IN (${roomScope}) ORDER BY CAST(id AS INTEGER), id`).bind(...propertyIds).all(),
+    env.DB.prepare(`SELECT * FROM bills WHERE room_id IN (${roomScope}) ORDER BY CAST(id AS INTEGER), id`).bind(...propertyIds).all(),
+    env.DB.prepare(`SELECT * FROM deposits WHERE room_id IN (${roomScope}) ORDER BY CAST(id AS INTEGER), id`).bind(...propertyIds).all(),
+    env.DB.prepare(`SELECT * FROM meter_readings WHERE room_id IN (${roomScope}) ORDER BY CAST(id AS INTEGER), id`).bind(...propertyIds).all(),
+    env.DB.prepare(`SELECT * FROM receipts WHERE room_id IN (${roomScope}) ORDER BY CAST(id AS INTEGER), id`).bind(...propertyIds).all(),
+    env.DB.prepare(`SELECT * FROM room_layouts WHERE room_id IN (${roomScope}) ORDER BY CAST(id AS INTEGER), id`).bind(...propertyIds).all(),
+  ]);
+
+  const [p,r,t,b,d,m,rc,l] = results.map(x=>x.results || []);
+  return {
+    properties:p.map(rowProperty), rooms:r.map(rowRoom), tenants:t.map(rowTenant), bills:b.map(rowBill),
+    deposits:d.map(rowDeposit), meterReadings:m.map(rowMeter), receipts:rc.map(rowReceipt), roomLayouts:l.map(rowLayout)
+  };
+}
+
+async function getTenantHome(env, user) {
+  if (user.role !== 'tenant') throw new Error('forbidden');
+
+  const binding = await env.DB.prepare(
+    `SELECT t.*, r.id AS mapped_room_id, r.property_id AS mapped_property_id
+     FROM tenant_accounts ta
+     JOIN tenants t ON t.id=ta.tenant_id
+     JOIN rooms r ON r.id=t.room_id
+     WHERE ta.user_id=?`
+  ).bind(String(user.id)).first();
+
+  if (!binding) throw new Error('tenant_not_linked');
+
+  const roomId = String(binding.mapped_room_id);
+  const propertyId = String(binding.mapped_property_id);
+
+  const results = await Promise.all([
+    env.DB.prepare('SELECT * FROM properties WHERE id=?').bind(propertyId).all(),
+    env.DB.prepare('SELECT * FROM rooms WHERE id=?').bind(roomId).all(),
+    env.DB.prepare('SELECT * FROM tenants WHERE id=?').bind(String(binding.id)).all(),
+    env.DB.prepare('SELECT * FROM bills WHERE room_id=? ORDER BY month DESC, CAST(id AS INTEGER) DESC, id DESC').bind(roomId).all(),
+    env.DB.prepare('SELECT * FROM deposits WHERE room_id=? ORDER BY received_date DESC, CAST(id AS INTEGER) DESC, id DESC').bind(roomId).all(),
+    env.DB.prepare('SELECT * FROM meter_readings WHERE room_id=? ORDER BY recorded_at DESC, CAST(id AS INTEGER) DESC, id DESC').bind(roomId).all(),
+    env.DB.prepare('SELECT * FROM receipts WHERE room_id=? ORDER BY received_date DESC, CAST(id AS INTEGER) DESC, id DESC').bind(roomId).all(),
+  ]);
+
+  const [p,r,t,b,d,m,rc] = results.map(x=>x.results || []);
+  return {
+    property:p[0] ? rowProperty(p[0]) : null,
+    room:r[0] ? rowRoom(r[0]) : null,
+    tenant:t[0] ? rowTenant(t[0]) : null,
+    bills:b.map(rowBill),
+    deposits:d.map(rowDeposit),
+    meterReadings:m.map(rowMeter),
+    receipts:rc.map(rowReceipt),
+  };
+}
+
 async function replaceLogicalTable(env, tableName, items) {
   const cfg = TABLES[tableName];
   if (!cfg) throw new Error('unknown table: ' + tableName);
@@ -245,8 +318,19 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'me') return {success:true,user:publicUser(x.user)};
 
-  // Authenticated full snapshot read via POST so auth tokens are not placed in URLs.
+  // Legacy full snapshot remains temporarily for the current admin UI until row-level writes replace whole-table saves.
   if (body.action === 'getAll') return await getAll(env);
+
+  // Phase B shadow reads: scoped by server-side access mappings, not yet used by the legacy write UI.
+  if (body.action === 'getAdminScoped') {
+    try { return await getAdminScopedAll(env, x.user); }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'getTenantHome') {
+    try { return await getTenantHome(env, x.user); }
+    catch(e) { return {error:e.message}; }
+  }
 
   if (body.action === 'changePassword') {
     if (await sha256Hex(s(body.oldPassword)+':'+x.user.salt) !== x.user.password_hash) return {error:'wrong_old_password'};
