@@ -241,7 +241,7 @@ A final repeat audit is still required immediately before production cutover.
 
 ### Phase 1 — D1 schema preparation
 
-Status: **repository implementation prepared on `feat/d1-backend`; Cloudflare provisioning pending**
+Status: **D1 provisioned and bound on `feat/d1-backend`; migration execution pending**
 
 Prepared on the feature branch:
 
