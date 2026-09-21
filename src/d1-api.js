@@ -101,7 +101,14 @@ function requireSecret(env) {
 }
 
 function publicUser(u) {
-  return { id:String(u.id), username:u.username, displayName:u.display_name || '', isAdmin:u.role === 'admin' };
+  return {
+    id:String(u.id),
+    username:u.username,
+    displayName:u.display_name || '',
+    isAdmin:u.role === 'admin',
+    platformRole:u.platform_role || 'normal',
+    isSuperadmin:u.platform_role === 'superadmin'
+  };
 }
 
 function json(data, status=200, request=null, env=null) {
@@ -185,9 +192,28 @@ async function getAll(env) {
     env.DB.prepare('SELECT * FROM room_layouts ORDER BY CAST(id AS INTEGER), id').all(),
   ]);
   const [p,r,t,b,d,m,rc,l] = results.map(x=>x.results || []);
+
+  const managersQ = await env.DB.prepare(
+    `SELECT pa.property_id,pa.access_role,u.id AS user_id,u.username,u.display_name,u.platform_role
+     FROM property_admins pa
+     JOIN users u ON u.id=pa.user_id
+     WHERE pa.property_id IN (${qs})
+     ORDER BY pa.property_id,
+              CASE pa.access_role WHEN 'owner' THEN 0 ELSE 1 END,
+              u.display_name,u.username`
+  ).bind(...propertyIds).all();
+
   return {
     properties:p.map(rowProperty), rooms:r.map(rowRoom), tenants:t.map(rowTenant), bills:b.map(rowBill),
-    deposits:d.map(rowDeposit), meterReadings:m.map(rowMeter), receipts:rc.map(rowReceipt), roomLayouts:l.map(rowLayout)
+    deposits:d.map(rowDeposit), meterReadings:m.map(rowMeter), receipts:rc.map(rowReceipt), roomLayouts:l.map(rowLayout),
+    propertyAdmins:(managersQ.results||[]).map(x=>({
+      propertyId:String(x.property_id),
+      userId:String(x.user_id),
+      username:x.username||'',
+      displayName:x.display_name||'',
+      accessRole:x.access_role||'admin',
+      platformRole:x.platform_role||'normal'
+    }))
   };
 }
 
