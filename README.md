@@ -16,6 +16,8 @@ Start here:
 - [PROJECT.md](PROJECT.md) — current production architecture, behavior and technical state
 - [D1-MIGRATION.md](D1-MIGRATION.md) — completed Google Sheets -> D1 migration record and rollback notes
 - [ROADMAP.md](ROADMAP.md) — future product features and planned capabilities
+- [STABILIZATION.md](STABILIZATION.md) — current hardening priorities before major new features
+- [AUTH-SESSION-HARDENING-V2.md](AUTH-SESSION-HARDENING-V2.md) — S1 authentication/session implementation contract
 
 Planned/future features should be documented separately from the current production-state document.
 
