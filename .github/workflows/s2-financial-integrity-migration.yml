@@ -1,0 +1,37 @@
+name: Financial Integrity Production Migration
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    if: contains(github.event.head_commit.message, '[S2-MIGRATE]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Apply forward-only migrations
+        run: npx --yes wrangler@4 d1 migrations apply delightapp-db --remote
+
+      - name: Validate S2 schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('id_counters','document_counters') ORDER BY name;"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('uq_rooms_property_number','uq_tenants_room','uq_bills_room_month','uq_bills_invoice_no','uq_receipts_bill_id','uq_receipts_receipt_no','uq_deposits_receipt_no','uq_room_layouts_room') ORDER BY name;"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT table_name,next_id FROM id_counters ORDER BY table_name;"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT kind,next_seq FROM document_counters ORDER BY kind;"
+          APPLIED="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS c FROM d1_migrations WHERE name='0005_financial_data_integrity_v1.sql';" --json | jq -r '.[0].results[0].c')"
+          test "$APPLIED" = "1"
+          echo "s2_migration=PASS"
