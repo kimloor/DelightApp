@@ -1,4 +1,4 @@
-const CACHE_NAME = 'somud-hopak-v2';
+const CACHE_NAME = 'somud-hopak-v3-d1';
 const ASSETS = [
   './index.html',
   './manifest.json',
@@ -21,11 +21,18 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// network-first: พยายามโหลดของใหม่จากเน็ตก่อนเสมอ
-// ถ้าโหลดไม่ได้ (ออฟไลน์) ค่อย fallback ไปใช้ที่แคชไว้
-// วิธีนี้ทำให้ deploy ใหม่ทุกครั้งแสดงผลทันที ไม่ค้างเวอร์ชันเก่า
+// API requests must always go directly to the Worker/D1 backend.
+// Never cache authenticated API responses or token-bearing URLs.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+  if (url.origin === self.location.origin &&
+      (url.pathname === '/api' || url.pathname.startsWith('/api/'))) {
+    return;
+  }
+
+  // Static assets are network-first; offline uses the latest cached copy.
   event.respondWith(
     fetch(event.request)
       .then((response) => {
