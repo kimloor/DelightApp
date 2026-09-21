@@ -1,6 +1,6 @@
 # DelightApp — Multi-Tenant Access Control V1
 
-> Status: IN PROGRESS — Phase A/B/C complete; Phase D next
+> Status: IN PROGRESS — Phase A/B/C/D complete; Phase E next
 > Goal: allow multiple independent admins to use DelightApp without seeing or modifying each other's properties, while allowing one property to have multiple admins.
 
 ## 1. Roles
@@ -310,9 +310,26 @@ Additional Phase C hardening:
 
 ### Phase D — Enable isolation
 
-- remove global shared-data behavior
-- admins see only assigned properties
-- verify cross-admin denial tests
+**Status: DONE**
+
+Implemented and verified in production:
+
+- admin frontend now uses `getAdminScoped`
+- legacy global `getAll` returns `legacy_global_read_disabled`
+- admins see only properties assigned through `property_admins`
+- admin user-management listing is scoped to shared/owned properties
+- password reset is limited to users inside the current admin scope
+- only property owners can create new admin accounts for their properties
+- owners can remove ordinary admin access from properties they own
+- ordinary admins cannot remove owners
+- cross-property write attempts return `forbidden`
+
+Production isolation verification created a temporary isolated admin/property and confirmed:
+- scoped read returned only the test property
+- user management returned only users in the test scope
+- write attempt against another property was denied
+- global legacy read was denied
+- temporary test data was cleaned up successfully
 
 ### Phase E — Tenant foundation
 
@@ -375,4 +392,4 @@ Strict isolation prerequisites now completed:
 3. scoped read APIs implemented
 4. whole-table global writes retired
 
-Next: Phase D — switch the admin frontend from legacy global `getAll` to `getAdminScoped` and run cross-admin isolation tests.
+Next: Phase E — tenant foundation and tenant-facing UI.
