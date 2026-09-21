@@ -351,11 +351,12 @@ Planned direction:
 Browser / PWA
     |
     v
-Cloudflare Worker API
-    |
-    v
-Cloudflare D1
+Cloudflare Worker: delightapp
+    |-- static frontend assets
+    `-- /api/* -> backend logic -> Cloudflare D1
 ```
+
+The existing `delightapp` Worker remains the single deployment unit. A second API Worker is not planned.
 
 Google Sheets / Apps Script will remain intact during migration as the rollback source and temporary production system until D1 has been verified.
 

@@ -12,10 +12,9 @@ Target architecture:
 Browser / PWA
     |
     v
-Cloudflare Worker API
-    |
-    v
-Cloudflare D1
+Cloudflare Worker: delightapp
+    |-- static assets from /หอพัก
+    `-- /api/* -> API code -> D1
 ```
 
 Google Sheets remains the production source and rollback copy until D1 has been migrated, validated and cut over successfully.
@@ -242,43 +241,74 @@ A final repeat audit is still required immediately before production cutover.
 
 ### Phase 1 — D1 schema preparation
 
-Status: **schema file prepared; D1 database not yet provisioned from this chat**
+Status: **COMPLETE for initial D1 provisioning, schema application and imported staging snapshot**
 
-Repository artifact:
+Prepared and verified on the feature branch:
 
-```text
-migrations/
-  0001_initial_d1.sql
-```
+- D1 database: `delightapp-db`
+- D1 binding: `DB`
+- `migrations/0001_initial_d1.sql` applied remotely
+- `src/d1-api.js` compatibility API uploaded as a Worker version
+- `wrangler.jsonc` configured for a single static + API Worker
+- imported Google Sheets snapshot validated against the recorded baseline
+- staging workflow validates schema, row counts, financial totals and referential integrity
+- frontend branch now defaults to same-origin `/api`
+- legacy default Apps Script URL is migrated to `/api` in localStorage
+- existing Apps Script auth tokens are cleared once at D1 cutover so users sign in again
+- service worker cache version bumped and `/api` requests are explicitly excluded from caching
 
-Next infrastructure actions:
+Current production state:
 
-- create Cloudflare D1 database for DelightApp
-- add D1 binding to `wrangler.jsonc`
-- apply `0001_initial_d1.sql`
-- verify empty schema before importing production data
-
-Do not point production frontend at D1 yet.
+- production traffic has **not** been switched to the new Worker version
+- Google Sheets / Apps Script remains the live source of truth until final cutover
+- D1 currently contains a validated snapshot and must receive a final sync before production cutover
+- Google Sheets must remain intact as rollback source
 
 ### Phase 2 — implement Worker API
 
-Tasks:
+Status: **implemented on `feat/d1-backend`; core staging smoke passed**
 
-- authentication
-- password verification
-- token signing/verification
-- user/admin actions
+Implemented:
+
+- authentication and legacy password verification
+- Worker token signing/verification
+- login / register / me
+- changePassword
+- adminListUsers / adminResetPassword
 - getAll compatibility endpoint
-- table-write compatibility endpoints
-- public room availability endpoint
+- table-write compatibility endpoint
+- getPublicAvailability
 - audit log writes
-- validation
+- D1/static single-Worker routing
 
-Production frontend remains on Google Apps Script during this phase.
+Verified in staging:
+
+- static frontend response
+- D1 ping
+- unauthorized getAll rejection
+- invalid login rejection
+- register
+- login
+- me
+- authenticated getAll with expected imported row counts
+
+Still required before production:
+
+- manual UI acceptance using the actual app
+- positive admin UI flow
+- change-password UI flow
+- write-path checks for room/tenant/bill/meter/receipt/deposit/layout operations
+- public availability check with the real bot key if that integration remains enabled
+
+Compatibility note:
+
+The legacy Apps Script backend also exposes `issueBotApiKey` to issue/regenerate the Messenger bot key. No in-repo frontend caller was found, and the D1 Worker does not currently reproduce that key-management endpoint. `getPublicAvailability` itself is implemented. Keep Apps Script available for rollback and resolve this compatibility gap before retiring Apps Script completely if the bot-key management flow is still used.
 
 ### Phase 3 — export Google Sheets data
 
-At migration time export:
+Status: **initial snapshot exported/imported; final cutover export still required**
+
+At final migration time export:
 
 - users
 - properties
@@ -300,6 +330,8 @@ Before import:
 
 ### Phase 4 — import into D1
 
+Status: **initial snapshot imported and validated; final sync still required at cutover**
+
 Import order:
 
 ```text
@@ -319,7 +351,22 @@ After import verify counts, IDs, relationships, roles and financial baseline val
 
 ### Phase 5 — staging verification
 
-Test at minimum:
+Status: **automated core/API validation passed; full application acceptance remains**
+
+Already verified:
+
+- D1 schema and migration state
+- imported row counts
+- financial baseline
+- room/bill status counts
+- referential integrity / orphan checks
+- static frontend served by staging Worker
+- same-origin D1 ping
+- register / login / me / authenticated getAll
+- frontend cutover marker present in latest Preview
+- service worker does not cache `/api`
+
+Still test at minimum:
 
 - existing login
 - registration
@@ -391,9 +438,14 @@ Only after D1 stabilizes:
 
 ## 9. Immediate next task
 
-Proceed to **Phase 1 infrastructure + Phase 2 API implementation**:
+Proceed with the remaining **Phase 5 acceptance + Phase 6 final sync/cutover preparation**:
 
-1. provision/bind D1
-2. apply `0001_initial_d1.sql`
-3. build Worker compatibility API
-4. keep production frontend on Apps Script until staging passes
+1. test the latest staging Preview through the real UI with an existing account
+2. verify admin/change-password and representative write workflows
+3. repeat the live Google Sheets audit immediately before cutover
+4. take a fresh Google Sheets backup
+5. perform final D1 sync/import and re-run baseline validation
+6. only then merge/deploy the tested Worker version to production traffic
+7. require fresh login and run production smoke tests
+
+Do not retire or modify the Google Sheets rollback copy yet.

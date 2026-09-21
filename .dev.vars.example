@@ -1,0 +1,9 @@
+# Local-only secret examples for the single DelightApp Worker.
+# Never commit real secret values.
+#
+# Production secrets:
+# npx wrangler secret put AUTH_SECRET
+# npx wrangler secret put BOT_API_KEY
+
+AUTH_SECRET=replace-with-a-long-random-secret
+BOT_API_KEY=replace-with-existing-or-new-bot-key

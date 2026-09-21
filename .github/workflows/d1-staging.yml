@@ -1,0 +1,61 @@
+name: D1 Staging Validate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/d1-backend
+    paths:
+      - ".github/workflows/d1-staging.yml"
+      - "src/**"
+      - "migrations/**"
+      - "wrangler.jsonc"
+      - "หอพัก/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate Cloudflare authentication
+        run: npx --yes wrangler@4 whoami
+
+      - name: Check D1 migrations
+        run: npx --yes wrangler@4 d1 migrations list delightapp-db --remote
+
+      - name: Validate D1 schema
+        run: |
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','properties','rooms','tenants','bills','deposits','meter_readings','receipts','room_layouts','audit_logs') ORDER BY name;"
+
+      - name: Validate imported row counts
+        run: |
+          for Q in             "SELECT COUNT(*) AS users FROM users;"             "SELECT COUNT(*) AS properties FROM properties;"             "SELECT COUNT(*) AS rooms FROM rooms;"             "SELECT COUNT(*) AS tenants FROM tenants;"             "SELECT COUNT(*) AS bills FROM bills;"             "SELECT COUNT(*) AS meter_readings FROM meter_readings;"             "SELECT COUNT(*) AS deposits FROM deposits;"             "SELECT COUNT(*) AS receipts FROM receipts;"             "SELECT COUNT(*) AS room_layouts FROM room_layouts;"             "SELECT COUNT(*) AS audit_logs FROM audit_logs;"
+          do
+            npx --yes wrangler@4 d1 execute delightapp-db --remote --command "$Q"
+          done
+
+      - name: Validate financial baseline
+        run: |
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS bill_count, ROUND(SUM(rent),2) AS rent_total, ROUND(SUM(water_charge),2) AS water_total, ROUND(SUM(electric_charge),2) AS electric_total, ROUND(SUM(vat_amount),2) AS vat_total, ROUND(SUM(total),2) AS grand_total, ROUND(SUM(CASE WHEN status='paid' THEN total ELSE 0 END),2) AS paid_total, ROUND(SUM(CASE WHEN status='unpaid' THEN total ELSE 0 END),2) AS unpaid_total FROM bills;"
+
+      - name: Validate referential integrity
+        run: |
+          for Q in             "SELECT COUNT(*) AS rooms_without_property FROM rooms r LEFT JOIN properties p ON p.id=r.property_id WHERE p.id IS NULL;"             "SELECT COUNT(*) AS tenants_without_room FROM tenants t LEFT JOIN rooms r ON r.id=t.room_id WHERE r.id IS NULL;"             "SELECT COUNT(*) AS bills_without_room FROM bills b LEFT JOIN rooms r ON r.id=b.room_id WHERE r.id IS NULL;"             "SELECT COUNT(*) AS meters_without_room FROM meter_readings m LEFT JOIN rooms r ON r.id=m.room_id WHERE r.id IS NULL;"             "SELECT COUNT(*) AS meters_without_bill FROM meter_readings m LEFT JOIN bills b ON b.id=m.bill_id WHERE m.bill_id<>'' AND b.id IS NULL;"
+          do
+            npx --yes wrangler@4 d1 execute delightapp-db --remote --command "$Q"
+          done
+
+      - name: Upload staging Worker version
+        run: npx --yes wrangler@4 versions upload --message "D1 staging validation" --tag "d1-staging"
+
+# final-sync-validation

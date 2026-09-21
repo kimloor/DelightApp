@@ -1,12 +1,30 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "delightapp",
+  "main": "src/d1-api.js",
+  "account_id": "72a2af0ff5c5e4a83d037953f8a35356",
   "compatibility_date": "2026-07-20",
   "observability": {
     "enabled": true
   },
   "assets": {
-    "directory": "หอพัก"
+    "directory": "หอพัก",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api",
+      "/api/*"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "delightapp-db",
+      "database_id": "6143b1ea-f708-49d9-8fe9-c0ae4f486379",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGIN": "*"
   },
   "compatibility_flags": [
     "nodejs_compat"
