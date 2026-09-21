@@ -1,6 +1,6 @@
 # DelightApp — Multi-Tenant Access Control V1
 
-> Status: PLANNED
+> Status: IN PROGRESS — Phase A/B/C complete; Phase D next
 > Goal: allow multiple independent admins to use DelightApp without seeing or modifying each other's properties, while allowing one property to have multiple admins.
 
 ## 1. Roles
@@ -261,10 +261,11 @@ Guardrails:
 
 ### Phase A — Schema only
 
-- add `property_admins`
-- add `tenant_accounts`
-- no behavior change
-- seed/verify mappings
+**Status: DONE**
+
+- `property_admins` added and seeded
+- `tenant_accounts` added and seeded
+- current mappings validated in production D1
 
 ### Phase B — Scoped reads
 
@@ -279,21 +280,33 @@ Implemented:
 
 Current limitation:
 
-- the existing admin frontend still uses legacy `getAll`
-- do not switch the admin UI to `getAdminScoped` until whole-table writes are replaced, otherwise a scoped client snapshot could delete rows outside its scope through the legacy replacement write path
-
-Next required phase: row-level writes.
+- the existing admin frontend still uses legacy global `getAll`
+- strict read isolation is intentionally deferred to Phase D
 
 ### Phase C — Row-level writes
 
-- rooms
+**Status: DONE**
+
+Production frontend writes now use explicit server-authorized row actions for:
+
 - properties
+- rooms, including bulk room creation/update
 - tenants
-- bills
-- meters
+- bills, including bulk updates and server-side invoice renumbering
+- meter history
 - receipts
 - deposits
-- layouts
+- room layouts
+
+Additional Phase C hardening:
+
+- server generates business IDs for new rows instead of trusting client snapshots
+- invoice / deposit receipt / receipt numbering is generated server-side for new records
+- property deletion is owner-only and cascades through the property's business data
+- tenant deletion removes its tenant-account binding
+- the legacy whole-table client save functions were removed
+- the legacy whole-table Worker write path returns `legacy_whole_table_write_disabled`
+- authenticated GET endpoints using tokens in URLs were retired; authenticated actions are POST-only
 
 ### Phase D — Enable isolation
 
@@ -355,9 +368,11 @@ pare   -> current tenant under ภาณุภณแมนชั่น
 
 Phase A may seed these mappings by joining the current sole tenant in each property.
 
-Strict isolation must not be enabled until:
+Strict isolation prerequisites now completed:
 
-1. admin mappings are seeded and verified
-2. tenant mappings are seeded and verified
-3. scoped reads are validated
-4. whole-table global writes are retired or safely scoped
+1. admin mappings seeded and verified
+2. tenant mappings seeded and verified
+3. scoped read APIs implemented
+4. whole-table global writes retired
+
+Next: Phase D — switch the admin frontend from legacy global `getAll` to `getAdminScoped` and run cross-admin isolation tests.
