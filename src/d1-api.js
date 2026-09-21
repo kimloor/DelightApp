@@ -522,6 +522,127 @@ async function deleteTenantRow(env, user, tenantId) {
   return {success:true,id,room:rowRoom(await dbRoom(env,existing.room_id))};
 }
 
+
+async function requireRoomAdminAccess(env, user, roomId) {
+  const room=await dbRoom(env,roomId);
+  if (!room) throw new Error('room_not_found');
+  await requireAdminProperty(env,user,room.property_id);
+  return room;
+}
+
+async function dbBill(env, billId) {
+  return env.DB.prepare('SELECT * FROM bills WHERE id=?').bind(String(billId)).first();
+}
+
+async function nextInvoiceNo(env, month) {
+  const q=await env.DB.prepare("SELECT invoice_no FROM bills WHERE invoice_no<>''").all();
+  let seq=0;
+  for (const r of (q.results||[])) {
+    const m=/-([0-9]+)$/.exec(String(r.invoice_no||''));
+    if (m) seq=Math.max(seq,Number(m[1])||0);
+  }
+  seq++;
+  const ym=s(month).replace('-','');
+  return `INV-${ym}-${String(seq).padStart(4,'0')}`;
+}
+
+async function createBillsRows(env, user, items) {
+  if (user.role !== 'admin') throw new Error('forbidden');
+  const drafts=Array.isArray(items)?items:[];
+  const out=[];
+  for (const raw of drafts) {
+    const roomId=s(raw?.roomId);
+    await requireRoomAdminAccess(env,user,roomId);
+    const month=s(raw?.month);
+    if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('invalid_bill_month');
+
+    const exists=await env.DB.prepare('SELECT id FROM bills WHERE room_id=? AND month=? LIMIT 1')
+      .bind(roomId,month).first();
+    if (exists) continue;
+
+    const id=await nextNumericId(env,'bills');
+    const invoiceNo=await nextInvoiceNo(env,month);
+    const next={...(raw||{}),id,roomId,month,invoiceNo};
+    await insertLogicalRow(env,'bills',next);
+    const saved=await dbBill(env,id);
+    out.push(rowBill(saved));
+    await appendLog(env,user,'create','bills',[id],1,'room '+roomId+' month '+month);
+  }
+  return out;
+}
+
+async function updateBillRow(env, user, item) {
+  const id=s(item?.id);
+  const existing=await dbBill(env,id);
+  if (!existing) throw new Error('bill_not_found');
+  await requireRoomAdminAccess(env,user,existing.room_id);
+
+  const roomId=s(item?.roomId);
+  await requireRoomAdminAccess(env,user,roomId);
+  const month=s(item?.month);
+  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('invalid_bill_month');
+
+  const dupMonth=await env.DB.prepare(
+    'SELECT id FROM bills WHERE room_id=? AND month=? AND id<>? LIMIT 1'
+  ).bind(roomId,month,id).first();
+  if (dupMonth) throw new Error('bill_room_month_exists');
+
+  const invoiceNo=s(item?.invoiceNo);
+  if (invoiceNo) {
+    const dupInv=await env.DB.prepare('SELECT id FROM bills WHERE invoice_no=? AND id<>? LIMIT 1')
+      .bind(invoiceNo,id).first();
+    if (dupInv) throw new Error('invoice_no_exists');
+  }
+
+  const next={...(item||{}),id,roomId,month};
+  await updateLogicalRow(env,'bills',next);
+  await appendLog(env,user,'update','bills',[id],1,'');
+  return rowBill(await dbBill(env,id));
+}
+
+async function batchUpdateBills(env, user, items) {
+  const list=Array.isArray(items)?items:[];
+  const out=[];
+  for (const item of list) out.push(await updateBillRow(env,user,item));
+  return out;
+}
+
+async function deleteBillRow(env, user, billId) {
+  const id=s(billId);
+  const existing=await dbBill(env,id);
+  if (!existing) throw new Error('bill_not_found');
+  await requireRoomAdminAccess(env,user,existing.room_id);
+  await env.DB.prepare('DELETE FROM bills WHERE id=?').bind(id).run();
+  await appendLog(env,user,'delete','bills',[id],1,'room '+existing.room_id);
+  return {success:true,id};
+}
+
+async function createMeterReadingRows(env, user, items) {
+  if (user.role !== 'admin') throw new Error('forbidden');
+  const list=Array.isArray(items)?items:[];
+  const out=[];
+  let nextIdNum=Number(await nextNumericId(env,'meter_readings'))||1;
+
+  for (const raw of list) {
+    const roomId=s(raw?.roomId);
+    await requireRoomAdminAccess(env,user,roomId);
+
+    const billId=s(raw?.billId);
+    if (billId) {
+      const bill=await dbBill(env,billId);
+      if (!bill || String(bill.room_id)!==roomId) throw new Error('meter_bill_room_mismatch');
+    }
+
+    const id=String(nextIdNum++);
+    const next={...(raw||{}),id,roomId,billId};
+    await insertLogicalRow(env,'meterReadings',next);
+    const saved=await env.DB.prepare('SELECT * FROM meter_readings WHERE id=?').bind(id).first();
+    out.push(rowMeter(saved));
+  }
+  if(out.length) await appendLog(env,user,'create','meter_readings',out.map(x=>x.id),out.length,'');
+  return out;
+}
+
 async function handlePost(request, env, body) {
   if (body.action === 'login') {
     const username = s(body.username).trim();
@@ -607,6 +728,31 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'deleteTenant') {
     try { return await deleteTenantRow(env,x.user,body.id); }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'createBills') {
+    try { return {success:true,bills:await createBillsRows(env,x.user,body.items)}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'updateBill') {
+    try { return {success:true,bill:await updateBillRow(env,x.user,body.item||{})}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'batchUpdateBills') {
+    try { return {success:true,bills:await batchUpdateBills(env,x.user,body.items)}; }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'deleteBill') {
+    try { return await deleteBillRow(env,x.user,body.id); }
+    catch(e) { return {error:e.message}; }
+  }
+
+  if (body.action === 'createMeterReadings') {
+    try { return {success:true,meterReadings:await createMeterReadingRows(env,x.user,body.items)}; }
     catch(e) { return {error:e.message}; }
   }
 
