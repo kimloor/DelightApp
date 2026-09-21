@@ -968,18 +968,6 @@ async function remoteGetAll(){
   return data;
 }
 
-async function remoteSaveTable(table, items){
-  const res = await fetch(sheetUrl, {
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({table, items, token: authToken})
-  });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const data = await res.json();
-  if(data && data.error) throw new Error(data.error);
-  return data;
-}
-
 /* เรียก action='login' ตรงๆ (ไม่ต้องมี token เพราะยังไม่ได้ล็อกอิน) */
 async function remoteLogin(username, password){
   const res = await fetch(sheetUrl, {
@@ -1302,50 +1290,14 @@ async function loadData(){
     loadFromLocalCache();
   }
 
-  const migrated = migratePropertyScoping();
-  const idsMigrated = migrateNumericIds();
-  const invoicesAssigned = assignMissingInvoiceNos();
-  /* สำคัญ: auto-save กลับขึ้นเซิร์ฟเวอร์เฉพาะตอนที่เพิ่งดึงข้อมูลจากเซิร์ฟเวอร์สำเร็จจริง
-     (syncState==='ok') เท่านั้น — ถ้าข้อมูลตอนนี้มาจาก local cache สำรอง (syncState==='error'
-     เพราะเชื่อมต่อเซิร์ฟเวอร์ไม่ได้ตอนโหลด) ห้าม auto-save เด็ดขาด เพราะ cache นั้นอาจเป็นข้อมูล
-     ค้างจากบัญชี/session ก่อนหน้าบนเครื่องเดียวกัน การ save ทับตอนนั้นเคยทำให้ข้อมูลบัญชีอื่นหายมาแล้ว */
-  if((migrated || idsMigrated || invoicesAssigned) && syncState === 'ok'){
-    await Promise.all([saveRooms(), saveTenants(), saveBills(), saveProperties(), saveDeposits(), saveMeterReadings(), saveReceipts(), saveRoomLayouts()]);
-  }
+  // Production D1 data is already migrated and canonical.
+  // Never rewrite server tables automatically from a client snapshot during load.
 
   updateSyncLine();
   dataReady = true;
   renderPropertySelect();
   render();
 }
-
-async function saveTable(table, items){
-  try{ localStorage.setItem('dorm:'+table, JSON.stringify(items)); }catch(e){}
-  if (sheetUrl) {
-    try{
-      await remoteSaveTable(table, items);
-      syncState = 'ok';
-    }catch(e){
-      console.error('remote save error', e);
-      if(String(e.message)==='unauthorized'){
-        doLogout();
-        return;
-      }
-      syncState = 'error';
-    }
-    updateSyncLine();
-    return;
-  }
-  if (window.storage) { await wsSet('dorm:'+table, JSON.stringify(items)); }
-}
-async function saveRooms(){ await saveTable('rooms', rooms); }
-async function saveTenants(){ await saveTable('tenants', tenants); }
-async function saveBills(){ await saveTable('bills', bills); }
-async function saveProperties(){ await saveTable('properties', properties); }
-async function saveDeposits(){ await saveTable('deposits', deposits); }
-async function saveMeterReadings(){ await saveTable('meterReadings', meterReadings); }
-async function saveReceipts(){ await saveTable('receipts', receipts); }
-async function saveRoomLayouts(){ await saveTable('roomLayouts', roomLayouts); }
 
 function showToast(msg){
   const t = document.getElementById('toast');
