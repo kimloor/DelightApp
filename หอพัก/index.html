@@ -1717,14 +1717,20 @@ document.getElementById('propertySelect').addEventListener('change', async (e)=>
     if(!name || !name.trim()) return;
     const trimmed = name.trim();
     if(properties.find(p=>p.name===trimmed)){ showToast('มีอพาร์ทเมนท์ชื่อนี้อยู่แล้ว'); return; }
-    const newProp = {id:nextId(properties), name:trimmed, waterRate:18, electricRate:8};
-    properties.push(newProp);
-    currentPropertyId = newProp.id;
-    try{ localStorage.setItem('dorm:currentProperty', currentPropertyId); }catch(err){}
-    await saveProperties();
-    renderPropertySelect();
-    render();
-    showToast('เพิ่มอพาร์ทเมนท์แล้ว');
+    try{
+      const data = await remoteAuthPost({action:'createProperty', item:{name:trimmed, waterRate:18, electricRate:8}});
+      const newProp = data.property;
+      properties.push(newProp);
+      currentPropertyId = newProp.id;
+      try{ localStorage.setItem('dorm:currentProperty', currentPropertyId); }catch(err){}
+      cacheLocally();
+      renderPropertySelect();
+      render();
+      showToast('เพิ่มอพาร์ทเมนท์แล้ว');
+    }catch(err){
+      if(handleUnauthorized(err)) return;
+      showToast(String(err.message||err)==='property_name_exists' ? 'มีอพาร์ทเมนท์ชื่อนี้อยู่แล้ว' : 'เพิ่มอพาร์ทเมนท์ไม่สำเร็จ');
+    }
     return;
   }
   currentPropertyId = val;
@@ -2402,20 +2408,31 @@ function bulkEditRoomTypeDepositHtml(){
 }
 
 async function onSaveRoomTypeDepositBulk(){
-  let changed = 0;
+  const updates = [];
   document.querySelectorAll('.rtd-row').forEach(row=>{
     const room = rooms.find(r=>r.id===row.dataset.id);
     if(!room) return;
     const newType = row.querySelector('.rtd-type').value;
     const newDeposit = Number(row.querySelector('.rtd-deposit').value) || 0;
-    if(room.roomType !== newType || room.deposit !== newDeposit) changed++;
-    room.roomType = newType;
-    room.deposit = newDeposit;
+    if(room.roomType !== newType || room.deposit !== newDeposit){
+      updates.push({...room, roomType:newType, deposit:newDeposit});
+    }
   });
-  await saveRooms();
-  closeModal();
-  render();
-  showToast(changed>0 ? `บันทึกแล้ว ${changed} ห้อง` : 'ไม่มีการเปลี่ยนแปลง');
+  if(!updates.length){ closeModal(); showToast('ไม่มีการเปลี่ยนแปลง'); return; }
+  try{
+    const data = await remoteAuthPost({action:'batchUpdateRooms', items:updates});
+    (data.rooms||[]).forEach(saved=>{
+      const i=rooms.findIndex(r=>r.id===saved.id);
+      if(i>=0) rooms[i]=saved;
+    });
+    cacheLocally();
+    closeModal();
+    render();
+    showToast(`บันทึกแล้ว ${updates.length} ห้อง`);
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('บันทึกห้องไม่สำเร็จ');
+  }
 }
 
 /* ลำดับห้องสำหรับปุ่มเลื่อนซ้าย-ขวาในหน้าต่างแก้ไขห้องพัก
@@ -2899,11 +2916,20 @@ async function onSaveRates(){
   // id อพาร์ทเมนท์เป็นเลขรันคงที่แล้ว เปลี่ยนแค่ชื่อแสดงผล (name) ไม่กระทบ id หรือข้อมูลห้อง/ผู้เช่า/บิลที่เชื่อมโยงไว้เลย
   prop.name = newName;
 
-  await saveProperties();
-  closeModal();
-  renderPropertySelect();
-  render();
-  showToast('บันทึกการตั้งค่าแล้ว');
+  try{
+    const data = await remoteAuthPost({action:'updateProperty', item:prop});
+    const saved = data.property;
+    const idx=properties.findIndex(p=>p.id===saved.id);
+    if(idx>=0) properties[idx]=saved;
+    cacheLocally();
+    closeModal();
+    renderPropertySelect();
+    render();
+    showToast('บันทึกการตั้งค่าแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast(String(e.message||e)==='property_name_exists' ? 'มีอพาร์ทเมนท์ชื่อนี้อยู่แล้ว' : 'บันทึกการตั้งค่าไม่สำเร็จ');
+  }
 }
 
 async function onDeleteProperty(){
@@ -4048,35 +4074,45 @@ async function onSaveRoom(){
   const dup = rooms.find(r => r.propertyId===currentPropertyId && r.number === number && r.id !== editId);
   if(dup){ showToast('มีเลขห้องนี้อยู่แล้วในอพาร์ทเมนท์นี้ กรุณาใช้เลขห้องอื่น'); return; }
 
-  let savedRoom;
-  if(editId){
-    const room = rooms.find(r=>r.id===editId);
-    // id ห้องเป็นเลขรันคงที่แล้ว แก้เลขห้อง (number) แค่เปลี่ยนป้ายแสดงผล ไม่กระทบ id หรือผู้เช่า/บิลที่เชื่อมโยงไว้เลย
-    room.number = number; room.floor = floor; room.rent = Number(rent)||0; room.status = status;
-    room.roomType = roomType; room.deposit = Number(deposit)||0;
-    savedRoom = room;
-  } else {
-    savedRoom = {id:nextId(rooms), propertyId:currentPropertyId, number, floor, rent:Number(rent)||0, status, roomType, deposit:Number(deposit)||0};
-    rooms.push(savedRoom);
+  const draft = {
+    id: editId || '',
+    propertyId: currentPropertyId,
+    number, floor, rent:Number(rent)||0, status, roomType, deposit:Number(deposit)||0
+  };
+  try{
+    const data = await remoteAuthPost({action:editId?'updateRoom':'createRoom', item:draft});
+    const savedRoom = data.room;
+    const idx = rooms.findIndex(r=>r.id===savedRoom.id);
+    if(idx>=0) rooms[idx]=savedRoom; else rooms.push(savedRoom);
+    cacheLocally();
+    render();
+    // ไม่ปิดหน้าต่างหลังบันทึก — รีเฟรชฟอร์มเป็นโหมด "แก้ไข" ของห้องที่เพิ่งบันทึกแทน
+    onSaveRoom._editId = savedRoom.id;
+    openModal(roomFormHtml(savedRoom));
+    showToast('บันทึกห้องพักแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    const m=String(e.message||e);
+    showToast(m==='room_number_exists' ? 'มีเลขห้องนี้อยู่แล้วในอพาร์ทเมนท์นี้' : 'บันทึกห้องพักไม่สำเร็จ');
   }
-  await saveRooms();
-  render();
-  // ไม่ปิดหน้าต่างหลังบันทึก — รีเฟรชฟอร์มเป็นโหมด "แก้ไข" ของห้องที่เพิ่งบันทึกแทน
-  // เพื่อให้กดปุ่ม "ห้องถัดไป" ต่อเนื่องได้เลยโดยไม่ต้องเปิดหน้าต่างใหม่
-  onSaveRoom._editId = savedRoom.id;
-  openModal(roomFormHtml(savedRoom));
-  showToast('บันทึกห้องพักแล้ว');
 }
 async function onDeleteRoom(){
   const editId = onSaveRoom._editId;
   if(!editId) return;
-  if(!confirm('ลบห้องนี้? ข้อมูลผู้เช่าที่ผูกกับห้องนี้จะไม่ถูกลบ แต่จะไม่มีห้องอ้างอิง')) return;
-  rooms = rooms.filter(r=>r.id!==editId);
-  await saveRooms();
-  onSaveRoom._editId = null;
-  closeModal();
-  render();
-  showToast('ลบห้องพักแล้ว');
+  if(!confirm('ลบห้องนี้? ถ้ามีผู้เช่า บิล ใบเสร็จ หรือข้อมูลการเงินผูกอยู่ ระบบจะไม่อนุญาตให้ลบ')) return;
+  try{
+    await remoteAuthPost({action:'deleteRoom', id:editId});
+    rooms = rooms.filter(r=>r.id!==editId);
+    roomLayouts = roomLayouts.filter(r=>r.roomId!==editId);
+    cacheLocally();
+    onSaveRoom._editId = null;
+    closeModal();
+    render();
+    showToast('ลบห้องพักแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast(String(e.message||e)==='room_has_related_data' ? 'ลบไม่ได้ เพราะห้องนี้ยังมีข้อมูลผู้เช่า/บิล/การเงินผูกอยู่' : 'ลบห้องไม่สำเร็จ');
+  }
 }
 
 async function onSaveTenant(){
