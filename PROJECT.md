@@ -146,6 +146,14 @@ The application intentionally still preserves the pre-migration shared-data mode
 
 Owner/property isolation is a **future security/authorization feature**, not part of the completed D1 migration.
 
+Current planned access mapping for Multi-Tenant Access V1:
+
+- `kim` and `test` will have admin access to both existing properties
+- the remaining 2 existing accounts will become tenant accounts
+- tenant-to-tenant-record binding must be confirmed before isolation is enabled
+
+See `ACCESS-CONTROL-V1.md`.
+
 ## 6. Current frontend/backend connection behavior
 
 The production frontend uses a fixed same-origin endpoint:
