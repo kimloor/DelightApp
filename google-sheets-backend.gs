@@ -88,8 +88,65 @@ var SHEETS = {
                   'รหัส','รหัสห้อง','รหัสบิลอ้างอิง','เลขที่ใบเสร็จ','จำนวนเงิน','วันที่รับเงิน','หมายเหตุ',
                   'ยอดก่อนภาษี','VAT'
                 ] },
-  roomLayouts:   { name: 'ตำแหน่งผัง', headers: ['รหัส','รหัสห้อง','x','y'] }
+  roomLayouts:   { name: 'ตำแหน่งผัง', headers: ['รหัส','รหัสห้อง','x','y'] },
+  logs:          { name: 'ล็อก', headers: [
+                  'เวลา','userId','username','การกระทำ','ตาราง','รหัสที่กระทบ','จำนวนรายการ','หมายเหตุ'
+                ] }
 };
+
+/* ============================================================
+ * PK / FK ของแต่ละตาราง (v15) — ใช้ตรวจสอบความสัมพันธ์ระหว่างตารางก่อนบันทึกจริง
+ * ทุกตารางใช้ "รหัส" (คอลัมน์แรกเสมอ) เป็น primary key
+ * fks: [{ field: ชื่อฟิลด์ในข้อมูล client, refTable: ตารางที่อ้างอิงถึง }]
+ * ตาราง properties อ้างอิง "รหัสเจ้าของ" ไปที่ users แต่ field นี้ปิดการบังคับใช้ไปแล้ว
+ * (ดู doPost — ไม่ scope ตาม ownerId อีกต่อไป) จึงไม่ตรวจ FK นี้ ให้ค่าว่างได้เสมอ
+ * ============================================================ */
+var SCHEMA_FK = {
+  properties:    { pk: 'id', fks: [] },
+  rooms:         { pk: 'id', fks: [ { field: 'propertyId', refTable: 'properties' } ] },
+  tenants:       { pk: 'id', fks: [ { field: 'roomId', refTable: 'rooms' } ] },
+  bills:         { pk: 'id', fks: [ { field: 'roomId', refTable: 'rooms' } ] },
+  deposits:      { pk: 'id', fks: [ { field: 'roomId', refTable: 'rooms' } ] },
+  meterReadings: { pk: 'id', fks: [ { field: 'roomId', refTable: 'rooms' } ] },
+  receipts:      { pk: 'id', fks: [ { field: 'roomId', refTable: 'rooms' } ] },
+  roomLayouts:   { pk: 'id', fks: [ { field: 'roomId', refTable: 'rooms' } ] }
+};
+
+/* ตรวจว่าทุก item ที่จะบันทึกอ้างอิง FK ไปยัง record ที่มีอยู่จริงหรือไม่ — ถ้าอ้างอิงไปยัง "รหัส"
+   ที่ไม่มีอยู่จริงในตารางปลายทาง (เช่น รหัสห้องที่ถูกลบไปแล้ว) จะโยน error ทันที ไม่บันทึกอะไรเลย
+   ป้องกันข้อมูลกำพร้า (orphan row) ที่หาต้นตอไม่เจอทีหลัง — เป็นการ "เตือนตั้งแต่ตอนเขียน"
+   แทนที่จะปล่อยให้ข้อมูลเงียบๆ หายไปทีหลังแบบที่เคยเกิดปัญหา */
+function validateForeignKeys_(table, items) {
+  var cfg = SCHEMA_FK[table];
+  if (!cfg || !cfg.fks.length || !items || !items.length) return;
+  cfg.fks.forEach(function (fk) {
+    var validIds = {};
+    readTable_(fk.refTable).forEach(function (row) { validIds[String(row.id)] = true; });
+    items.forEach(function (item) {
+      var refVal = item[fk.field];
+      if (refVal === undefined || refVal === null || refVal === '') return; // ค่าว่างข้ามได้ (ยังไม่ผูก)
+      if (!validIds[String(refVal)]) {
+        throw new Error(
+          'ข้อมูลอ้างอิงผิด: ตาราง "' + table + '" มีรายการที่ ' + fk.field + '=' + refVal +
+          ' แต่ไม่พบ "รหัส"=' + refVal + ' ในตาราง "' + fk.refTable + '" — ไม่บันทึกข้อมูลทั้งชุดนี้'
+        );
+      }
+    });
+  });
+}
+
+/* บันทึก log ทุกครั้งที่มีการเขียนข้อมูลผ่าน doPost (ไม่ใช่แค่ตอน login) — เผื่อใช้สืบย้อนหลังได้
+   ว่า login ไหน แก้ไข/บันทึกตารางอะไร รายการไหนบ้าง ถ้าเกิดข้อมูลหายหรือผิดพลาดอีกในอนาคต
+   ไม่ throw error ถ้าการเขียน log ล้มเหลว (กัน log พังจนกระทบการบันทึกข้อมูลจริง) */
+function appendLog_(uid, username, action, table, ids, count, note) {
+  try {
+    var sheet = getOrCreateSheet_('logs');
+    var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd HH:mm:ss');
+    sheet.appendRow([stamp, uid || '', username || '', action || '', table || '', (ids || []).join(','), count || 0, note || '']);
+  } catch (e) {
+    // เงียบไว้ — log พังไม่ควรทำให้การบันทึกข้อมูลจริงล้มเหลวตาม
+  }
+}
 
 /* คอลัมน์ที่ต้องบังคับเป็น Plain text (@) เสมอ — เฉพาะช่องที่หน้าตาคล้ายตัวเลข/วันที่ ซึ่งเสี่ยงถูก
    Google Sheets แปลงชนิดข้อมูลเองอัตโนมัติ (เลขห้องมีเลขศูนย์นำหน้าได้ เช่น "001", เบอร์โทรไทยขึ้นต้น
@@ -443,27 +500,25 @@ function doGet(e) {
 
     var auth = verifyToken_(e.parameter && e.parameter.token);
     if (!auth) return jsonOutput_({ error: 'unauthorized' });
-    var uid = auth.uid;
 
-    var ownedPropIds = getOwnedPropertyIds_(uid);
-    var ownedRoomIds = getOwnedRoomIds_(ownedPropIds);
-
-    // ไม่ส่ง ownerId ออกไปให้ฝั่ง client เห็น (ไม่จำเป็นต้องรู้ ตัดออกก่อนส่ง)
+    /* v15: เปิดให้ทุกบัญชีที่ login แล้วเห็นข้อมูลทั้งหมดของทุกอพาร์ทเมนท์ ไม่กรองตาม
+       "รหัสเจ้าของ" อีกต่อไป (ตามที่ตกลงกันไว้ว่ายังไม่มีผู้ใช้งานจริงหลายคนพร้อมกัน) —
+       คอลัมน์ "รหัสเจ้าของ" ในชีต "อพาร์ทเมนท์" ยังเก็บไว้เหมือนเดิม ไม่ได้ลบทิ้ง เผื่อกลับมา
+       เปิดใช้การกรองนี้อีกครั้งในอนาคต แค่ตอนนี้ตัวแปร ownedPropIds/ownedRoomIds ไม่ถูกใช้กรองแล้ว */
     var properties = readTable_('properties')
-      .filter(function (p) { return ownedPropIds[p.id]; })
       .map(function (p) {
         return { id: p.id, name: p.name, waterRate: p.waterRate, electricRate: p.electricRate, address: p.address, notes: p.notes, qrImage: p.qrImage };
       });
 
     return jsonOutput_({
       properties: properties,
-      rooms: readTable_('rooms').filter(function (r) { return ownedPropIds[r.propertyId]; }),
-      tenants: readTable_('tenants').filter(function (t) { return ownedRoomIds[t.roomId]; }),
-      bills: readTable_('bills').filter(function (b) { return ownedRoomIds[b.roomId]; }),
-      deposits: readTable_('deposits').filter(function (d) { return ownedRoomIds[d.roomId]; }),
-      meterReadings: readTable_('meterReadings').filter(function (m) { return ownedRoomIds[m.roomId]; }),
-      receipts: readTable_('receipts').filter(function (rc) { return ownedRoomIds[rc.roomId]; }),
-      roomLayouts: readTable_('roomLayouts').filter(function (rl) { return ownedRoomIds[rl.roomId]; })
+      rooms: readTable_('rooms'),
+      tenants: readTable_('tenants'),
+      bills: readTable_('bills'),
+      deposits: readTable_('deposits'),
+      meterReadings: readTable_('meterReadings'),
+      receipts: readTable_('receipts'),
+      roomLayouts: readTable_('roomLayouts')
     });
   } catch (err) {
     return jsonOutput_({ error: String(err) });
@@ -543,30 +598,24 @@ function doPost(e) {
     var uid = auth.uid;
 
     var table = body.table;
-    if (!SHEETS[table] || table === 'users') throw new Error('unknown table: ' + table);
+    if (!SHEETS[table] || table === 'users' || table === 'logs') throw new Error('unknown table: ' + table);
     var items = body.items || [];
 
-    /* "scoped replace" — เขียนทับเฉพาะแถวที่เป็นของ user นี้ คงแถวของบัญชีอื่นไว้เหมือนเดิมเสมอ
-       (ต่างจาก v10 ที่ writeTable_ ลบทั้งชีตแล้วเขียนใหม่ทั้งหมด ซึ่งใช้ไม่ได้แล้วเมื่อมีหลายบัญชี
-       ใช้ชีตเดียวกัน — ไม่งั้นบัญชี A save ทีนึงจะลบข้อมูลของบัญชี B ทิ้งหมด) */
+    /* v15: เปิดให้ทุกบัญชีแก้ไขข้อมูลร่วมกันได้ทั้งหมด (ตามที่ตกลงกัน เพราะยังไม่มีผู้ใช้งานจริง
+       หลายคนพร้อมกัน) — ไม่ทำ "scoped replace" ตาม ownerId อีกต่อไป เขียนทับทั้งตารางตรงๆ
+       เหมือน v10 (ทุกคนแก้ของกันและกันได้) แต่ตรวจ FK ก่อนเขียนเสมอ (validateForeignKeys_) กัน
+       ข้อมูลอ้างอิงไปยัง "รหัส" ที่ไม่มีอยู่จริง แล้วบันทึก log ไว้ทุกครั้งเผื่อสืบย้อนหลัง */
     if (table === 'properties') {
-      items.forEach(function (p) { p.ownerId = uid; }); // บังคับเจ้าของเสมอ ไม่สนใจค่าที่ client ส่งมา
-      var existingProps = readTable_('properties');
-      var foreignProps = existingProps.filter(function (p) { return String(p.ownerId) !== String(uid); });
-      writeTable_('properties', foreignProps.concat(items));
-    } else if (table === 'rooms') {
-      var ownedPropIds = getOwnedPropertyIds_(uid);
-      var existingRooms = readTable_('rooms');
-      var foreignRooms = existingRooms.filter(function (r) { return !ownedPropIds[r.propertyId]; });
-      writeTable_('rooms', foreignRooms.concat(items));
+      // คอลัมน์ "รหัสเจ้าของ" ยังเก็บค่าที่ client ส่งมาได้ตามปกติ แต่ไม่ถูกใช้กรองอะไรแล้ว
+      // (ดู doGet) — ไม่บังคับ overwrite เป็น uid ปัจจุบันเหมือนก่อนหน้านี้
     } else {
-      // tenants, bills, deposits, meterReadings, receipts, roomLayouts — ทั้งหมดอ้างอิงผ่าน roomId
-      var ownedPropIds2 = getOwnedPropertyIds_(uid);
-      var ownedRoomIds = getOwnedRoomIds_(ownedPropIds2);
-      var existing = readTable_(table);
-      var foreign = existing.filter(function (item) { return !ownedRoomIds[item.roomId]; });
-      writeTable_(table, foreign.concat(items));
+      validateForeignKeys_(table, items);
     }
+
+    writeTable_(table, items);
+
+    var ids = items.map(function (it) { return it.id; });
+    appendLog_(uid, auth.u, 'save', table, ids, items.length, '');
 
     return jsonOutput_({ success: true });
   } catch (err) {
@@ -749,6 +798,107 @@ function RUN_createUser() {
   var newId = ADMIN_createUser('เจ้าของหอ', 'เปลี่ยนรหัสผ่านนี้ก่อนใช้จริง', 'เจ้าของหอ');
   // ถ้าอยากให้อพาร์ทเมนท์เดิมทั้งหมดเป็นของบัญชีนี้เลยในรอบเดียว ลบเครื่องหมาย // หน้าบรรทัดล่างออก:
   // ADMIN_assignAllPropertiesToUser(newId);
+}
+
+/* ============================================================
+ * กู้คืนข้อมูลที่หายจากบัคหน้า login/สมัครสมาชิก (v15)
+ * ------------------------------------------------------------
+ * สาเหตุเดิม: การสมัครสมาชิกบัญชีใหม่ระหว่างที่การเชื่อมต่อ Google Sheets ล้มเหลวชั่วคราว ทำให้
+ * แอปฝั่ง client โหลด cache เก่าขึ้นมาแสดง แล้ว auto-save ทับข้อมูลจริงของ "ผู้เช่า", "บิล" และ
+ * "จดมิเตอร์" ของอพาร์ทเมนท์ "ภาณุภณแมนชั่น" ไปบางส่วน (ตัวอพาร์ทเมนท์และห้องพักไม่ได้หายไปด้วย)
+ * ฟังก์ชันนี้ดึงเฉพาะแถวที่ "รหัส" ยังไม่มีอยู่ในชีตจริงตอนนี้ กลับเข้าไปจากไฟล์สำรอง
+ * (ไม่แตะแถวที่มีอยู่แล้วเลย ปลอดภัยที่จะรันซ้ำได้หลายครั้ง)
+ * ============================================================ */
+var RESTORE_BACKUP_FILE_ID = '1_OW4yl3wx4bux9kBGJ670QdphXWTbA_8pAwvcJavGVo'; // "dataAI - สำรอง 2026-09-15_0359"
+
+/* คัดลอกเฉพาะแถวที่ "รหัส" (คอลัมน์แรก) ยังไม่มีอยู่ในชีตจริงตอนนี้ จากชีตชื่อเดียวกันในไฟล์สำรอง
+   extraDefaults: object { colIndex(0-based): ค่า default } สำหรับคอลัมน์ที่มีเฉพาะในสคีมาปัจจุบัน
+   แต่ไม่มีในไฟล์สำรองเก่า (เช่น คอลัมน์ VAT ที่เพิ่มเข้ามาทีหลัง) */
+function ONE_TIME_restoreMissingRows_(table, backupSs, extraDefaults) {
+  var liveSheet = getOrCreateSheet_(table);
+  var cfg = SHEETS[table];
+  var backupSheet = backupSs.getSheetByName(cfg.name);
+  if (!backupSheet) { Logger.log('ไม่พบชีต "' + cfg.name + '" ในไฟล์สำรอง — ข้าม'); return { restored: 0, ids: [] }; }
+
+  var liveLastRow = liveSheet.getLastRow();
+  var existingIds = {};
+  if (liveLastRow >= 2) {
+    liveSheet.getRange(2, 1, liveLastRow - 1, 1).getValues().forEach(function (r) {
+      if (r[0] !== '' && r[0] !== null) existingIds[String(r[0])] = true;
+    });
+  }
+
+  var backupLastRow = backupSheet.getLastRow();
+  if (backupLastRow < 2) return { restored: 0, ids: [] };
+  var backupLastCol = backupSheet.getLastColumn();
+  var backupRows = backupSheet.getRange(2, 1, backupLastRow - 1, backupLastCol).getValues();
+
+  var targetCols = cfg.headers.length;
+  var rowsToAdd = [];
+  var restoredIds = [];
+  backupRows.forEach(function (row) {
+    if (row.join('') === '') return; // แถวว่าง
+    var id = row[0];
+    if (id === '' || id === null || existingIds[String(id)]) return; // มีอยู่แล้ว/ไม่มีรหัส ข้าม
+
+    var newRow = row.slice(0, targetCols);
+    while (newRow.length < targetCols) {
+      var colIndex = newRow.length; // 0-based index ของคอลัมน์ที่กำลังจะเติม (นับจาก 0)
+      newRow.push(extraDefaults && extraDefaults[colIndex] !== undefined ? extraDefaults[colIndex] : '');
+    }
+    rowsToAdd.push(newRow);
+    restoredIds.push(id);
+  });
+
+  if (rowsToAdd.length) {
+    var startRow = liveSheet.getLastRow() + 1;
+    liveSheet.getRange(startRow, 1, rowsToAdd.length, targetCols).setValues(rowsToAdd);
+  }
+  return { restored: rowsToAdd.length, ids: restoredIds };
+}
+
+/* รันฟังก์ชันนี้ "ครั้งเดียว" จาก Apps Script editor: เลือก ONE_TIME_restoreLostData จาก dropdown
+   ด้านบน กด Run แล้วดูผลที่ View > Logs (Ctrl+Enter) — ไม่ต้อง Deploy เวอร์ชันใหม่ก่อนก็รันได้
+   เพราะฟังก์ชันนี้ไม่ได้ถูกเรียกผ่าน doGet/doPost เลย ปลอดภัยที่จะรันซ้ำได้ถ้าไม่มั่นใจว่าสำเร็จ
+   (รอบต่อไปจะไม่เจอแถวไหนให้กู้คืนเพิ่มแล้ว เพราะรอบแรกเติมเข้าไปแล้ว) */
+function ONE_TIME_restoreLostData() {
+  var backupSs = SpreadsheetApp.openById(RESTORE_BACKUP_FILE_ID);
+
+  var tenantsResult = ONE_TIME_restoreMissingRows_('tenants', backupSs, null);
+  // ตาราง "บิล" ตอนนี้มี 3 คอลัมน์เพิ่มจาก v14 (VAT) ที่ไฟล์สำรองเก่ายังไม่มี — เติมค่าเริ่มต้นให้
+  // ยอดก่อนภาษี=0, VAT=0, เลขที่ใบกำกับภาษี='' (index 13,14,15 นับจาก 0 = คอลัมน์ที่ 14-16)
+  var billsResult = ONE_TIME_restoreMissingRows_('bills', backupSs, { 13: 0, 14: 0, 15: '' });
+  var meterResult = ONE_TIME_restoreMissingRows_('meterReadings', backupSs, null);
+
+  appendLog_('', '', 'restore', 'tenants', tenantsResult.ids, tenantsResult.restored, 'กู้คืนจากไฟล์สำรอง ' + RESTORE_BACKUP_FILE_ID);
+  appendLog_('', '', 'restore', 'bills', billsResult.ids, billsResult.restored, 'กู้คืนจากไฟล์สำรอง ' + RESTORE_BACKUP_FILE_ID);
+  appendLog_('', '', 'restore', 'meterReadings', meterResult.ids, meterResult.restored, 'กู้คืนจากไฟล์สำรอง ' + RESTORE_BACKUP_FILE_ID);
+
+  Logger.log(
+    'กู้คืนเสร็จแล้ว — ผู้เช่า: ' + tenantsResult.restored + ' คน (รหัส ' + tenantsResult.ids.join(',') + '), ' +
+    'บิล: ' + billsResult.restored + ' ใบ (รหัส ' + billsResult.ids.join(',') + '), ' +
+    'จดมิเตอร์: ' + meterResult.restored + ' รายการ (รหัส ' + meterResult.ids.join(',') + ')'
+  );
+}
+
+/* ฟังก์ชันเสริม (ทางเลือก ไม่บังคับรัน) — ลบแถวขยะที่เกิดจากบัคเดิม: ตอนสมัครสมาชิกทดสอบ (test02)
+   แอปสร้างอพาร์ทเมนท์ default ชื่อ "อพาร์ทเมนท์ 1" ให้อัตโนมัติ ซึ่งบังเอิญได้ "รหัส"=1 ชนกับ
+   "ภาณุภณแมนชั่น" ตัวจริง (เป็นต้นตอที่ทำให้ข้อมูลเชื่อมกันผิดจนบางส่วนหาย) แถวนี้ไม่มีห้อง/ข้อมูล
+   อะไรข้างในเลย ลบทิ้งได้อย่างปลอดภัย — ตรวจ 3 เงื่อนไขตรงกันเป๊ะก่อนลบเสมอ (รหัส, ชื่อ, เจ้าของ)
+   กันลบผิดแถว ถ้าไม่แน่ใจข้ามฟังก์ชันนี้ไปก็ได้ ไม่กระทบการกู้คืนข้อมูลด้านบน */
+function ONE_TIME_removeDuplicateTestProperty() {
+  var sheet = getOrCreateSheet_('properties');
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) { Logger.log('ไม่มีข้อมูลอพาร์ทเมนท์เลย'); return; }
+  var values = sheet.getRange(2, 1, lastRow - 1, SHEETS.properties.headers.length).getValues();
+  var rowToDelete = -1;
+  for (var i = 0; i < values.length; i++) {
+    var id = String(values[i][0]), name = String(values[i][1] || ''), ownerId = String(values[i][7] || '');
+    if (id === '1' && name === 'อพาร์ทเมนท์ 1' && ownerId === '3') { rowToDelete = i + 2; break; } // +2: แถวข้อมูลเริ่มที่แถวชีตที่ 2
+  }
+  if (rowToDelete === -1) { Logger.log('ไม่พบแถวขยะที่ตรงเงื่อนไข — อาจถูกลบไปแล้ว หรือไม่เจอ'); return; }
+  sheet.deleteRow(rowToDelete);
+  Logger.log('ลบแถวขยะ "อพาร์ทเมนท์ 1" (รหัส=1, เจ้าของ=3) ที่แถวชีตที่ ' + rowToDelete + ' เรียบร้อยแล้ว');
 }
 
 /* ============================================================

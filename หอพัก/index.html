@@ -1271,8 +1271,12 @@ async function loadData(){
   const migrated = migratePropertyScoping();
   const idsMigrated = migrateNumericIds();
   const invoicesAssigned = assignMissingInvoiceNos();
-  if(migrated || idsMigrated || invoicesAssigned){
-    await Promise.all([saveRooms(), saveTenants(), saveBills(), saveProperties(), saveDeposits(), saveMeterReadings()]);
+  /* สำคัญ: auto-save กลับขึ้นเซิร์ฟเวอร์เฉพาะตอนที่เพิ่งดึงข้อมูลจากเซิร์ฟเวอร์สำเร็จจริง
+     (syncState==='ok') เท่านั้น — ถ้าข้อมูลตอนนี้มาจาก local cache สำรอง (syncState==='error'
+     เพราะเชื่อมต่อเซิร์ฟเวอร์ไม่ได้ตอนโหลด) ห้าม auto-save เด็ดขาด เพราะ cache นั้นอาจเป็นข้อมูล
+     ค้างจากบัญชี/session ก่อนหน้าบนเครื่องเดียวกัน การ save ทับตอนนั้นเคยทำให้ข้อมูลบัญชีอื่นหายมาแล้ว */
+  if((migrated || idsMigrated || invoicesAssigned) && syncState === 'ok'){
+    await Promise.all([saveRooms(), saveTenants(), saveBills(), saveProperties(), saveDeposits(), saveMeterReadings(), saveReceipts(), saveRoomLayouts()]);
   }
 
   updateSyncLine();
@@ -1336,6 +1340,10 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
       localStorage.setItem('dorm:currentUser', JSON.stringify(currentUser));
     }catch(err){}
     document.getElementById('loginPassword').value = '';
+    /* กันข้อมูล cache ของบัญชี/เครื่องก่อนหน้าค้างอยู่ ก่อนโหลดข้อมูลบัญชีนี้ขึ้นมาใหม่ —
+       ไม่งั้นถ้าดึงข้อมูลจากเซิร์ฟเวอร์รอบแรกไม่สำเร็จ (เช่น เน็ตสะดุด) โค้ดจะ fallback ไปโชว์/
+       auto-save ข้อมูลเก่าของบัญชีก่อนหน้าทับเข้าไปแทน (นี่คือต้นตอที่เคยทำให้ข้อมูลหายมาก่อน) */
+    clearLocalDataCache();
     showAppScreen();
     await loadData();
   }catch(e){
@@ -1386,6 +1394,9 @@ document.getElementById('registerForm').addEventListener('submit', async (e)=>{
     }catch(err){}
     document.getElementById('registerPassword').value = '';
     document.getElementById('registerPasswordConfirm').value = '';
+    /* เหตุผลเดียวกับตอน login — บัญชีใหม่ต้องเริ่มจากศูนย์ ไม่ใช่โชว์/เขียนทับด้วยข้อมูลที่ค้างอยู่
+       ใน localStorage จากบัญชีก่อนหน้าบนเครื่อง/เบราว์เซอร์เดียวกัน */
+    clearLocalDataCache();
     showAppScreen();
     await loadData();
     showToast('สมัครสมาชิกสำเร็จ ยินดีต้อนรับ!');
