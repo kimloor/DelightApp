@@ -18,7 +18,7 @@
     {
       "binding": "DB",
       "database_name": "delightapp-db",
-      "database_id": "<D1_DATABASE_ID>",
+      "database_id": "6143b1ea-f708-49d9-8fe9-c0ae4f486379",
       "migrations_dir": "migrations"
     }
   ],
