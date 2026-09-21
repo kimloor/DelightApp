@@ -388,6 +388,11 @@ async function handlePost(request, env, body) {
 
   const table = body.table;
   if (!TABLES[table]) return {error:'unknown table: '+s(table)};
+
+  // Legacy whole-table write path is admin-only.
+  // Tenant accounts must never be able to modify administrative datasets.
+  if (x.user.role !== 'admin') return {error:'forbidden'};
+
   await replaceLogicalTable(env, table, Array.isArray(body.items) ? body.items : []);
   const ids=(body.items||[]).map(it=>s(it.id));
   await appendLog(env,x.user,'save',table,ids,ids.length,'');
