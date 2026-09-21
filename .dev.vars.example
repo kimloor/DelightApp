@@ -1,0 +1,6 @@
+# Set secrets with Wrangler; do not commit real values.
+# npx wrangler secret put AUTH_SECRET --config wrangler.d1.jsonc
+# npx wrangler secret put BOT_API_KEY --config wrangler.d1.jsonc
+
+AUTH_SECRET=replace-with-a-long-random-secret
+BOT_API_KEY=replace-with-existing-or-new-bot-key
