@@ -1,0 +1,317 @@
+# DelightApp — Multi-Tenant Access Control V1
+
+> Status: PLANNED
+> Goal: allow multiple independent admins to use DelightApp without seeing or modifying each other's properties, while allowing one property to have multiple admins.
+
+## 1. Roles
+
+V1 uses only two application roles:
+
+- `admin`
+- `tenant`
+
+No staff role in V1.
+
+A future platform-level `superadmin` may be added separately if needed, but it is not part of this V1 permission model.
+
+## 2. Core relationship
+
+Admin access is many-to-many:
+
+```text
+users (admin)
+   |
+   v
+property_admins
+   |
+   v
+properties
+   |
+   +-- rooms
+        |
+        +-- tenants
+        +-- bills
+        +-- deposits
+        +-- meter readings
+        +-- receipts
+        +-- room layouts
+```
+
+This supports:
+
+- one admin -> many properties
+- one property -> many admins
+- admins cannot access properties they are not assigned to
+
+## 3. New table: property_admins
+
+Proposed schema:
+
+```sql
+CREATE TABLE property_admins (
+  property_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  access_role TEXT NOT NULL DEFAULT 'admin'
+    CHECK (access_role IN ('owner','admin')),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (property_id, user_id),
+  FOREIGN KEY (property_id) REFERENCES properties(id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+```
+
+Indexes:
+
+- `property_admins(user_id)`
+- `property_admins(property_id)`
+
+## 4. Property roles
+
+### owner
+
+- full property access
+- can add another admin
+- can remove an admin
+- can transfer ownership
+- cannot remove the last owner without assigning another owner
+
+### admin
+
+- full operational access to property data
+- cannot change owner
+- cannot remove owner
+- cannot grant/revoke property admin access in V1
+
+Both owner/admin can manage:
+
+- rooms
+- tenants
+- bills
+- meters
+- receipts
+- deposits
+- property settings
+- VAT/settings
+- room layout
+
+## 5. Tenant account mapping
+
+Tenant login must not grant property-admin access.
+
+Proposed table:
+
+```sql
+CREATE TABLE tenant_accounts (
+  user_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+```
+
+Tenant permission chain:
+
+```text
+current user
+ -> tenant_accounts
+ -> tenant
+ -> room
+ -> property
+```
+
+Tenant may access only data explicitly belonging to that tenant/room.
+
+Future tenant-facing features may include:
+
+- own bills
+- own receipts
+- repair requests
+- parcels
+- announcements
+- contract
+- payment/booking status
+
+## 6. Backend enforcement
+
+Frontend filtering is not sufficient.
+
+Every protected Worker action must derive access from the authenticated user.
+
+For admin access:
+
+```text
+user
+ -> property_admins
+ -> allowed property IDs
+```
+
+Queries must return only rows belonging to those property IDs.
+
+Writes must validate that the target row belongs to an allowed property before insert/update/delete.
+
+Examples:
+
+```text
+room -> property_id -> property_admins
+bill -> room -> property -> property_admins
+tenant -> room -> property -> property_admins
+receipt -> room -> property -> property_admins
+meter -> room -> property -> property_admins
+```
+
+A client-supplied property ID must never be trusted without server-side authorization.
+
+## 7. getAll behavior
+
+Current `getAll` returns the shared global dataset.
+
+After V1:
+
+### admin
+
+Return only:
+
+- properties assigned in `property_admins`
+- rooms in those properties
+- tenants in those rooms
+- bills/deposits/meters/receipts/layouts belonging to those rooms
+
+### tenant
+
+Do not use the admin `getAll` payload.
+
+Tenant should use a separate tenant-facing endpoint with a deliberately smaller response.
+
+## 8. Write model interaction
+
+The current compatibility whole-table write model is unsafe for multi-tenant isolation because deleting "rows absent from the client snapshot" can affect data outside the user's scope.
+
+Therefore the access-control rollout and row-level CRUD migration are linked.
+
+Recommended order:
+
+1. create access tables and migration
+2. seed existing access mappings
+3. introduce scoped read APIs
+4. implement row-level create/update/delete APIs
+5. migrate frontend writes
+6. disable old whole-table write path
+7. enable strict property isolation
+
+Do not enable strict isolation while unrestricted whole-table replacement remains active.
+
+## 9. Existing data migration
+
+Before enabling isolation, every existing property must have at least one owner.
+
+For current production data:
+
+- preserve existing property IDs
+- preserve all current business records
+- populate `property_admins` explicitly
+- verify each property has >= 1 owner
+- verify all existing operational users have the intended access
+- only then enable scoped queries/writes
+
+No property should become inaccessible during migration.
+
+## 10. Account creation
+
+Public self-registration is disabled.
+
+V1 account provisioning:
+
+- admins are created by an authorized admin/platform process
+- tenant accounts are created or invited through a future tenant-account flow
+
+Creating an account does not itself grant property access.
+
+Property access must be added explicitly to `property_admins`.
+
+## 11. Admin UI requirements
+
+Future admin user management should support:
+
+- create admin account
+- list admins
+- assign admin to property
+- choose owner/admin
+- remove admin from property
+- transfer ownership
+- show properties each admin can access
+
+Guardrails:
+
+- cannot leave a property with zero owners
+- cannot grant tenant accounts admin access accidentally
+- every permission change writes an audit log
+
+## 12. Security rules
+
+1. Every admin read/write is server-scoped by property access.
+2. Never trust client-side filtering for authorization.
+3. Never trust client-supplied owner/user IDs without validating them.
+4. Tenant endpoints must be separate from admin bulk endpoints.
+5. Permission changes must be audit logged.
+6. Whole-table global replacement must be retired before strict isolation.
+7. Property ownership/access changes should be transactional where multiple rows are involved.
+
+## 13. Rollout phases
+
+### Phase A — Schema only
+
+- add `property_admins`
+- add `tenant_accounts`
+- no behavior change
+- seed/verify mappings
+
+### Phase B — Scoped reads
+
+- add property-aware admin reads
+- verify side-by-side with current behavior
+
+### Phase C — Row-level writes
+
+- rooms
+- properties
+- tenants
+- bills
+- meters
+- receipts
+- deposits
+- layouts
+
+### Phase D — Enable isolation
+
+- remove global shared-data behavior
+- admins see only assigned properties
+- verify cross-admin denial tests
+
+### Phase E — Tenant foundation
+
+- tenant account binding
+- tenant-specific API
+- tenant portal foundation
+
+## 14. Acceptance tests
+
+Minimum required:
+
+- admin A can access assigned property 1
+- admin A cannot read property owned only by admin B
+- admin A cannot write/delete rows under admin B property
+- property can have 2-3 admins
+- one admin can have 3-4 properties
+- owner can add/remove admin
+- ordinary admin cannot remove owner
+- property cannot end with zero owners
+- tenant cannot access admin endpoints
+- tenant can access only own tenant/room data
+- audit log records access-management changes
+
+## 15. Current blocker before implementation
+
+Existing production users and properties must be mapped intentionally before strict isolation is enabled.
+
+The migration must know which current accounts should have access to which current properties.
