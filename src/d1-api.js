@@ -1329,6 +1329,109 @@ async function platformOverview(env, user) {
   };
 }
 
+
+async function platformHealth(env, user) {
+  await requireSuperadminUser(user);
+  const now=Date.now();
+  const recentWindow=now-(24*60*60*1000);
+  const requiredSchema=[
+    'users','properties','property_admins','tenant_accounts','audit_logs',
+    'auth_login_limits','id_counters','document_counters'
+  ];
+
+  const [schemaQ,authQ,noOwnerQ,noActiveOwnerQ,badAdminQ,badTenantQ,auditQ]=await Promise.all([
+    env.DB.prepare(
+      `SELECT name,type FROM sqlite_master
+       WHERE type='table' AND name IN (?,?,?,?,?,?,?,?)
+       ORDER BY name`
+    ).bind(...requiredSchema).all(),
+    env.DB.prepare(
+      `SELECT
+         COUNT(*) AS tracked,
+         SUM(CASE WHEN blocked_until>? THEN 1 ELSE 0 END) AS blocked_now,
+         SUM(CASE WHEN updated_at>=? THEN 1 ELSE 0 END) AS touched_24h
+       FROM auth_login_limits`
+    ).bind(now,recentWindow).first(),
+    env.DB.prepare(
+      `SELECT p.id,p.name
+       FROM properties p
+       LEFT JOIN property_admins pa
+         ON pa.property_id=p.id AND pa.access_role='owner'
+       GROUP BY p.id,p.name
+       HAVING COUNT(pa.user_id)=0
+       ORDER BY p.name,p.id`
+    ).all(),
+    env.DB.prepare(
+      `SELECT p.id,p.name
+       FROM properties p
+       LEFT JOIN property_admins pa
+         ON pa.property_id=p.id AND pa.access_role='owner'
+       LEFT JOIN users u ON u.id=pa.user_id
+       GROUP BY p.id,p.name
+       HAVING SUM(CASE WHEN u.account_status='active' THEN 1 ELSE 0 END)=0
+       ORDER BY p.name,p.id`
+    ).all(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c
+       FROM property_admins pa
+       LEFT JOIN users u ON u.id=pa.user_id
+       WHERE u.id IS NULL OR u.role<>'admin'`
+    ).first(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c
+       FROM tenant_accounts ta
+       LEFT JOIN users u ON u.id=ta.user_id
+       LEFT JOIN tenants t ON t.id=ta.tenant_id
+       WHERE u.id IS NULL OR t.id IS NULL OR u.role<>'tenant'`
+    ).first(),
+    env.DB.prepare(
+      `SELECT id,created_at,user_id,username,action,table_name,affected_ids,item_count,note
+       FROM audit_logs
+       WHERE action LIKE 'platform%'
+       ORDER BY CAST(id AS INTEGER) DESC,id DESC
+       LIMIT 50`
+    ).all(),
+  ]);
+
+  const found=(schemaQ.results||[]).map(r=>String(r.name));
+  const missing=requiredSchema.filter(name=>!found.includes(name));
+  const mapProperty=r=>({id:String(r.id),name:r.name||''});
+  const recentPlatformAudit=(auditQ.results||[]).map(r=>({
+    id:String(r.id),
+    createdAt:r.created_at||'',
+    userId:String(r.user_id||''),
+    username:r.username||'',
+    action:r.action||'',
+    tableName:r.table_name||'',
+    affectedIds:r.affected_ids||'',
+    itemCount:Number(r.item_count)||0,
+    note:r.note||'',
+  }));
+
+  return {
+    success:true,
+    generatedAt:new Date().toISOString(),
+    schema:{
+      expected:requiredSchema.length,
+      found:found.length,
+      missing,
+      ok:missing.length===0,
+    },
+    auth:{
+      trackedKeys:Number(authQ?.tracked)||0,
+      blockedNow:Number(authQ?.blocked_now)||0,
+      touched24h:Number(authQ?.touched_24h)||0,
+    },
+    access:{
+      propertiesWithoutOwner:(noOwnerQ.results||[]).map(mapProperty),
+      propertiesWithoutActiveOwner:(noActiveOwnerQ.results||[]).map(mapProperty),
+      invalidAdminMappings:Number(badAdminQ?.c)||0,
+      invalidTenantBindings:Number(badTenantQ?.c)||0,
+    },
+    recentPlatformAudit,
+  };
+}
+
 async function platformSetAccountStatus(env, user, body) {
   await requireSuperadminUser(user);
   const targetId=s(body.userId);
@@ -1670,6 +1773,12 @@ async function handlePost(request, env, body) {
     try { return await platformOverview(env,x.user); }
     catch(e) { return {error:businessErrorMessage(e)}; }
   }
+
+  if (body.action === 'platformHealth') {
+    try { return await platformHealth(env,x.user); }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
 
   if (body.action === 'platformSetAccountStatus') {
     try { return await platformSetAccountStatus(env,x.user,body); }
