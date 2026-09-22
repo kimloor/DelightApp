@@ -226,12 +226,13 @@ Key examples:
 A post-foundation stabilization phase is now active before major new product features.
 
 Current priority:
-- S4 Tenant Account Lifecycle
+- S5 Frontend Security / XSS Audit
 
 Completed stabilization:
 - S1 Auth / Session Hardening V2
 - S2 Financial / Database Integrity V1
 - S3 Paid Bill Lock + Receipt Void V1
+- S4 Tenant Account Lifecycle V1
 
 Planned stabilization:
 - financial/database integrity
