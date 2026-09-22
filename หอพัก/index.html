@@ -3269,7 +3269,7 @@ function ratesFormHtml(){
         </div>`).join('')
     : '<div class="sub" style="font-size:12.5px;">ยังไม่มีข้อมูลผู้ดูแล</div>';
   return `
-    <h3>ตั้งค่าอพาร์ทเมนท์ — ${prop.name||''}</h3>
+    <h3>ตั้งค่าอพาร์ทเมนท์ — ${escapeAuthHtml(prop.name||'')}</h3>
     <p class="sub" style="font-size:13px;line-height:1.6;margin:0 0 14px;">ใช้คำนวณค่าน้ำ-ไฟจากเลขมิเตอร์ และแสดงบนหัวใบแจ้งหนี้ที่พิมพ์</p>
     <div class="field" style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--bg);">
       <label style="margin-bottom:6px;">ผู้ดูแลอพาร์ทเมนท์</label>
@@ -3897,11 +3897,11 @@ function renderBills(){
             const activeReceipt = billReceipts.find(rc=>(rc.status||'active')==='active') || null;
             const locked = !!activeReceipt;
             const receiptBtnHtml = activeReceipt
-              ? `<button class="btn ghost small print-receipt" data-id="${activeReceipt.id}" title="พิมพ์ใบเสร็จ ${activeReceipt.receiptNo}">🔒 ใบเสร็จ</button>`
+              ? `<button class="btn ghost small print-receipt" data-id="${activeReceipt.id}" title="พิมพ์ใบเสร็จ ${escapeAuthHtml(activeReceipt.receiptNo)}">🔒 ใบเสร็จ</button>`
               : `<button class="btn small issue-receipt" data-id="${b.id}">🧾 ออกใบเสร็จ</button>`;
             return `<tr data-id="${b.id}" class="${isSel?'row-selected':''}">
               <td class="select-cell"><input type="checkbox" class="bill-select" data-id="${b.id}" ${isSel?'checked':''}></td>
-              <td class="room-cell" data-label="ห้อง">${room?room.number:'—'}</td>
+              <td class="room-cell" data-label="ห้อง">${room?escapeAuthHtml(room.number):'—'}</td>
               <td class="mono muted" data-label="ค่าเช่า">${THB(b.rent)}</td>
               <td class="edit-water" data-id="${b.id}" data-label="ค่าน้ำ" style="cursor:${locked?'not-allowed':'pointer'};">${meterCellHtml(b,'water')}</td>
               <td class="edit-electric" data-id="${b.id}" data-label="ค่าไฟ" style="cursor:${locked?'not-allowed':'pointer'};">${meterCellHtml(b,'electric')}</td>
