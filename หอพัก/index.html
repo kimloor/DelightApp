@@ -2266,22 +2266,63 @@ function attachModalEvents(){
   if(rtdSelectAll) rtdSelectAll.onchange = ()=>{
     document.querySelectorAll('.rtd-check').forEach(cb=> cb.checked = rtdSelectAll.checked);
   };
+  document.querySelectorAll('[data-rtd-select]').forEach(btn=>btn.onclick=()=>{
+    const mode=btn.dataset.rtdSelect;
+    document.querySelectorAll('.rtd-row').forEach(row=>{
+      row.querySelector('.rtd-check').checked = mode==='all' || row.dataset.status===mode;
+    });
+    if(rtdSelectAll) rtdSelectAll.checked = mode==='all';
+  });
+  const rtdQuickFloor=document.getElementById('rtdQuickFloor');
+  if(rtdQuickFloor) rtdQuickFloor.onchange=()=>{
+    const floor=rtdQuickFloor.value;
+    if(!floor) return;
+    document.querySelectorAll('.rtd-row').forEach(row=>{
+      row.querySelector('.rtd-check').checked = row.dataset.floor===floor;
+    });
+    if(rtdSelectAll) rtdSelectAll.checked=false;
+  };
   const applyRtdBulkBtn = document.getElementById('applyRtdBulkBtn');
   if(applyRtdBulkBtn) applyRtdBulkBtn.onclick = ()=>{
     const type = document.getElementById('rtd-bulk-type').value;
+    const rentRaw = document.getElementById('rtd-bulk-rent').value;
     const depositRaw = document.getElementById('rtd-bulk-deposit').value;
+    const floorRaw = document.getElementById('rtd-bulk-floor').value.trim();
     let appliedCount = 0;
     document.querySelectorAll('.rtd-row').forEach(row=>{
       const cb = row.querySelector('.rtd-check');
       if(!cb.checked) return;
-      if(type) row.querySelector('.rtd-type').value = type;
+      if(type) row.querySelector('.rtd-type').value = type==='__clear__' ? '' : type;
+      if(rentRaw !== '') row.querySelector('.rtd-rent').value = rentRaw;
       if(depositRaw !== '') row.querySelector('.rtd-deposit').value = depositRaw;
+      if(floorRaw !== '') row.querySelector('.rtd-floor').value = floorRaw;
       appliedCount++;
     });
-    if(appliedCount===0) showToast('ยังไม่ได้ติ๊กเลือกห้องเลย');
+    if(appliedCount===0) showToast('ยังไม่ได้เลือกห้อง');
+    else if(!type && rentRaw==='' && depositRaw==='' && floorRaw==='') showToast('ยังไม่ได้กำหนดค่าที่ต้องการเปลี่ยน');
   };
   const saveRtdBtn = document.getElementById('saveRtdBtn');
   if(saveRtdBtn) saveRtdBtn.onclick = onSaveRoomTypeDepositBulk;
+
+  const editRoomFromDetailBtn = document.getElementById('editRoomFromDetailBtn');
+  if(editRoomFromDetailBtn) editRoomFromDetailBtn.onclick = ()=>{
+    const id=document.querySelector('.room-detail')?.dataset.roomId;
+    const room=rooms.find(r=>r.id===id);
+    if(room){ onSaveRoom._editId=room.id; openModal(roomFormHtml(room)); }
+  };
+  const viewTenantFromRoomBtn = document.getElementById('viewTenantFromRoomBtn');
+  if(viewTenantFromRoomBtn) viewTenantFromRoomBtn.onclick = ()=>{
+    const id=document.querySelector('.room-detail')?.dataset.roomId;
+    const room=rooms.find(r=>r.id===id);
+    const tenant=room ? tenants.find(t=>t.roomId===room.id) : null;
+    if(!tenant) return;
+    renderTenants._query=tenantDisplayName(tenant);
+    currentPage='tenants';
+    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.page==='tenants'));
+    closeModal();
+    render();
+  };
+
   const prevRoomBtn = document.getElementById('prevRoomBtn');
   if(prevRoomBtn && prevRoomBtn.dataset.id){
     prevRoomBtn.onclick = ()=>{
@@ -5089,18 +5130,17 @@ function printMonthReport(month){
 /* ============ Events ============ */
 function attachPageEvents(){
   // Rooms
-  const addRoomBtn = document.getElementById('addRoomBtn');
-  if(addRoomBtn) addRoomBtn.onclick = ()=> openModal(roomFormHtml(null));
+  const addRoomSingleBtn = document.getElementById('addRoomSingleBtn');
+  if(addRoomSingleBtn) addRoomSingleBtn.onclick = ()=>{ onSaveRoom._editId=null; openModal(roomFormHtml(null)); };
   const addRoomsBulkBtn = document.getElementById('addRoomsBulkBtn');
   if(addRoomsBulkBtn) addRoomsBulkBtn.onclick = ()=> openModal(bulkRoomFormHtml());
-  const bulkEditTypeDepositBtn = document.getElementById('bulkEditTypeDepositBtn');
-  if(bulkEditTypeDepositBtn) bulkEditTypeDepositBtn.onclick = ()=> openModal(bulkEditRoomTypeDepositHtml(), {wide:true});
+  const bulkEditRoomsBtn = document.getElementById('bulkEditRoomsBtn');
+  if(bulkEditRoomsBtn) bulkEditRoomsBtn.onclick = ()=> openModal(bulkEditRoomTypeDepositHtml(), {wide:true});
 
   document.querySelectorAll('.room-tag, .room-row').forEach(el=>{
     el.onclick = ()=>{
       const room = rooms.find(r=>r.id===el.dataset.id);
-      onSaveRoom._editId = room.id;
-      openModal(roomFormHtml(room));
+      if(room) openModal(roomDetailHtml(room), {wide:true});
     };
   });
 
