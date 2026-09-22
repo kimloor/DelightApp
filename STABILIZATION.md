@@ -88,7 +88,7 @@ Goals:
 - never imply cached data is current server state
 
 ### S8 — Audit Log Viewer
-Status: NEXT
+Status: DONE
 
 Goals:
 - owner-scoped operational audit view
@@ -136,8 +136,10 @@ S5 — Frontend Security / XSS Audit is production-verified.
 S6 Phase A/B/C — Superadmin Console V1 is production-verified.
 
 S7 — Admin Offline Read-Only Mode is production-verified.
+S8 — Audit Log Viewer is production-verified.
 
-Next: S8 — Audit Log Viewer.
+Stabilization S1-S8 is complete.
+S9 — Frontend Modularization / Legacy Cleanup remains intentionally deferred.
 
 Detailed contracts:
 - `AUTH-SESSION-HARDENING-V2.md`
