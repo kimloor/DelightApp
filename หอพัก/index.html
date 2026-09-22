@@ -3034,7 +3034,7 @@ function renderTenants(){
       <div class="card-head">
         <h3>รายชื่อผู้เช่า</h3>
         <div style="display:flex;gap:8px;align-items:center;">
-          <input id="tenantSearch" class="toolbar-input" style="width:220px;" placeholder="ค้นหาชื่อหรือเลขห้อง…" value="${query.replace(/"/g,'&quot;')}">
+          <input id="tenantSearch" class="toolbar-input" style="width:220px;" placeholder="ค้นหาชื่อหรือเลขห้อง…" value="${escapeAuthHtml(query)}">
           <button class="btn ghost small" id="printDepositPickerBtn">🖨 พิมพ์ใบรับมัดจำ</button>
         </div>
       </div>
@@ -4774,7 +4774,7 @@ function meterHistoryModalHtml(query){
   list = list.slice(0, 300); // กันรายการยาวเกินไปจนหน้าอืด แสดง 300 รายการล่าสุดพอ
   return `
     <h3>ประวัติการจดมิเตอร์</h3>
-    <input id="meterHistorySearch" class="toolbar-input" style="width:100%;margin-bottom:14px;" placeholder="ค้นหาเลขห้อง หรือเดือน (เช่น 2569-07)…" value="${(query||'').replace(/"/g,'&quot;')}">
+    <input id="meterHistorySearch" class="toolbar-input" style="width:100%;margin-bottom:14px;" placeholder="ค้นหาเลขห้อง หรือเดือน (เช่น 2569-07)…" value="${escapeAuthHtml(query||'')}">
     ${list.length===0 ? `<div class="empty" style="padding:24px 10px;"><div class="big">📜</div>ยังไม่มีประวัติการจดมิเตอร์</div>` : `
     <div style="max-height:56vh;overflow-y:auto;border:1px solid var(--line);border-radius:8px;">
       <table>
@@ -4815,7 +4815,7 @@ function depositPickerModalHtml(query){
   }
   return `
     <h3>พิมพ์ใบรับมัดจำ</h3>
-    <input id="depositPickerSearch" class="toolbar-input" style="width:100%;margin-bottom:14px;" placeholder="ค้นหาเลขห้อง ชื่อผู้เช่า หรือเลขที่ใบรับ…" value="${(query||'').replace(/"/g,'&quot;')}">
+    <input id="depositPickerSearch" class="toolbar-input" style="width:100%;margin-bottom:14px;" placeholder="ค้นหาเลขห้อง ชื่อผู้เช่า หรือเลขที่ใบรับ…" value="${escapeAuthHtml(query||'')}">
     ${list.length===0 ? `<div class="empty" style="padding:24px 10px;"><div class="big">🧾</div>ไม่พบใบรับมัดจำที่ตรงกับคำค้นหา</div>` : `
     <div style="max-height:52vh;overflow-y:auto;border:1px solid var(--line);border-radius:8px;">
       <table>
