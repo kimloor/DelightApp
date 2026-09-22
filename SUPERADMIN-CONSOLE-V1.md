@@ -1,6 +1,6 @@
 # DelightApp — Superadmin Console V1
 
-> Status: IN PROGRESS — Phase A production verified; Phase B next
+> Status: IN PROGRESS — Phase A/B production verified; Phase C next
 > Parent: STABILIZATION.md / S6
 > Goal: give the platform superadmin operational control over DelightApp account/property structure without granting implicit access to tenant or financial business data.
 
@@ -184,7 +184,9 @@ The console is not a property admin screen and must not load `getAdminScoped` to
 
 ## 7. Lead decision
 
-Implement Phase A first and production-verify it before enabling access-mapping repair.
+Phase A and Phase B are production-verified.
+
+Current work: Phase C — Platform Audit / Health.
 
 
 ## 8. Phase A production verification
