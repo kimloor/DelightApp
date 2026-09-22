@@ -226,7 +226,7 @@ Key examples:
 A post-foundation stabilization phase is now active before major new product features.
 
 Current priority:
-- S8 Audit Log Viewer
+- Product roadmap may resume; S9 frontend modularization remains deferred
 
 Completed stabilization:
 - S1 Auth / Session Hardening V2
@@ -234,6 +234,9 @@ Completed stabilization:
 - S3 Paid Bill Lock + Receipt Void V1
 - S4 Tenant Account Lifecycle V1
 - S5 Frontend Security / XSS Hardening V1
+- S6 Superadmin Console V1
+- S7 Admin Offline Read-Only Mode
+- S8 Audit Log Viewer V1
 
 Planned stabilization:
 - financial/database integrity
