@@ -2192,10 +2192,91 @@ document.getElementById('openSettingsBtn').addEventListener('click', ()=>{
   wireSettingsActions();
 });
 
+let platformConsoleData = null;
+
+async function openPlatformConsole(){
+  openModal('<h3>Platform Console</h3><div id="platformConsoleBody" class="sub">กำลังโหลดข้อมูลระบบ…</div><div class="modal-actions"><button class="btn ghost" id="cancelBtn">ปิด</button></div>');
+  try{
+    platformConsoleData = await remoteAuthPost({action:'platformOverview'});
+    renderPlatformConsole();
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    const body=document.getElementById('platformConsoleBody');
+    if(body){
+      body.style.color='var(--rust)';
+      body.textContent=String(e.message||e)==='forbidden' ? 'บัญชีนี้ไม่มีสิทธิ์ Superadmin' : 'โหลดข้อมูล Platform ไม่สำเร็จ';
+    }
+  }
+}
+
+function renderPlatformConsole(){
+  const body=document.getElementById('platformConsoleBody');
+  const data=platformConsoleData;
+  if(!body || !data) return;
+  const users=Array.isArray(data.users)?data.users:[];
+  const props=Array.isArray(data.properties)?data.properties:[];
+  const access=Array.isArray(data.propertyAccess)?data.propertyAccess:[];
+  const counts=data.counts||{};
+
+  const accountRows=users.map(u=>{
+    const isSelf=currentUser && String(currentUser.id)===String(u.id);
+    const disabled=u.accountStatus==='disabled';
+    const platform=u.platformRole==='superadmin' ? '<span class="badge-admin">Superadmin</span>' : '';
+    const action=isSelf
+      ? '<span class="muted">บัญชีปัจจุบัน</span>'
+      : '<button class="btn ghost small" data-platform-user="'+escapeAuthHtml(u.id)+'" data-platform-status="'+(disabled?'active':'disabled')+'">'+(disabled?'เปิดใช้งาน':'ระงับบัญชี')+'</button>';
+    return '<div class="user-row" style="align-items:flex-start;">'
+      +'<div style="min-width:0;flex:1;"><b>'+escapeAuthHtml(u.displayName||u.username)+'</b> '+platform
+      +'<div class="user-sub">'+escapeAuthHtml(u.username)+' · '+(u.role==='tenant'?'Tenant':'Admin')+' · '+(disabled?'Disabled':'Active')+'</div></div>'
+      +action+'</div>';
+  }).join('');
+
+  const propertyRows=props.map(p=>{
+    const managers=access.filter(a=>String(a.propertyId)===String(p.id));
+    const labels=managers.length
+      ? managers.map(a=>escapeAuthHtml(a.displayName||a.username)+' · '+(a.accessRole==='owner'?'Owner':'Admin')).join('<br>')
+      : '<span class="muted">ยังไม่มี mapping</span>';
+    return '<div class="user-row" style="align-items:flex-start;"><div style="min-width:0;flex:1;"><b>'+escapeAuthHtml(p.name)+'</b><div class="user-sub">'+labels+'</div></div></div>';
+  }).join('');
+
+  body.innerHTML=
+    '<div class="stat-row" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px;">'
+    +'<div class="stat-card"><p class="label">บัญชีทั้งหมด</p><p class="value">'+(Number(counts.users)||0)+'</p><p class="foot">'+(Number(counts.disabledUsers)||0)+' disabled</p></div>'
+    +'<div class="stat-card"><p class="label">อพาร์ทเมนท์</p><p class="value">'+(Number(counts.properties)||0)+'</p><p class="foot">'+(Number(counts.propertyAccess)||0)+' mappings</p></div>'
+    +'<div class="stat-card"><p class="label">บัญชีผู้เช่า</p><p class="value">'+(Number(counts.tenantAccounts)||0)+'</p><p class="foot">เฉพาะจำนวน ไม่เปิดข้อมูลผู้เช่า</p></div>'
+    +'</div>'
+    +'<div style="font-size:12px;color:var(--ink-soft);margin-bottom:12px;">Platform Console แสดงเฉพาะโครงสร้างบัญชีและสิทธิ์ ไม่โหลดห้อง ผู้เช่า บิล ใบเสร็จ หรือข้อมูลการเงิน</div>'
+    +'<h4 style="margin:14px 0 8px;">บัญชีระบบ</h4><div class="user-list">'+(accountRows||'<div class="empty">ไม่มีบัญชี</div>')+'</div>'
+    +'<h4 style="margin:18px 0 8px;">Property Access</h4><div class="user-list">'+(propertyRows||'<div class="empty">ไม่มีอพาร์ทเมนท์</div>')+'</div>';
+
+  body.querySelectorAll('[data-platform-user]').forEach(btn=>{
+    btn.onclick=()=>onPlatformSetAccountStatus(btn.dataset.platformUser,btn.dataset.platformStatus);
+  });
+}
+
+async function onPlatformSetAccountStatus(userId,status){
+  const user=(platformConsoleData?.users||[]).find(u=>String(u.id)===String(userId));
+  if(!user) return;
+  const verb=status==='disabled'?'ระงับ':'เปิดใช้งาน';
+  if(!confirm(verb+'บัญชี "'+user.username+'" ?')) return;
+  try{
+    const data=await remoteAuthPost({action:'platformSetAccountStatus',userId,status});
+    user.accountStatus=data.user.accountStatus||status;
+    renderPlatformConsole();
+    showToast(status==='disabled'?'ระงับบัญชีแล้ว':'เปิดใช้งานบัญชีแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    const m=String(e.message||e);
+    showToast(m==='cannot_change_self_status' ? 'ไม่สามารถระงับบัญชี Superadmin ที่กำลังใช้งานอยู่' : 'เปลี่ยนสถานะบัญชีไม่สำเร็จ');
+  }
+}
 function settingsFormHtml(){
   const userName = currentUser ? (currentUser.displayName || currentUser.username || '') : '';
   const adminButton = (currentUser && currentUser.isAdmin)
     ? '<button class="btn ghost" id="settingsAdminUsersBtn">👥 จัดการผู้ใช้</button>'
+    : '';
+  const platformButton = (currentUser && currentUser.isSuperadmin)
+    ? '<button class="btn ghost" id="settingsPlatformBtn">🛡 Platform Console</button>'
     : '';
   const platformLabel = currentUser && currentUser.isSuperadmin
     ? ' <span class="badge-admin">Superadmin</span>'
@@ -2208,6 +2289,7 @@ function settingsFormHtml(){
       <div><b style="color:var(--ink);">การเชื่อมต่อ:</b> <span style="color:#2f9e44;font-weight:600;">● เชื่อมต่ออัตโนมัติ</span></div>
     </div>
     <div style="display:grid;gap:8px;">
+      ${platformButton}
       ${adminButton}
       <button class="btn ghost" id="settingsChangePwBtn">🔑 เปลี่ยนรหัสผ่าน</button>
       <button class="btn ghost" id="settingsLogoutAllBtn">🛡 ออกจากระบบทุกอุปกรณ์</button>
@@ -2220,6 +2302,9 @@ function settingsFormHtml(){
 }
 
 function wireSettingsActions(){
+  const platformBtn = document.getElementById('settingsPlatformBtn');
+  if(platformBtn) platformBtn.onclick = openPlatformConsole;
+
   const adminBtn = document.getElementById('settingsAdminUsersBtn');
   if(adminBtn) adminBtn.onclick = openAdminUsers;
 
