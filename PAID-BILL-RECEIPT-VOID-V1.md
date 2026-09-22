@@ -1,6 +1,6 @@
 # DelightApp — Paid Bill Lock + Receipt Void V1
 
-> Status: IN PROGRESS
+> Status: DONE — production verified 2026-09-22
 > Parent: STABILIZATION.md / S3
 > Goal: make issued receipts auditable and prevent later bill edits from making financial history inconsistent.
 
@@ -139,3 +139,21 @@ Required:
 ## 10. Lead rollout
 
 Implement on a branch, run pre-deploy validation, apply migration before Worker deployment, then run isolated production E2E and remove temporary workflows.
+
+
+## 11. Production verification
+
+Completed 2026-09-22:
+- migration 0006 applied successfully
+- existing receipts migrated to active status without changing amounts/numbers
+- partial unique active-receipt-per-bill index verified
+- production Worker/UI deploy and smoke test passed
+- active receipt blocked bill update and delete
+- ordinary property Admin was denied receipt void
+- property Owner successfully voided with a required reason
+- void changed receipt status to void and bill status to unpaid
+- bill could be corrected after void
+- replacement receipt was issued with a different receipt number
+- exactly one active + one void historical receipt existed after reissue
+- isolated E2E property/accounts were removed
+- temporary migration/E2E workflows were removed
