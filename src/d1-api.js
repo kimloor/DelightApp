@@ -1351,6 +1351,102 @@ async function platformSetAccountStatus(env, user, body) {
   return {success:true,user:publicUser(await userById(env,targetId))};
 }
 
+
+async function countPropertyOwners(env, propertyId, excludingUserId='') {
+  let sql="SELECT COUNT(*) AS c FROM property_admins WHERE property_id=? AND access_role='owner'";
+  const binds=[String(propertyId)];
+  if (excludingUserId) {
+    sql+=" AND user_id<>?";
+    binds.push(String(excludingUserId));
+  }
+  const row=await env.DB.prepare(sql).bind(...binds).first();
+  return Number(row?.c)||0;
+}
+
+async function requireRepairTargetAdmin(env, userId) {
+  const target=await userById(env,userId);
+  if(!target) throw new Error('user_not_found');
+  if(target.role!=='admin') throw new Error('target_not_admin');
+  if((target.platform_role||'normal')!=='normal') throw new Error('target_must_be_normal_admin');
+  return target;
+}
+
+async function platformSetPropertyAccess(env, user, body) {
+  await requireSuperadminUser(user);
+  const propertyId=s(body.propertyId);
+  const targetId=s(body.userId);
+  const accessRole=s(body.accessRole);
+  if(!propertyId) throw new Error('property_id_required');
+  if(!targetId) throw new Error('user_id_required');
+  if(!['owner','admin'].includes(accessRole)) throw new Error('invalid_access_role');
+
+  const property=await env.DB.prepare('SELECT id,name FROM properties WHERE id=?').bind(propertyId).first();
+  if(!property) throw new Error('property_not_found');
+  const target=await requireRepairTargetAdmin(env,targetId);
+  const existing=await env.DB.prepare(
+    'SELECT access_role FROM property_admins WHERE property_id=? AND user_id=?'
+  ).bind(propertyId,targetId).first();
+
+  if(existing?.access_role==='owner' && accessRole==='admin') {
+    const otherOwners=await countPropertyOwners(env,propertyId,targetId);
+    if(otherOwners<1) throw new Error('last_owner_required');
+  }
+
+  const now=new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO property_admins (property_id,user_id,access_role,created_at)
+     VALUES (?,?,?,?)
+     ON CONFLICT(property_id,user_id) DO UPDATE SET access_role=excluded.access_role`
+  ).bind(propertyId,targetId,accessRole,now).run();
+
+  await appendLog(
+    env,user,'platformSetPropertyAccess','property_admins',[targetId],1,
+    'property '+propertyId+' role '+accessRole+' account '+target.username
+  );
+
+  return {
+    success:true,
+    property:{id:String(property.id),name:property.name||''},
+    access:{
+      propertyId,
+      userId:targetId,
+      username:target.username||'',
+      displayName:target.display_name||'',
+      accessRole,
+    }
+  };
+}
+
+async function platformRemovePropertyAccess(env, user, body) {
+  await requireSuperadminUser(user);
+  const propertyId=s(body.propertyId);
+  const targetId=s(body.userId);
+  if(!propertyId) throw new Error('property_id_required');
+  if(!targetId) throw new Error('user_id_required');
+
+  const property=await env.DB.prepare('SELECT id,name FROM properties WHERE id=?').bind(propertyId).first();
+  if(!property) throw new Error('property_not_found');
+  const target=await requireRepairTargetAdmin(env,targetId);
+  const existing=await env.DB.prepare(
+    'SELECT access_role FROM property_admins WHERE property_id=? AND user_id=?'
+  ).bind(propertyId,targetId).first();
+  if(!existing) throw new Error('access_not_found');
+
+  if(existing.access_role==='owner') {
+    const otherOwners=await countPropertyOwners(env,propertyId,targetId);
+    if(otherOwners<1) throw new Error('last_owner_required');
+  }
+
+  await env.DB.prepare('DELETE FROM property_admins WHERE property_id=? AND user_id=?')
+    .bind(propertyId,targetId).run();
+
+  await appendLog(
+    env,user,'platformRemovePropertyAccess','property_admins',[targetId],1,
+    'property '+propertyId+' previous_role '+existing.access_role+' account '+target.username
+  );
+  return {success:true,propertyId,userId:targetId};
+}
+
 async function removeAdminPropertyAccess(env, admin, targetUserId, propertyId) {
   await requirePropertyOwner(env,admin,propertyId);
   const targetId=s(targetUserId);
@@ -1597,6 +1693,16 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'platformSetAccountStatus') {
     try { return await platformSetAccountStatus(env,x.user,body); }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'platformSetPropertyAccess') {
+    try { return await platformSetPropertyAccess(env,x.user,body); }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'platformRemovePropertyAccess') {
+    try { return await platformRemovePropertyAccess(env,x.user,body); }
     catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
