@@ -1,0 +1,171 @@
+name: Final Stabilization Regression Audit
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: contains(github.event.head_commit.message, '[FINAL-REGRESSION-AUDIT]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PROD_URL: https://delightapp.ekqtjl.workers.dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Production HTTP smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          PING="$(curl -fsS "$PROD_URL/api?action=ping")"
+          test "$(jq -r '.ok' <<<"$PING")" = "true"
+          test "$(jq -r '.backend' <<<"$PING")" = "d1"
+
+          ROOT="$(mktemp)"
+          curl -fsS "$PROD_URL/" -o "$ROOT"
+          grep -q "Cloudflare D1" "$ROOT"
+          grep -q "offlineReadOnlyBanner" "$ROOT"
+          grep -q "settingsAuditBtn" "$ROOT"
+          grep -q "settingsPlatformAuditBtn" "$ROOT"
+
+          REGISTER="$(curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data '{"action":"register"}')"
+          test "$(jq -r '.error' <<<"$REGISTER")" = "registration_disabled"
+
+          UNAUTH="$(curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data '{"action":"me","token":"invalid-final-audit-token"}')"
+          test "$(jq -r '.error' <<<"$UNAUTH")" = "unauthorized"
+
+          GLOBAL="$(curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data '{"action":"getAll","token":"invalid-final-audit-token"}')"
+          test "$(jq -r '.error' <<<"$GLOBAL")" = "unauthorized"
+
+          echo "http_smoke=PASS"
+
+      - name: D1 schema and migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          qjson() {
+            npx --yes wrangler@4 d1 execute delightapp-db --remote --command "$1" --json
+          }
+
+          MIGRATIONS="$(qjson "SELECT COUNT(*) AS c FROM d1_migrations WHERE name IN ('0001_initial_d1.sql','0002_access_control_v1.sql','0003_platform_admin_foundation.sql','0004_auth_session_hardening_v2.sql','0005_financial_data_integrity_v1.sql','0006_paid_bill_receipt_void_v1.sql','0007_tenant_account_lifecycle_v1.sql','0008_audit_log_viewer_v1.sql');" | jq -r '.[0].results[0].c')"
+          test "$MIGRATIONS" = "8"
+
+          TABLES="$(qjson "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name IN ('users','properties','rooms','tenants','bills','deposits','meter_readings','receipts','room_layouts','audit_logs','property_admins','tenant_accounts','auth_login_limits','id_counters','document_counters');" | jq -r '.[0].results[0].c')"
+          test "$TABLES" = "15"
+
+          AUDIT_PROPERTY="$(qjson "SELECT COUNT(*) AS c FROM pragma_table_info('audit_logs') WHERE name='property_id';" | jq -r '.[0].results[0].c')"
+          test "$AUDIT_PROPERTY" = "1"
+
+          RECEIPT_STATUS="$(qjson "SELECT COUNT(*) AS c FROM pragma_table_info('receipts') WHERE name IN ('status','voided_at','voided_by_user_id','void_reason');" | jq -r '.[0].results[0].c')"
+          test "$RECEIPT_STATUS" = "4"
+
+          SESSION_COL="$(qjson "SELECT COUNT(*) AS c FROM pragma_table_info('users') WHERE name IN ('password_algo','password_iterations','session_version','account_status');" | jq -r '.[0].results[0].c')"
+          test "$SESSION_COL" = "4"
+
+          echo "schema_migrations=PASS"
+
+      - name: D1 referential and uniqueness regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          count() {
+            npx --yes wrangler@4 d1 execute delightapp-db --remote --command "$1" --json | jq -r '.[0].results[0].c'
+          }
+          assert_zero() {
+            local label="$1"
+            local sql="$2"
+            local c
+            c="$(count "$sql")"
+            echo "$label=$c"
+            test "$c" = "0"
+          }
+
+          assert_zero foreign_key_check "SELECT COUNT(*) AS c FROM pragma_foreign_key_check;"
+          assert_zero rooms_without_property "SELECT COUNT(*) AS c FROM rooms r LEFT JOIN properties p ON p.id=r.property_id WHERE p.id IS NULL;"
+          assert_zero tenants_without_room "SELECT COUNT(*) AS c FROM tenants t LEFT JOIN rooms r ON r.id=t.room_id WHERE r.id IS NULL;"
+          assert_zero bills_without_room "SELECT COUNT(*) AS c FROM bills b LEFT JOIN rooms r ON r.id=b.room_id WHERE r.id IS NULL;"
+          assert_zero deposits_without_room "SELECT COUNT(*) AS c FROM deposits d LEFT JOIN rooms r ON r.id=d.room_id WHERE r.id IS NULL;"
+          assert_zero meters_without_room "SELECT COUNT(*) AS c FROM meter_readings m LEFT JOIN rooms r ON r.id=m.room_id WHERE r.id IS NULL;"
+          assert_zero receipts_without_room "SELECT COUNT(*) AS c FROM receipts x LEFT JOIN rooms r ON r.id=x.room_id WHERE r.id IS NULL;"
+          assert_zero layouts_without_room "SELECT COUNT(*) AS c FROM room_layouts l LEFT JOIN rooms r ON r.id=l.room_id WHERE r.id IS NULL;"
+          assert_zero property_admin_orphans "SELECT COUNT(*) AS c FROM property_admins pa LEFT JOIN properties p ON p.id=pa.property_id LEFT JOIN users u ON u.id=pa.user_id WHERE p.id IS NULL OR u.id IS NULL;"
+          assert_zero tenant_account_orphans "SELECT COUNT(*) AS c FROM tenant_accounts ta LEFT JOIN tenants t ON t.id=ta.tenant_id LEFT JOIN users u ON u.id=ta.user_id WHERE t.id IS NULL OR u.id IS NULL;"
+
+          assert_zero duplicate_room_number "SELECT COUNT(*) AS c FROM (SELECT property_id,room_number,COUNT(*) n FROM rooms GROUP BY property_id,room_number HAVING n>1);"
+          assert_zero duplicate_tenant_room "SELECT COUNT(*) AS c FROM (SELECT room_id,COUNT(*) n FROM tenants GROUP BY room_id HAVING n>1);"
+          assert_zero duplicate_bill_room_month "SELECT COUNT(*) AS c FROM (SELECT room_id,month,COUNT(*) n FROM bills GROUP BY room_id,month HAVING n>1);"
+          assert_zero duplicate_invoice "SELECT COUNT(*) AS c FROM (SELECT invoice_no,COUNT(*) n FROM bills WHERE invoice_no<>'' GROUP BY invoice_no HAVING n>1);"
+          assert_zero duplicate_active_receipt_per_bill "SELECT COUNT(*) AS c FROM (SELECT bill_id,COUNT(*) n FROM receipts WHERE bill_id<>'' AND COALESCE(status,'active')='active' GROUP BY bill_id HAVING n>1);"
+          assert_zero duplicate_receipt_number "SELECT COUNT(*) AS c FROM (SELECT receipt_no,COUNT(*) n FROM receipts WHERE receipt_no<>'' GROUP BY receipt_no HAVING n>1);"
+          assert_zero duplicate_deposit_number "SELECT COUNT(*) AS c FROM (SELECT receipt_no,COUNT(*) n FROM deposits WHERE receipt_no<>'' GROUP BY receipt_no HAVING n>1);"
+          assert_zero duplicate_room_layout "SELECT COUNT(*) AS c FROM (SELECT room_id,COUNT(*) n FROM room_layouts GROUP BY room_id HAVING n>1);"
+
+          echo "referential_uniqueness=PASS"
+
+      - name: D1 auth access accounting regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          count() {
+            npx --yes wrangler@4 d1 execute delightapp-db --remote --command "$1" --json | jq -r '.[0].results[0].c'
+          }
+          assert_zero() {
+            local label="$1"
+            local sql="$2"
+            local c
+            c="$(count "$sql")"
+            echo "$label=$c"
+            test "$c" = "0"
+          }
+
+          assert_zero invalid_password_algo "SELECT COUNT(*) AS c FROM users WHERE COALESCE(password_algo,'legacy_sha256') NOT IN ('legacy_sha256','pbkdf2_sha256');"
+          assert_zero invalid_session_version "SELECT COUNT(*) AS c FROM users WHERE COALESCE(session_version,0)<1;"
+          assert_zero invalid_account_status "SELECT COUNT(*) AS c FROM users WHERE COALESCE(account_status,'active') NOT IN ('active','disabled');"
+          assert_zero invalid_platform_role "SELECT COUNT(*) AS c FROM users WHERE COALESCE(platform_role,'normal') NOT IN ('normal','superadmin');"
+          assert_zero superadmin_property_mapping "SELECT COUNT(*) AS c FROM property_admins pa JOIN users u ON u.id=pa.user_id WHERE u.platform_role='superadmin';"
+          assert_zero property_without_owner "SELECT COUNT(*) AS c FROM properties p WHERE NOT EXISTS (SELECT 1 FROM property_admins pa WHERE pa.property_id=p.id AND pa.access_role='owner');"
+          assert_zero property_without_active_owner "SELECT COUNT(*) AS c FROM properties p WHERE NOT EXISTS (SELECT 1 FROM property_admins pa JOIN users u ON u.id=pa.user_id WHERE pa.property_id=p.id AND pa.access_role='owner' AND COALESCE(u.account_status,'active')='active');"
+          assert_zero tenant_user_wrong_role "SELECT COUNT(*) AS c FROM tenant_accounts ta JOIN users u ON u.id=ta.user_id WHERE u.role<>'tenant';"
+          assert_zero tenant_binding_duplicate_user "SELECT COUNT(*) AS c FROM (SELECT user_id,COUNT(*) n FROM tenant_accounts GROUP BY user_id HAVING n>1);"
+          assert_zero tenant_binding_duplicate_tenant "SELECT COUNT(*) AS c FROM (SELECT tenant_id,COUNT(*) n FROM tenant_accounts GROUP BY tenant_id HAVING n>1);"
+
+          assert_zero active_receipt_unpaid_bill "SELECT COUNT(*) AS c FROM receipts x JOIN bills b ON b.id=x.bill_id WHERE COALESCE(x.status,'active')='active' AND b.status<>'paid';"
+          assert_zero void_receipt_paid_bill_without_active "SELECT COUNT(*) AS c FROM receipts x JOIN bills b ON b.id=x.bill_id WHERE x.status='void' AND b.status='paid' AND NOT EXISTS (SELECT 1 FROM receipts a WHERE a.bill_id=b.id AND COALESCE(a.status,'active')='active');"
+          assert_zero receipt_room_mismatch "SELECT COUNT(*) AS c FROM receipts x JOIN bills b ON b.id=x.bill_id WHERE x.room_id<>b.room_id;"
+          assert_zero meter_bill_room_mismatch "SELECT COUNT(*) AS c FROM meter_readings m JOIN bills b ON b.id=m.bill_id WHERE m.bill_id<>'' AND m.room_id<>b.room_id;"
+
+          PAID_NO_ACTIVE="$(count "SELECT COUNT(*) AS c FROM bills b WHERE b.status='paid' AND NOT EXISTS (SELECT 1 FROM receipts x WHERE x.bill_id=b.id AND COALESCE(x.status,'active')='active');")"
+          echo "paid_without_active_receipt=$PAID_NO_ACTIVE"
+
+          echo "auth_access_accounting=PASS"
+
+      - name: D1 counter regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          qjson() {
+            npx --yes wrangler@4 d1 execute delightapp-db --remote --command "$1" --json
+          }
+          BAD_IDS="$(qjson "SELECT COUNT(*) AS c FROM id_counters c WHERE c.next_id <= CASE c.table_name WHEN 'users' THEN (SELECT COALESCE(MAX(CAST(id AS INTEGER)),0) FROM users) WHEN 'properties' THEN (SELECT COALESCE(MAX(CAST(id AS INTEGER)),0) FROM properties) WHEN 'rooms' THEN (SELECT COALESCE(MAX(CAST(id AS INTEGER)),0) FROM rooms) WHEN 'tenants' THEN (SELECT COALESCE(MAX(CAST(id AS INTEGER)),0) FROM tenants) WHEN 'bills' THEN (SELECT COALESCE(MAX(CAST(id AS INTEGER)),0) FROM bills) WHEN 'deposits' THEN (SELECT COALESCE(MAX(CAST(id AS INTEGER)),0) FROM deposits) WHEN 'meter_readings' THEN (SELECT COALESCE(MAX(CAST(id AS INTEGER)),0) FROM meter_readings) WHEN 'receipts' THEN (SELECT COALESCE(MAX(CAST(id AS INTEGER)),0) FROM receipts) WHEN 'room_layouts' THEN (SELECT COALESCE(MAX(CAST(id AS INTEGER)),0) FROM room_layouts) ELSE -1 END;" | jq -r '.[0].results[0].c')"
+          echo "bad_id_counters=$BAD_IDS"
+          test "$BAD_IDS" = "0"
+
+          COUNTERS="$(qjson "SELECT COUNT(*) AS c FROM id_counters WHERE table_name IN ('users','properties','rooms','tenants','bills','deposits','meter_readings','receipts','room_layouts');" | jq -r '.[0].results[0].c')"
+          test "$COUNTERS" = "9"
+
+          DOCS="$(qjson "SELECT COUNT(*) AS c FROM document_counters WHERE kind IN ('invoice','receipt','deposit');" | jq -r '.[0].results[0].c')"
+          test "$DOCS" = "3"
+
+          echo "counters=PASS"
+
+      - name: Final result
+        run: echo "FINAL_STABILIZATION_REGRESSION=PASS"
