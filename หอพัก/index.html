@@ -2970,12 +2970,22 @@ function renderRooms(){
     <div class="page-head">
       <div>
         <h2>ห้องพัก</h2>
-        <p class="sub">${roomList.length} ห้อง — คลิกที่ห้องเพื่อแก้ไขหรือลบ</p>
+        <p class="sub">${roomList.length} ห้อง — คลิกห้องเพื่อดูรายละเอียด แล้วค่อยเลือกแก้ไข</p>
       </div>
-      <div class="mobile-header-actions" style="display:flex;gap:8px;">
-        <button class="btn ghost" id="bulkEditTypeDepositBtn">✎ ประเภทห้อง/มัดจำ (หลายห้อง)</button>
-        <button class="btn ghost" id="addRoomsBulkBtn">+ เพิ่มหลายห้อง</button>
-        <button class="btn" id="addRoomBtn">+ เพิ่มห้อง</button>
+      <div class="mobile-header-actions room-header-actions" style="display:flex;gap:8px;">
+        <details class="action-menu">
+          <summary>จัดการหลายห้อง ▾</summary>
+          <div class="action-menu-pop">
+            <button type="button" id="bulkEditRoomsBtn">✎ แก้ไขข้อมูลหลายห้อง</button>
+          </div>
+        </details>
+        <details class="action-menu">
+          <summary class="btn room-add-summary">+ เพิ่มห้อง ▾</summary>
+          <div class="action-menu-pop">
+            <button type="button" id="addRoomSingleBtn">+ เพิ่มห้องเดียว</button>
+            <button type="button" id="addRoomsBulkBtn">＋ เพิ่มหลายห้อง</button>
+          </div>
+        </details>
       </div>
     </div>
     <div class="card">
@@ -2998,7 +3008,7 @@ function renderRooms(){
       ${roomList.length===0 ? `<div class="empty"><div class="big">🔑</div>ยังไม่มีห้องพัก เริ่มเพิ่มห้องแรกกันเลย</div>` :
         viewMode==='list' ? `
         <table class="mobile-card-table rooms-mobile-table">
-          <thead><tr><th>ห้อง</th><th>ชั้น</th><th>สถานะ</th><th>ผู้เช่า</th><th>ค่าเช่า/เดือน</th></tr></thead>
+          <thead><tr><th>ห้อง</th><th>ชั้น</th><th>สถานะ</th><th>ผู้เช่า</th><th>ประเภท</th><th>ค่าเช่า/เดือน</th></tr></thead>
           <tbody>
             ${flatOrder.map(r=>{
               const tenant = r.status==='occupied' ? tenants.find(t=>t.roomId===r.id) : null;
@@ -3008,6 +3018,7 @@ function renderRooms(){
                 <td class="muted">${escapeAuthHtml(r.floor||'-')}</td>
                 <td><span class="status-pill ${r.status==='occupied'?'occupied':'vacant'}">${r.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span></td>
                 <td class="muted" style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${tenant?escapeAuthHtml(truncateText(tenantDisplayName(tenant),18)):'—'}</td>
+                <td class="muted">${escapeAuthHtml(r.roomType||'—')}</td>
                 <td class="mono">${THB(r.rent)} บ.</td>
               </tr>`;
             }).join('')}
