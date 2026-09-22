@@ -1453,10 +1453,10 @@ function renderTenantHome(){
   const receiptRows=recentReceipts.length ? recentReceipts.map(r=>`
     <div class="tenant-row">
       <div>
-        <div class="tenant-row-title">${escapeAuthHtml(r.receiptNo||'ใบเสร็จ')}</div>
-        <div class="tenant-row-sub">${escapeAuthHtml(formatThaiDate(r.date))}</div>
+        <div class="tenant-row-title">${escapeAuthHtml(r.receiptNo||'ใบเสร็จ')} ${(r.status||'active')==='void'?'· VOID':''}</div>
+        <div class="tenant-row-sub">${escapeAuthHtml(formatThaiDate(r.date))}${(r.status||'active')==='void' && r.voidReason ? ' · '+escapeAuthHtml(r.voidReason) : ''}</div>
       </div>
-      <div class="tenant-row-amount">฿${THB(r.amount)}</div>
+      <div class="tenant-row-amount">${(r.status||'active')==='void'?'<span class="tenant-status unpaid">VOID</span><br>':''}฿${THB(r.amount)}</div>
     </div>`).join('') : '<div class="tenant-empty">ยังไม่มีใบเสร็จ</div>';
 
   const depositRows=deposits.length ? deposits.slice(0,5).map(d=>`
@@ -4016,6 +4016,7 @@ function receiptHtml(receipt){
   const receiptNo = receipt.receiptNo;
   const dateObj = receipt.date ? new Date(receipt.date+'T00:00:00') : new Date();
   const vatOn = !!property.vatEnabled;
+  const isVoid = (receipt.status||'active')==='void';
 
   let itemRowsHtml;
   if(bill){
@@ -4070,7 +4071,8 @@ function receiptHtml(receipt){
   `;
 
   return `
-    <div class="invoice dep-receipt">
+    <div class="invoice dep-receipt" style="${isVoid?'position:relative;opacity:.78;':''}">
+      ${isVoid?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:5;font-size:84px;font-weight:800;transform:rotate(-25deg);opacity:.14;">VOID</div>`:''}
       <div class="inv-topbar">
         <div class="inv-brand">
           <svg class="inv-logo" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
@@ -4091,6 +4093,7 @@ function receiptHtml(receipt){
           <div class="inv-doctitle">${vatOn ? 'ใบเสร็จรับเงิน / ใบกำกับภาษี' : 'ใบเสร็จรับเงิน / RECEIPT'}</div>
           <div class="inv-barcode"></div>
           <div class="inv-docno">${receiptNo}</div>
+          ${isVoid?`<div class="inv-docno" style="font-size:12px;">VOID · ${escapeAuthHtml(receipt.voidReason||'')}</div>`:''}
         </div>
       </div>
       <div class="inv-body">
