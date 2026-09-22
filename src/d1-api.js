@@ -338,7 +338,7 @@ async function getAdminScopedAll(env, user) {
   if (user.role !== 'admin') throw new Error('forbidden');
   const propertyIds = await adminPropertyIds(env, user.id);
   if (!propertyIds.length) {
-    return {properties:[],rooms:[],tenants:[],bills:[],deposits:[],meterReadings:[],receipts:[],roomLayouts:[]};
+    return {properties:[],rooms:[],tenants:[],bills:[],deposits:[],meterReadings:[],receipts:[],roomLayouts:[],tenantAccounts:[]};
   }
 
   const qs = propertyIds.map(()=>'?').join(',');
@@ -1098,7 +1098,7 @@ async function adminUserScope(env, user) {
     const qs=propertyIds.map(()=>'?').join(',');
 
     const adminsQ=await env.DB.prepare(
-      `SELECT DISTINCT u.id,u.username,u.display_name,u.created_at,u.role
+      `SELECT DISTINCT u.id,u.username,u.display_name,u.created_at,u.role,u.platform_role,u.account_status
        FROM users u
        JOIN property_admins pa ON pa.user_id=u.id
        WHERE pa.property_id IN (${qs})
@@ -1109,7 +1109,7 @@ async function adminUserScope(env, user) {
     }
 
     const tenantsQ=await env.DB.prepare(
-      `SELECT DISTINCT u.id,u.username,u.display_name,u.created_at,u.role,
+      `SELECT DISTINCT u.id,u.username,u.display_name,u.created_at,u.role,u.platform_role,u.account_status,
               r.property_id,p.name AS property_name
        FROM users u
        JOIN tenant_accounts ta ON ta.user_id=u.id
