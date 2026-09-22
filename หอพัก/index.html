@@ -4954,12 +4954,14 @@ function attachPageEvents(){
     if(e.target.checked){ monthBills.forEach(b=>renderBills._selected.add(b.id)); }
     else { monthBills.forEach(b=>renderBills._selected.delete(b.id)); }
     render();
+    showBillSelectionToast();
   };
   document.querySelectorAll('.bill-select').forEach(el=>{
     el.onchange = (e)=>{
       if(e.target.checked) renderBills._selected.add(el.dataset.id);
       else renderBills._selected.delete(el.dataset.id);
       render();
+      showBillSelectionToast();
     };
   });
   document.querySelectorAll('#billsTable td.room-cell').forEach(el=>{
