@@ -3447,16 +3447,28 @@ function roomNavOrder(){
 }
 
 function roomDetailHtml(room){
-  const tenant = room.status==='occupied' ? tenants.find(t=>t.roomId===room.id) : null;
-  const latestBill = currentBills().filter(b=>b.roomId===room.id).slice().sort((a,b)=>(b.month||'').localeCompare(a.month||''))[0] || null;
+  const tenant = tenants.find(t=>String(t.roomId)===String(room.id)) || null;
+  const hasOccupant = room.status==='occupied' || !!tenant;
+  const hasTenantDetails = !!(tenant && (((tenant.name||'').trim()) || ((tenant.phone||'').trim()) || ((tenant.moveIn||'').trim())));
+  const latestBill = currentBills().filter(b=>String(b.roomId)===String(room.id)).slice().sort((a,b)=>(b.month||'').localeCompare(a.month||''))[0] || null;
   const billHtml = latestBill
     ? `<div class="room-detail-value">${monthLabel(latestBill.month)} · <span class="bill-status-text ${latestBill.status==='paid'?'paid':'unpaid'}">${latestBill.status==='paid'?'ชำระแล้ว':'ค้างชำระ'}</span>${latestBill.status==='paid'?'':` · ${THB(latestBill.total)} บ.`}</div>`
     : '<div class="room-detail-value muted">ยังไม่มีบิล</div>';
+  const tenantHtml = tenant && hasTenantDetails
+    ? `<div class="room-detail-value"><strong>${escapeAuthHtml(tenantDisplayName(tenant))}</strong>${tenant.phone?`<div class="muted" style="font-size:12px;margin-top:3px;">${escapeAuthHtml(tenant.phone)}</div>`:''}${tenant.moveIn?`<div class="muted" style="font-size:12px;margin-top:3px;">เข้าพัก ${escapeAuthHtml(formatThaiDate(tenant.moveIn))}</div>`:''}</div>`
+    : hasOccupant
+      ? '<div class="room-detail-value"><strong>มีผู้เช่า</strong><div class="muted" style="font-size:12px;margin-top:3px;">ยังไม่มีรายละเอียดชื่อ / เบอร์โทร / วันที่เข้าพัก</div></div>'
+      : '<div class="room-detail-value muted">ห้องว่าง — ยังไม่มีผู้เช่า</div>';
+  const tenantAction = tenant && hasTenantDetails
+    ? '<button class="btn ghost" id="viewTenantFromRoomBtn">ดูผู้เช่า</button>'
+    : hasOccupant
+      ? '<button class="btn ghost" id="addTenantDetailsFromRoomBtn">เพิ่มรายละเอียดผู้เช่า</button>'
+      : '';
   return `
-    <div class="room-detail" data-room-id="${room.id}">
+    <div class="room-detail" data-room-id="${room.id}" data-latest-bill-month="${latestBill?latestBill.month:''}">
       <div class="room-detail-head">
         <div><p class="room-detail-kicker">รายละเอียดห้องพัก</p><h3 style="margin:0;">ห้อง ${escapeAuthHtml(room.number)}</h3></div>
-        <span class="status-pill ${room.status==='occupied'?'occupied':'vacant'}">${room.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span>
+        <span class="status-pill ${hasOccupant?'occupied':'vacant'}">${hasOccupant?'มีผู้เช่า':'ว่าง'}</span>
       </div>
       <div class="room-detail-grid">
         <div class="room-detail-item"><span>ชั้น</span><strong>${escapeAuthHtml(room.floor||'—')}</strong></div>
@@ -3466,9 +3478,7 @@ function roomDetailHtml(room){
       </div>
       <div class="room-detail-section">
         <div class="room-detail-label">ผู้เช่าปัจจุบัน</div>
-        ${tenant
-          ? `<div class="room-detail-value"><strong>${escapeAuthHtml(tenantDisplayName(tenant))}</strong><div class="muted" style="font-size:12px;margin-top:3px;">เข้าพัก ${escapeAuthHtml(formatThaiDate(tenant.moveIn))}</div></div>`
-          : '<div class="room-detail-value muted">ห้องว่าง — ยังไม่มีผู้เช่า</div>'}
+        ${tenantHtml}
       </div>
       <div class="room-detail-section">
         <div class="room-detail-label">บิลล่าสุด</div>
@@ -3476,8 +3486,9 @@ function roomDetailHtml(room){
       </div>
       <div class="modal-actions room-detail-actions">
         <button class="btn ghost" id="cancelBtn">ปิด</button>
-        ${tenant?'<button class="btn ghost" id="viewTenantFromRoomBtn">ดูผู้เช่า</button>':''}
-        <button class="btn" id="editRoomFromDetailBtn">แก้เขห้อง</button>
+        ${tenantAction}
+        <button class="btn ghost" id="viewBillsFromRoomBtn">ดูบิล</button>
+        <button class="btn" id="editRoomFromDetailBtn">แก้ไขห้อง</button>
       </div>
     </div>
   `;
