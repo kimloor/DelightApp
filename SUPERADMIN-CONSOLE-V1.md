@@ -1,6 +1,6 @@
 # DelightApp — Superadmin Console V1
 
-> Status: IN PROGRESS
+> Status: IN PROGRESS — Phase A production verified; Phase B next
 > Parent: STABILIZATION.md / S6
 > Goal: give the platform superadmin operational control over DelightApp account/property structure without granting implicit access to tenant or financial business data.
 
@@ -22,7 +22,7 @@ Property business-data access remains governed by `property_admins`.
 
 ### Phase A — Platform Overview + Account Control
 
-Implement first.
+**Status: DONE — production verified 2026-09-22**
 
 Superadmin may view:
 - platform user accounts: id, username, display name, app role, platform role, account status, created date
@@ -43,7 +43,7 @@ Guardrails:
 
 ### Phase B — Access Mapping Repair
 
-Only after Phase A production verification.
+**Status: NEXT**
 
 Planned:
 - assign ordinary admin to property
@@ -144,3 +144,21 @@ The console is not a property admin screen and must not load `getAdminScoped` to
 ## 7. Lead decision
 
 Implement Phase A first and production-verify it before enabling access-mapping repair.
+
+
+## 8. Phase A production verification
+
+Completed 2026-09-22:
+- Pre-Deploy Validate passed
+- production deploy and smoke test passed
+- temporary Superadmin E2E account could read structural overview
+- normal admin was denied platformOverview
+- overview contained no room/tenant/bill/receipt/deposit/meter payload
+- suspend immediately revoked the target session
+- disabled account could not login
+- restore allowed login again
+- self-suspend was rejected
+- platformSetAccountStatus audit events were verified
+- all temporary accounts/workflows were cleaned up
+
+Next: Phase B — Access Mapping Repair.
