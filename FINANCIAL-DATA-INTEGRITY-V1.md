@@ -1,6 +1,6 @@
 # DelightApp — Financial / Database Integrity V1
 
-> Status: IN PROGRESS
+> Status: DONE — production verified 2026-09-21
 > Parent: STABILIZATION.md / S2
 > Goal: move critical business invariants from application-only checks into D1 constraints and transaction-safe backend behavior.
 
@@ -144,3 +144,19 @@ The two paid-without-receipt records are not auto-corrected in S2 because they m
 Production duplicate state is clean for S2 constraints.
 
 Proceed with forward-only UNIQUE indexes plus Worker-side stable error/retry behavior. Historical financial values and document numbers must remain unchanged.
+
+
+## 11. Production verification
+
+Completed 2026-09-21:
+- migration 0005 applied successfully
+- unique indexes created successfully
+- atomic ID/document counters created and validated
+- production Worker deployed successfully
+- duplicate room rejected
+- duplicate bill retry did not create a second bill
+- second receipt for the same bill rejected
+- room-layout upsert updated the same logical row
+- isolated temporary property/account E2E passed
+- temporary E2E data was removed
+- temporary migration/E2E workflows were removed after successful use
