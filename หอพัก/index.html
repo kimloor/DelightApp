@@ -1582,6 +1582,16 @@ function escapeAuthHtml(v){
   return String(v==null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+function safeImageSrc(v){
+  const x=String(v==null?'':v).trim();
+  if(!x) return '';
+  if(/^https:\/\//i.test(x) || /^blob:/i.test(x) || /^data:image\/(?:png|jpeg|jpg|webp|gif);base64,/i.test(x)){
+    return escapeAuthHtml(x);
+  }
+  return '';
+}
+
+
 /* แปลง error จาก backend/เครือข่าย เป็นข้อความที่ผู้ใช้อ่านเข้าใจ */
 function pwErrorText(e){
   const m = String((e && e.message) || e || '');
@@ -1948,7 +1958,7 @@ document.getElementById('nav').addEventListener('click', (e)=>{
 function renderPropertySelect(){
   const sel = document.getElementById('propertySelect');
   if(!sel) return;
-  sel.innerHTML = properties.map(p=>`<option value="${p.id}" ${p.id===currentPropertyId?'selected':''}>${p.name}</option>`).join('')
+  sel.innerHTML = properties.map(p=>`<option value="${escapeAuthHtml(p.id)}" ${p.id===currentPropertyId?'selected':''}>${escapeAuthHtml(p.name)}</option>`).join('')
     + `<option value="__add__">+ เพิ่มอพาร์ทเมนท์ใหม่…</option>`;
 }
 document.getElementById('propertySelect').addEventListener('change', async (e)=>{
@@ -2276,7 +2286,7 @@ function renderDashboard(){
   return `
     <div class="page-head">
       <div>
-        <h2>ภาพรวม${propName?' — '+propName:''}</h2>
+        <h2>ภาพรวม${propName?' — '+escapeAuthHtml(propName):''}</h2>
         <p class="sub">สรุปสถานะห้องพักและค่าเช่าประจำเดือน ${monthLabel(thisM)}</p>
       </div>
     </div>
@@ -2312,7 +2322,7 @@ function renderDashboard(){
           ${recentBills.map(b=>{
             const room = rooms.find(r=>r.id===b.roomId);
             return `<tr>
-              <td>${room ? room.number : '—'}</td>
+              <td>${room ? escapeAuthHtml(room.number) : '—'}</td>
               <td class="muted">${monthLabel(b.month)}</td>
               <td class="mono">${THB(b.total)} บ.</td>
               <td>${b.status==='paid' ? '<span class="status-pill occupied">ชำระแล้ว</span>' : '<span class="status-pill vacant">ค้างชำระ</span>'}</td>
@@ -2397,10 +2407,10 @@ function renderRooms(){
               const tenant = r.status==='occupied' ? tenants.find(t=>t.roomId===r.id) : null;
               return `
               <tr class="room-row" data-id="${r.id}" style="cursor:pointer;">
-                <td style="font-weight:600;">${r.number}</td>
-                <td class="muted">${r.floor||'-'}</td>
+                <td style="font-weight:600;">${escapeAuthHtml(r.number)}</td>
+                <td class="muted">${escapeAuthHtml(r.floor||'-')}</td>
                 <td><span class="status-pill ${r.status==='occupied'?'occupied':'vacant'}">${r.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span></td>
-                <td class="muted" style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${tenant?truncateText(tenantDisplayName(tenant),18):'—'}</td>
+                <td class="muted" style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${tenant?escapeAuthHtml(truncateText(tenantDisplayName(tenant),18)):'—'}</td>
                 <td class="mono">${THB(r.rent)} บ.</td>
               </tr>`;
             }).join('')}
@@ -2409,7 +2419,7 @@ function renderRooms(){
         viewMode==='free' ? `
         <div class="freeform-toolbar">
           <div class="floor-tabs">
-            ${floorKeys.map(fk=>`<button class="floor-tab ${fk===activeFreeFloor?'active':''}" data-floor="${fk}">ชั้น ${fk}</button>`).join('')}
+            ${floorKeys.map(fk=>`<button class="floor-tab ${fk===activeFreeFloor?'active':''}" data-floor="${escapeAuthHtml(fk)}">ชั้น ${escapeAuthHtml(fk)}</button>`).join('')}
           </div>
           <div style="display:flex;align-items:center;gap:14px;">
             <span class="ff-hint">ลากห้องเพื่อจัดตำแหน่งอิสระ — บันทึกอัตโนมัติ ซิงก์ทุกอุปกรณ์</span>
@@ -2423,8 +2433,8 @@ function renderRooms(){
               const p = freeLayout[r.id] || {x:20,y:20};
               return `
               <div class="fcard" data-id="${r.id}" style="left:${p.x}px;top:${p.y}px;">
-                <div class="num">${r.number}</div>
-                <div class="floor">ชั้น ${r.floor||'-'}${tenant?` · <span class="tenant-name">${truncateText(tenantDisplayName(tenant),12)}</span>`:''}</div>
+                <div class="num">${escapeAuthHtml(r.number)}</div>
+                <div class="floor">ชั้น ${escapeAuthHtml(r.floor||'-')}${tenant?` · <span class="tenant-name">${escapeAuthHtml(truncateText(tenantDisplayName(tenant),12))}</span>`:''}</div>
                 <span class="status-pill ${r.status==='occupied'?'occupied':'vacant'}">${r.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span>
                 <div class="rent">${THB(r.rent)} บ./เดือน</div>
               </div>`;
@@ -2439,8 +2449,8 @@ function renderRooms(){
                 const tenant = r.status==='occupied' ? tenants.find(t=>t.roomId===r.id) : null;
                 return `
                 <div class="room-tag" data-id="${r.id}">
-                  <div class="num">${r.number}</div>
-                  <div class="floor">ชั้น ${r.floor||'-'}${tenant?` · <span class="tenant-name">${truncateText(tenantDisplayName(tenant),14)}</span>`:''}</div>
+                  <div class="num">${escapeAuthHtml(r.number)}</div>
+                  <div class="floor">ชั้น ${escapeAuthHtml(r.floor||'-')}${tenant?` · <span class="tenant-name">${escapeAuthHtml(truncateText(tenantDisplayName(tenant),14))}</span>`:''}</div>
                   <span class="status-pill ${r.status==='occupied'?'occupied':'vacant'}">${r.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span>
                   <div class="rent">${THB(r.rent)} บ./เดือน</div>
                 </div>`;
@@ -2674,8 +2684,8 @@ function bulkEditRoomTypeDepositHtml(){
           ${roomList.map(r=>`
             <tr class="rtd-row" data-id="${r.id}">
               <td><input type="checkbox" class="rtd-check"></td>
-              <td style="font-weight:600;">${r.number}${r.status==='occupied'?' <span class="muted" style="font-weight:400;">(มีผู้เช่า)</span>':''}</td>
-              <td class="muted">${r.floor||'-'}</td>
+              <td style="font-weight:600;">${escapeAuthHtml(r.number)}${r.status==='occupied'?' <span class="muted" style="font-weight:400;">(มีผู้เช่า)</span>':''}</td>
+              <td class="muted">${escapeAuthHtml(r.floor||'-')}</td>
               <td>
                 <select class="rtd-type">
                   <option value="" ${!r.roomType?'selected':''}>— ยังไม่ระบุ —</option>
@@ -2766,8 +2776,8 @@ function roomFormHtml(room){
     ${navHtml}
     <h3>${isEdit?'แก้ไขห้องพัก':'เพิ่มห้องพัก'}</h3>
     <div class="field-row">
-      <div class="field"><label>เลขห้อง</label><input id="f-number" value="${room?room.number:''}" placeholder="เช่น 101"></div>
-      <div class="field"><label>ชั้น</label><input id="f-floor" value="${room?(room.floor||''):''}" placeholder="เช่น 1"></div>
+      <div class="field"><label>เลขห้อง</label><input id="f-number" value="${escapeAuthHtml(room?room.number:'')}" placeholder="เช่น 101"></div>
+      <div class="field"><label>ชั้น</label><input id="f-floor" value="${escapeAuthHtml(room?(room.floor||''):'')}" placeholder="เช่น 1"></div>
     </div>
     <div class="field-row">
       <div class="field"><label>ค่าเช่าต่อเดือน (บาท)</label><input id="f-rent" type="number" value="${room?room.rent:''}" placeholder="เช่น 3500"></div>
@@ -3035,14 +3045,14 @@ function renderTenants(){
 
 function tenantFormHtml(tenant){
   const isEdit = !!tenant;
-  const roomOptions = currentRooms().map(r=>`<option value="${r.id}" ${tenant&&tenant.roomId===r.id?'selected':''}>${r.number}${r.status==='occupied'&&(!tenant||tenant.roomId!==r.id)?' (มีผู้เช่าแล้ว)':''}</option>`).join('');
+  const roomOptions = currentRooms().map(r=>`<option value="${escapeAuthHtml(r.id)}" ${tenant&&tenant.roomId===r.id?'selected':''}>${escapeAuthHtml(r.number)}${r.status==='occupied'&&(!tenant||tenant.roomId!==r.id)?' (มีผู้เช่าแล้ว)':''}</option>`).join('');
   return `
     <h3>${isEdit?'แก้ไขผู้เช่า':'เพิ่มผู้เช่า'}</h3>
-    <div class="field"><label>ชื่อ-นามสกุล</label><input id="f-name" value="${tenant?tenant.name:''}" placeholder="เว้นว่างได้ถ้ายังไม่ทราบชื่อ"></div>
+    <div class="field"><label>ชื่อ-นามสกุล</label><input id="f-name" value="${escapeAuthHtml(tenant?tenant.name:'')}" placeholder="เว้นว่างได้ถ้ายังไม่ทราบชื่อ"></div>
     <p class="sub" style="font-size:12px;margin-top:-10px;margin-bottom:14px;">ถ้าผู้เช่ายังไม่ได้แจ้งชื่อ (ให้แค่เบอร์ติดต่อ) เว้นชื่อว่างไว้ได้ — ระบบจะแสดงเป็น “ไม่ระบุ (ห้อง …)” ตามเลขห้องแทนให้อัตโนมัติ ทั้งในรายชื่อ ใบแจ้งหนี้ และรายงานสรุป</p>
     <div class="field-row">
       <div class="field"><label>ห้องพัก</label><select id="f-room"><option value="">— เลือกห้อง —</option>${roomOptions}</select></div>
-      <div class="field"><label>เบอร์โทร</label><input id="f-phone" value="${tenant?(tenant.phone||''):''}" placeholder="08x-xxx-xxxx"></div>
+      <div class="field"><label>เบอร์โทร</label><input id="f-phone" value="${escapeAuthHtml(tenant?(tenant.phone||''):'')}" placeholder="08x-xxx-xxxx"></div>
     </div>
     <div class="field"><label>วันที่เข้าพัก</label><input id="f-movein" type="date" value="${tenant?(tenant.moveIn||''):''}"></div>
     <div class="modal-actions">
@@ -3153,8 +3163,8 @@ function billEditFormHtml(bill){
   const prop = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId));
   const vatOn = !!(prop && prop.vatEnabled);
   return `
-    <h3>แก้ไขบิล — ห้อง ${room?room.number:'—'}</h3>
-    <p class="sub" style="font-size:12.5px;margin-top:-8px;">${monthLabel(bill.month)} · เลขที่บิล ${bill.invoiceNo||'-'}</p>
+    <h3>แก้ไขบิล — ห้อง ${room?escapeAuthHtml(room.number):'—'}</h3>
+    <p class="sub" style="font-size:12.5px;margin-top:-8px;">${monthLabel(bill.month)} · เลขที่บิล ${escapeAuthHtml(bill.invoiceNo||'-')}</p>
     <div class="field"><label>ค่าเช่า (บาท)</label><input id="f-bill-rent" type="number" value="${Number(bill.rent)||0}" onfocus="this.select()"></div>
     <div class="field-row">
       <div class="field"><label>ค่าน้ำ (บาท)</label><input id="f-bill-water" type="number" value="${Number(bill.water)||0}" onfocus="this.select()"></div>
@@ -3168,7 +3178,7 @@ function billEditFormHtml(bill){
       </select>
     </div>
     ${vatOn ? `
-    <div class="field"><label>เลขที่ใบกำกับภาษี</label><input id="f-bill-taxinvoiceno" value="${(bill.taxInvoiceNo||'').replace(/"/g,'&quot;')}" placeholder="กรอกเอง เว้นว่างได้ถ้ายังไม่ออก"></div>
+    <div class="field"><label>เลขที่ใบกำกับภาษี</label><input id="f-bill-taxinvoiceno" value="${escapeAuthHtml(bill.taxInvoiceNo||'')}" placeholder="กรอกเอง เว้นว่างได้ถ้ายังไม่ออก"></div>
     <div id="billVatCalc" class="sub" style="font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;line-height:1.7;margin-bottom:14px;"></div>
     ` : ''}
     <p class="sub" style="font-size:12px;">การแก้ค่าน้ำ/ค่าไฟตรงนี้เป็นการแก้ยอดเงินโดยตรง ไม่กระทบเลขมิเตอร์ที่บันทึกไว้ — ถ้าต้องการแก้เลขมิเตอร์ ให้ปิดหน้าต่างนี้แล้วคลิกที่ช่องค่าน้ำ/ค่าไฟในตารางบิลแทน</p>
@@ -3265,19 +3275,19 @@ function ratesFormHtml(){
       <label style="margin-bottom:6px;">ผู้ดูแลอพาร์ทเมนท์</label>
       ${managerHtml}
     </div>
-    <div class="field"><label>ชื่ออพาร์ทเมนท์</label><input id="f-propname" value="${(prop.name||'').replace(/"/g,'&quot;')}" placeholder="เช่น อพาร์ทเมนท์ 1"></div>
+    <div class="field"><label>ชื่ออพาร์ทเมนท์</label><input id="f-propname" value="${escapeAuthHtml(prop.name||'')}" placeholder="เช่น อพาร์ทเมนท์ 1"></div>
     <div class="field-row">
       <div class="field"><label>ค่าน้ำ (บาท/หน่วย)</label><input id="f-waterrate" type="number" value="${Number(prop.waterRate)||0}"></div>
       <div class="field"><label>ค่าไฟ (บาท/หน่วย)</label><input id="f-electricrate" type="number" value="${Number(prop.electricRate)||0}"></div>
     </div>
-    <div class="field"><label>ที่อยู่อพาร์ทเมนท์ (แสดงบนหัวใบแจ้งหนี้)</label><input id="f-address" value="${(prop.address||'').replace(/"/g,'&quot;')}" placeholder="เช่น 28/244 หมู่ 4 ถ.พุทธมณฑลสาย 4 ต.สามพราน อ.สามพราน จ.นครปฐม"></div>
+    <div class="field"><label>ที่อยู่อพาร์ทเมนท์ (แสดงบนหัวใบแจ้งหนี้)</label><input id="f-address" value="${escapeAuthHtml(prop.address||'')}" placeholder="เช่น 28/244 หมู่ 4 ถ.พุทธมณฑลสาย 4 ต.สามพราน อ.สามพราน จ.นครปฐม"></div>
     <div class="field"><label>หมายเหตุท้ายบิล (เช่น เลขบัญชีธนาคาร, เงื่อนไขค่าปรับ)</label>
-      <textarea id="f-notes" rows="3" placeholder="เช่น โอนเข้าบัญชี ... ธนาคาร ... เลขที่ ...&#10;ชำระไม่เกินวันที่ 5 ของเดือน เกินกำหนดปรับวันละ 100 บาท">${(prop.notes||'')}</textarea>
+      <textarea id="f-notes" rows="3" placeholder="เช่น โอนเข้าบัญชี ... ธนาคาร ... เลขที่ ...&#10;ชำระไม่เกินวันที่ 5 ของเดือน เกินกำหนดปรับวันละ 100 บาท">${escapeAuthHtml(prop.notes||'')}</textarea>
     </div>
     <div class="field">
       <label>QR Code ชำระเงิน (แสดงข้างหมายเหตุในใบแจ้งหนี้)</label>
       <div id="qrPreviewWrap" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;${prop.qrImage?'':'display:none;'}">
-        <img id="qrPreviewImg" src="${prop.qrImage||''}" style="width:72px;height:72px;object-fit:contain;border:1px solid var(--line);border-radius:6px;background:#fff;">
+        <img id="qrPreviewImg" src="${safeImageSrc(prop.qrImage)}" style="width:72px;height:72px;object-fit:contain;border:1px solid var(--line);border-radius:6px;background:#fff;">
         <button type="button" class="btn ghost small" id="removeQrBtn">ลบ QR</button>
       </div>
       <input id="f-qrimage" type="file" accept="image/*">
@@ -3292,9 +3302,9 @@ function ratesFormHtml(){
     <div id="vatSettingsBlock" style="${prop.vatEnabled?'':'display:none;'}">
       <div class="field-row">
         <div class="field"><label>อัตรา VAT (%)</label><input id="f-vat-rate" type="number" step="0.01" value="${prop.vatRate!=null?Number(prop.vatRate):7}"></div>
-        <div class="field"><label>เลขประจำตัวผู้เสียภาษี</label><input id="f-vat-taxid" value="${(prop.taxId||'').replace(/"/g,'&quot;')}" placeholder="13 หลัก"></div>
+        <div class="field"><label>เลขประจำตัวผู้เสียภาษี</label><input id="f-vat-taxid" value="${escapeAuthHtml(prop.taxId||'')}" placeholder="13 หลัก"></div>
       </div>
-      <div class="field"><label>ชื่อนิติบุคคล/ผู้ประกอบการ (พิมพ์บนใบกำกับภาษี)</label><input id="f-vat-legalname" value="${(prop.legalName||'').replace(/"/g,'&quot;')}" placeholder="เช่น บริษัท ... จำกัด"></div>
+      <div class="field"><label>ชื่อนิติบุคคล/ผู้ประกอบการ (พิมพ์บนใบกำกับภาษี)</label><input id="f-vat-legalname" value="${escapeAuthHtml(prop.legalName||'')}" placeholder="เช่น บริษัท ... จำกัด"></div>
       <p class="sub" style="font-size:12px;margin:10px 0 6px;">กำหนดวิธีคิด VAT แยกอิสระต่อรายการ — "ไม่มี VAT" เช่น ค่าเช่าที่พักอาศัยได้รับยกเว้นตามกฎหมาย, "VAT นอก" คือราคาที่ตั้งเป็นราคาก่อนภาษี แล้วบวกเพิ่ม, "VAT ใน" คือราคาที่ตั้งรวมภาษีอยู่แล้ว ระบบจะแยกภาษีออกมาให้เอง</p>
       <div class="field-row">
         <div class="field"><label>ค่าเช่า</label>
@@ -3490,7 +3500,7 @@ function bulkMeterFormHtml(month){
           const wCost = Math.max(wCurr-wPrev,0)*waterRate;
           const eCost = Math.max(eCurr-ePrev,0)*electricRate;
           return `<tr data-bill="${b.id}">
-            <td style="font-weight:600;">${room?room.number:'—'}</td>
+            <td style="font-weight:600;">${room?escapeAuthHtml(room.number):'—'}</td>
             <td>
               <div style="display:flex;align-items:center;gap:6px;">
                 <span class="muted mono" style="font-size:12px;white-space:nowrap;">${wPrev} →</span>
@@ -3735,7 +3745,7 @@ function renderMonthlyReport(monthsDesc){
           ${sortedBills.map(b=>{
             const room = rooms.find(r=>r.id===b.roomId);
             return `<tr>
-              <td style="font-weight:600;">${room?room.number:'—'}</td>
+              <td style="font-weight:600;">${room?escapeAuthHtml(room.number):'—'}</td>
               <td class="mono muted">${THB(b.rent)}</td>
               <td class="mono muted">${THB(b.water)}</td>
               <td class="mono muted">${THB(b.electric)}</td>
@@ -3986,27 +3996,27 @@ function invoiceHtml(bill){
             <text x="256" y="430" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="none" stroke="#3B2A1E" stroke-width="5" stroke-linejoin="round">D</text>
           </svg>
           <div>
-            <p class="inv-shop-name">${vatOn && property.legalName ? property.legalName : (property.name||'')}</p>
-            ${property.address?`<p class="inv-shop-address">${property.address}</p>`:''}
-            ${vatOn && property.taxId?`<p class="inv-shop-address">เลขประจำตัวผู้เสียภาษี ${property.taxId}</p>`:''}
+            <p class="inv-shop-name">${escapeAuthHtml(vatOn && property.legalName ? property.legalName : (property.name||''))}</p>
+            ${property.address?`<p class="inv-shop-address">${escapeAuthHtml(property.address)}</p>`:''}
+            ${vatOn && property.taxId?`<p class="inv-shop-address">เลขประจำตัวผู้เสียภาษี ${escapeAuthHtml(property.taxId)}</p>`:''}
           </div>
         </div>
         <div class="inv-docno-wrap">
           <div class="inv-doctitle">${vatOn ? 'ใบแจ้งหนี้ / ใบกำกับภาษี' : 'ใบแจ้งหนี้ / INVOICE'}</div>
           <div class="inv-barcode"></div>
-          <div class="inv-docno">${invoiceNo}</div>
-          ${vatOn && bill.taxInvoiceNo?`<div class="inv-docno" style="font-size:12px;">เลขที่ใบกำกับภาษี ${bill.taxInvoiceNo}</div>`:''}
+          <div class="inv-docno">${escapeAuthHtml(invoiceNo)}</div>
+          ${vatOn && bill.taxInvoiceNo?`<div class="inv-docno" style="font-size:12px;">เลขที่ใบกำกับภาษี ${escapeAuthHtml(bill.taxInvoiceNo)}</div>`:''}
         </div>
       </div>
       <div class="inv-body">
         <table class="inv-meta">
           ${INV_COLGROUP}
           <tr>
-            <td class="k">ชื่อผู้เช่า<br>Name</td><td class="v">${tenant?tenantDisplayName(tenant):'-'}</td>
-            <td class="k">เลขที่<br>No.</td><td class="v" colspan="2">${invoiceNo}</td>
+            <td class="k">ชื่อผู้เช่า<br>Name</td><td class="v">${tenant?escapeAuthHtml(tenantDisplayName(tenant)):'-'}</td>
+            <td class="k">เลขที่<br>No.</td><td class="v" colspan="2">${escapeAuthHtml(invoiceNo)}</td>
           </tr>
           <tr>
-            <td class="k">ห้องพัก<br>Room</td><td class="v">${room?('ห้อง '+room.number+(room.floor?' ชั้น '+room.floor:'')):'-'}</td>
+            <td class="k">ห้องพัก<br>Room</td><td class="v">${room?escapeAuthHtml('ห้อง '+room.number+(room.floor?' ชั้น '+room.floor:'')):'-'}</td>
             <td class="k">วันที่<br>Date</td><td class="v" colspan="2">${thaiBuddhistDate()}</td>
           </tr>
         </table>
@@ -4030,8 +4040,8 @@ function invoiceHtml(bill){
         </table>
         ${(property.notes || property.qrImage) ? `
         <div class="inv-bottom">
-          ${property.notes?`<div class="inv-notes"><span class="label">หมายเหตุ</span><br>${property.notes.replace(/</g,'&lt;')}</div>`:'<div></div>'}
-          ${property.qrImage?`<div class="inv-qr"><img src="${property.qrImage}" alt="QR ชำระเงิน"><div class="qr-label">สแกนเพื่อชำระเงิน</div></div>`:''}
+          ${property.notes?`<div class="inv-notes"><span class="label">หมายเหตุ</span><br>${escapeAuthHtml(property.notes)}</div>`:'<div></div>'}
+          ${property.qrImage?`<div class="inv-qr"><img src="${safeImageSrc(property.qrImage)}" alt="QR ชำระเงิน"><div class="qr-label">สแกนเพื่อชำระเงิน</div></div>`:''}
         </div>` : ''}
         <div class="inv-sign">
           <div class="line">ลงชื่อ ......................................... ผู้รับเงิน</div>
@@ -4210,7 +4220,7 @@ function receiptHtml(receipt){
     itemRowsHtml = `
       <tr>
         <td class="c">1</td>
-        <td>ค่าเช่าห้อง ห้อง ${room?room.number:'-'}${receipt.note?' ('+receipt.note.replace(/</g,'&lt;')+')':''}</td>
+        <td>ค่าเช่าห้อง ห้อง ${room?escapeAuthHtml(room.number):'-'}${receipt.note?' ('+escapeAuthHtml(receipt.note)+')':''}</td>
         <td class="c">-</td>
         <td class="r">-</td>
         <td class="r">${THB(receipt.amount)}</td>
@@ -4253,15 +4263,15 @@ function receiptHtml(receipt){
             <text x="256" y="430" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="none" stroke="#3B2A1E" stroke-width="5" stroke-linejoin="round">D</text>
           </svg>
           <div>
-            <p class="inv-shop-name">${vatOn && property.legalName ? property.legalName : (property.name||'')}</p>
-            ${property.address?`<p class="inv-shop-address">${property.address}</p>`:''}
-            ${vatOn && property.taxId?`<p class="inv-shop-address">เลขประจำตัวผู้เสียภาษี ${property.taxId}</p>`:''}
+            <p class="inv-shop-name">${escapeAuthHtml(vatOn && property.legalName ? property.legalName : (property.name||''))}</p>
+            ${property.address?`<p class="inv-shop-address">${escapeAuthHtml(property.address)}</p>`:''}
+            ${vatOn && property.taxId?`<p class="inv-shop-address">เลขประจำตัวผู้เสียภาษี ${escapeAuthHtml(property.taxId)}</p>`:''}
           </div>
         </div>
         <div class="inv-docno-wrap">
           <div class="inv-doctitle">${vatOn ? 'ใบเสร็จรับเงิน / ใบกำกับภาษี' : 'ใบเสร็จรับเงิน / RECEIPT'}</div>
           <div class="inv-barcode"></div>
-          <div class="inv-docno">${receiptNo}</div>
+          <div class="inv-docno">${escapeAuthHtml(receiptNo)}</div>
           ${isVoid?`<div class="inv-docno" style="font-size:12px;">VOID · ${escapeAuthHtml(receipt.voidReason||'')}</div>`:''}
         </div>
       </div>
@@ -4269,11 +4279,11 @@ function receiptHtml(receipt){
         <table class="inv-meta">
           ${INV_COLGROUP}
           <tr>
-            <td class="k">ชื่อผู้เช่า<br>Name</td><td class="v">${tenant?tenantDisplayName(tenant):'-'}</td>
-            <td class="k">เลขที่<br>No.</td><td class="v" colspan="2">${receiptNo}</td>
+            <td class="k">ชื่อผู้เช่า<br>Name</td><td class="v">${tenant?escapeAuthHtml(tenantDisplayName(tenant)):'-'}</td>
+            <td class="k">เลขที่<br>No.</td><td class="v" colspan="2">${escapeAuthHtml(receiptNo)}</td>
           </tr>
           <tr>
-            <td class="k">ห้องพัก<br>Room</td><td class="v">${room?('ห้อง '+room.number+(room.floor?' ชั้น '+room.floor:'')):'-'}</td>
+            <td class="k">ห้องพัก<br>Room</td><td class="v">${room?escapeAuthHtml('ห้อง '+room.number+(room.floor?' ชั้น '+room.floor:'')):'-'}</td>
             <td class="k">วันที่<br>Date</td><td class="v" colspan="2">${thaiBuddhistDate(dateObj)}</td>
           </tr>
         </table>
@@ -4368,7 +4378,7 @@ function printMonthReport(month){
   }).map(b=>{
     const room = rooms.find(r=>r.id===b.roomId);
     return `<tr>
-      <td>${room?room.number:'-'}</td>
+      <td>${room?escapeAuthHtml(room.number):'-'}</td>
       <td>${THB(b.rent)}</td>
       <td>${THB(b.water)}</td>
       <td>${THB(b.electric)}</td>
@@ -4379,7 +4389,7 @@ function printMonthReport(month){
   const html = `
     <div class="invoice">
       <h1>รายงานค่าเช่าประจำเดือน ${monthLabel(month)}</h1>
-      <p>${property?property.name:''}</p>
+      <p>${property?escapeAuthHtml(property.name):''}</p>
       <table>
         <thead><tr><th>ห้อง</th><th>ค่าเช่า</th><th>ค่าน้ำ</th><th>ค่าไฟ</th><th>รวม</th><th>สถานะ</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
@@ -4774,7 +4784,7 @@ function meterHistoryModalHtml(query){
             const room = rooms.find(r=>r.id===m.roomId);
             const typeLabel = m.type==='water' ? '💧 น้ำ' : '⚡ ไฟ';
             return `<tr>
-              <td style="font-weight:600;">${room?room.number:'—'}</td>
+              <td style="font-weight:600;">${room?escapeAuthHtml(room.number):'—'}</td>
               <td>${typeLabel}</td>
               <td class="mono muted">${m.prev} → ${m.curr}</td>
               <td class="mono">${m.units}</td>
@@ -4815,9 +4825,9 @@ function depositPickerModalHtml(query){
             const room = rooms.find(r=>r.id===d.roomId);
             const tenant = tenants.find(t=>t.id===d.tenantId) || tenants.find(t=>t.roomId===d.roomId);
             return `<tr>
-              <td style="font-weight:600;">${room?room.number:'—'}</td>
-              <td class="muted">${tenant?tenantDisplayName(tenant):'-'}</td>
-              <td class="mono">${d.receiptNo}</td>
+              <td style="font-weight:600;">${room?escapeAuthHtml(room.number):'—'}</td>
+              <td class="muted">${tenant?escapeAuthHtml(tenantDisplayName(tenant)):'-'}</td>
+              <td class="mono">${escapeAuthHtml(d.receiptNo)}</td>
               <td class="muted">${formatThaiDate(d.date)}</td>
               <td class="mono" style="font-weight:600;">${THB(d.amount)} บ.</td>
               <td style="white-space:nowrap;"><button class="btn ghost small print-deposit" data-id="${d.id}">🖨 พิมพ์</button> <button class="btn ghost small export-deposit-pdf" data-id="${d.id}">📄 PDF</button></td>
@@ -4838,8 +4848,8 @@ function depositModalHtml(tenant){
   const today = new Date();
   const todayIso = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
   return `
-    <h3>ใบรับเงินมัดจำ — ห้อง ${room?room.number:'—'}</h3>
-    <p class="sub" style="font-size:13px;margin-top:-6px;">ผู้เช่า: ${tenant?tenantDisplayName(tenant):'-'}</p>
+    <h3>ใบรับเงินมัดจำ — ห้อง ${room?escapeAuthHtml(room.number):'—'}</h3>
+    <p class="sub" style="font-size:13px;margin-top:-6px;">ผู้เช่า: ${tenant?escapeAuthHtml(tenantDisplayName(tenant)):'-'}</p>
 
     ${list.length>0?`
     <div style="max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:16px;">
@@ -4847,7 +4857,7 @@ function depositModalHtml(tenant){
         <thead><tr><th>เลขที่ใบรับ</th><th>วันที่</th><th>จำนวนเงิน</th><th></th></tr></thead>
         <tbody>
           ${list.map(d=>`<tr data-dep-id="${d.id}">
-            <td class="mono">${d.receiptNo}</td>
+            <td class="mono">${escapeAuthHtml(d.receiptNo)}</td>
             <td class="muted">${formatThaiDate(d.date)}</td>
             <td class="mono" style="font-weight:600;">${THB(d.amount)} บ.</td>
             <td style="white-space:nowrap;">
@@ -4928,7 +4938,7 @@ function receiptModalHtml(bill){
   const history = receipts.filter(r=>r.billId===bill.id).sort((a,b)=> (b.date||'').localeCompare(a.date||''));
   const activeReceipt = history.find(r=>(r.status||'active')==='active') || null;
   return `
-    <h2>ออกใบเสร็จรับเงิน — ห้อง ${room?room.number:'-'}</h2>
+    <h2>ออกใบเสร็จรับเงิน — ห้อง ${room?escapeAuthHtml(room.number):'-'}</h2>
     <p class="sub">บิลเดือน ${monthLabel(bill.month)} · ยอดรวม ${THB(bill.total)} บาท</p>
     ${history.length ? `
     <div style="max-height:140px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:16px;">
@@ -5043,7 +5053,7 @@ function depositReceiptHtml(deposit){
   const itemRowsHtml = `
     <tr>
       <td class="c">1</td>
-      <td>เงินมัดจำห้องพัก ห้อง ${room?room.number:'-'}${deposit.note?' ('+deposit.note.replace(/</g,'&lt;')+')':''}</td>
+      <td>เงินมัดจำห้องพัก ห้อง ${room?escapeAuthHtml(room.number):'-'}${deposit.note?' ('+escapeAuthHtml(deposit.note)+')':''}</td>
       <td class="c">-</td>
       <td class="r">-</td>
       <td class="r">${THB(deposit.amount)}</td>
@@ -5062,25 +5072,25 @@ function depositReceiptHtml(deposit){
             <text x="256" y="430" text-anchor="middle" font-family="'Baloo 2','Fredoka',sans-serif" font-weight="800" font-size="340" fill="none" stroke="#3B2A1E" stroke-width="5" stroke-linejoin="round">D</text>
           </svg>
           <div>
-            <p class="inv-shop-name">${property.name||''}</p>
-            ${property.address?`<p class="inv-shop-address">${property.address}</p>`:''}
+            <p class="inv-shop-name">${escapeAuthHtml(property.name||'')}</p>
+            ${property.address?`<p class="inv-shop-address">${escapeAuthHtml(property.address)}</p>`:''}
           </div>
         </div>
         <div class="inv-docno-wrap">
           <div class="inv-doctitle">ใบรับเงินมัดจำ / DEPOSIT RECEIPT</div>
           <div class="inv-barcode"></div>
-          <div class="inv-docno">${receiptNo}</div>
+          <div class="inv-docno">${escapeAuthHtml(receiptNo)}</div>
         </div>
       </div>
       <div class="inv-body">
         <table class="inv-meta">
           ${INV_COLGROUP}
           <tr>
-            <td class="k">ชื่อผู้เช่า<br>Name</td><td class="v">${tenant?tenantDisplayName(tenant):'-'}</td>
-            <td class="k">เลขที่<br>No.</td><td class="v" colspan="2">${receiptNo}</td>
+            <td class="k">ชื่อผู้เช่า<br>Name</td><td class="v">${tenant?escapeAuthHtml(tenantDisplayName(tenant)):'-'}</td>
+            <td class="k">เลขที่<br>No.</td><td class="v" colspan="2">${escapeAuthHtml(receiptNo)}</td>
           </tr>
           <tr>
-            <td class="k">ห้องพัก<br>Room</td><td class="v">${room?('ห้อง '+room.number+(room.floor?' ชั้น '+room.floor:'')):'-'}</td>
+            <td class="k">ห้องพัก<br>Room</td><td class="v">${room?escapeAuthHtml('ห้อง '+room.number+(room.floor?' ชั้น '+room.floor:'')):'-'}</td>
             <td class="k">วันที่<br>Date</td><td class="v" colspan="2">${thaiBuddhistDate(dateObj)}</td>
           </tr>
         </table>
