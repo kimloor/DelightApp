@@ -226,11 +226,12 @@ Key examples:
 A post-foundation stabilization phase is now active before major new product features.
 
 Current priority:
-- S3 Paid Bill Lock + Void Workflow
+- S4 Tenant Account Lifecycle
 
 Completed stabilization:
 - S1 Auth / Session Hardening V2
 - S2 Financial / Database Integrity V1
+- S3 Paid Bill Lock + Receipt Void V1
 
 Planned stabilization:
 - financial/database integrity
