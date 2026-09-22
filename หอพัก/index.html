@@ -3349,7 +3349,7 @@ function bulkEditRoomTypeDepositHtml(){
   const floors = Array.from(new Set(roomList.map(r=>r.floor||'').filter(Boolean))).sort((a,b)=>a.localeCompare(b,'th',{numeric:true}));
   return `
     <h3>แก้ไขข้อมูลหลายห้อง</h3>
-    <p class="sub" style="font-size:12px;margin-top:-6px;">เลือกห้องก่อน แล้วกำหนดเฉพาะค่าที่ต้องการเปลี่ยน จากนั้นกด “ใช้กับห้องที่เลือก” เพื่อตรวจสอบในตารางก่อนบันทึกจริง</p>
+    <p class="sub" style="font-size:12px;margin-top:-6px;">เลือกห้องก่อน แล้วกำหนดเฉพาะค่าที่ต้องการเปลี่ยน จากนั้นกด “ใช้กับห้องที่เลือก” เพื่อตรวจสอบก่อนบันทึกจริง</p>
     <div class="room-bulk-quick">
       <button class="btn ghost small" type="button" data-rtd-select="all">ทั้งหมด</button>
       <button class="btn ghost small" type="button" data-rtd-select="vacant">ห้องว่าง</button>
@@ -3359,51 +3359,31 @@ function bulkEditRoomTypeDepositHtml(){
         ${floors.map(f=>`<option value="${escapeAuthHtml(f)}">ชั้น ${escapeAuthHtml(f)}</option>`).join('')}
       </select>
     </div>
-
     <div class="room-bulk-fields">
-      <div class="field">
-        <label>ประเภทห้อง</label>
-        <select id="rtd-bulk-type">
-          <option value="">— ไม่เปลี่ยน —</option>
-          <option value="__clear__">ล้างประเภทห้อง</option>
-          <option value="ห้องพัดลม">ห้องพัดลม</option>
-          <option value="ห้องแอร์">ห้องแอร์</option>
-        </select>
-      </div>
+      <div class="field"><label>ประเภทห้อง</label><select id="rtd-bulk-type"><option value="">— ไม่เปลี่ยน —</option><option value="__clear__">ล้างประเภทห้อง</option><option value="ห้องพัดลม">ห้องพัดลม</option><option value="ห้องแอร์">ห้องแอร์</option></select></div>
       <div class="field"><label>ค่าเช่า / เดือน</label><input id="rtd-bulk-rent" type="number" placeholder="เว้นว่าง = ไม่เปลี่ยน"></div>
       <div class="field"><label>ค่ามัดจำ</label><input id="rtd-bulk-deposit" type="number" placeholder="เว้นว่าง = ไม่เปลี่ยน"></div>
       <div class="field"><label>ชั้น</label><input id="rtd-bulk-floor" placeholder="เว้นว่าง = ไม่เปลี่ยน"></div>
     </div>
-
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0;flex-wrap:wrap;">
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
-        <input type="checkbox" id="rtdSelectAll"> เลือกทั้งหมด (${roomList.length} ห้อง)
-      </label>
+    <div class="room-bulk-applybar">
+      <label class="room-bulk-select-all"><input type="checkbox" id="rtdSelectAll"> เลือกทั้งหมด (${roomList.length} ห้อง)</label>
       <button class="btn ghost small" type="button" id="applyRtdBulkBtn">ใช้ค่าด้านบนกับห้องที่เลือก</button>
     </div>
-
-    <div class="room-bulk-table-wrap">
-      <table class="room-bulk-table">
-        <thead><tr><th style="width:32px;"></th><th>ห้อง</th><th>ชั้น</th><th>ประเภทห้อง</th><th>ค่าเช่า</th><th>ค่ามัดจำ</th></tr></thead>
-        <tbody>
-          ${roomList.map(r=>`
-            <tr class="rtd-row" data-id="${r.id}" data-status="${r.status}" data-floor="${escapeAuthHtml(r.floor||'')}">
-              <td><input type="checkbox" class="rtd-check"></td>
-              <td style="font-weight:600;">${escapeAuthHtml(r.number)}${r.status==='occupied'?' <span class="muted" style="font-weight:400;">(มีผู้เช่า)</span>':''}</td>
-              <td><input class="rtd-floor" style="width:80px;" value="${escapeAuthHtml(r.floor||'')}"></td>
-              <td>
-                <select class="rtd-type">
-                  <option value="" ${!r.roomType?'selected':''}>— ยังไม่ระบุ —</option>
-                  <option value="ห้องพัดลม" ${r.roomType==='ห้องพัดลม'?'selected':''}>ห้องพัดลม</option>
-                  <option value="ห้องแอร์" ${r.roomType==='ห้องแอร์'?'selected':''}>ห้องแอร์</option>
-                </select>
-              </td>
-              <td><input type="number" class="rtd-rent" style="width:100px;" value="${Number(r.rent)||0}"></td>
-              <td><input type="number" class="rtd-deposit" style="width:100px;" value="${Number(r.deposit)||0}"></td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+    <div class="room-bulk-list">
+      ${roomList.map(r=>`
+        <div class="rtd-row room-bulk-card" data-id="${r.id}" data-status="${r.status}" data-floor="${escapeAuthHtml(r.floor||'')}">
+          <div class="room-bulk-card-head">
+            <label class="room-bulk-room-id"><input type="checkbox" class="rtd-check"><strong>ห้อง ${escapeAuthHtml(r.number)}</strong></label>
+            <span class="status-pill ${r.status==='occupied'?'occupied':'vacant'}">${r.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span>
+          </div>
+          <div class="room-bulk-card-fields">
+            <div class="field"><label>ชั้น</label><input class="rtd-floor" value="${escapeAuthHtml(r.floor||'')}"></div>
+            <div class="field"><label>ประเภทห้อง</label><select class="rtd-type"><option value="" ${!r.roomType?'selected':''}>— ยังไม่ระบุ —</option><option value="ห้องพัดลม" ${r.roomType==='ห้องพัดลม'?'selected':''}>ห้องพัดลม</option><option value="ห้องแอร์" ${r.roomType==='ห้องแอร์'?'selected':''}>ห้องแอร์</option></select></div>
+            <div class="field"><label>ค่าเช่า / เดือน</label><input type="number" class="rtd-rent" value="${Number(r.rent)||0}"></div>
+            <div class="field"><label>ค่ามัดจำ</label><input type="number" class="rtd-deposit" value="${Number(r.deposit)||0}"></div>
+          </div>
+        </div>
+      `).join('')}
     </div>
     <div class="modal-actions">
       <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
