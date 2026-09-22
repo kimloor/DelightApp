@@ -57,7 +57,7 @@ jobs:
           ' <<<"$PROP")"
           curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data "$UPDATE_PROP" >/dev/null
 
-          ROOM="$(curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data "$(jq -nc --arg t "$TOKEN" --arg p "$PROP_ID" --arg x "$PAYLOAD" '{action:"createRoom",token:$t,item:{propertyId:$p,number:$x,floor:$x,rent:1000,status:"vacant",roomType:"smoke",deposit:500}}')")"
+          ROOM="$(curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data "$(jq -nc --arg t "$TOKEN" --arg p "$PROP_ID" --arg x "$PAYLOAD" '{action:"createRoom",token:$t,item:{propertyId:$p,number:$x,floor:"1",rent:1000,status:"vacant",roomType:"smoke",deposit:500}}')")"
           ROOM_ID="$(jq -r '.room.id // empty' <<<"$ROOM")"
           test -n "$ROOM_ID"
 
