@@ -1,0 +1,153 @@
+name: S5 XSS Production E2E
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: contains(github.event.head_commit.message, '[S5-E2E]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PROD_URL: https://delightapp.ekqtjl.workers.dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Prepare isolated XSS fixture
+        id: fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          USERNAME="s5_xss_${GITHUB_RUN_ID}"
+          PASSWORD="$(openssl rand -hex 16)"
+          SALT="$(openssl rand -hex 16)"
+          HASH="$(printf '%s:%s' "$PASSWORD" "$SALT" | sha256sum | awk '{print $1}')"
+          USER_ID="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "UPDATE id_counters SET next_id=next_id+1 WHERE table_name='users' RETURNING next_id-1 AS id;" --json | jq -r '.[0].results[0].id')"
+          NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          PAYLOAD='<img src=x onerror="window.__delightXss=1"><svg onload="window.__delightXss=2"></svg>"'"'"'><b>XSS-SMOKE</b>'
+
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "INSERT INTO users (id,username,password_hash,salt,display_name,created_at,role,platform_role,password_algo,password_iterations,session_version,account_status) VALUES ('$USER_ID','$USERNAME','$HASH','$SALT','S5 XSS','$NOW','admin','normal','legacy_sha256',0,2,'active');"
+
+          LOGIN="$(curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data "$(jq -nc --arg u "$USERNAME" --arg p "$PASSWORD" '{action:"login",username:$u,password:$p}')")"
+          TOKEN="$(jq -r '.token // empty' <<<"$LOGIN")"
+          test -n "$TOKEN"
+
+          PROP="$(curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data "$(jq -nc --arg t "$TOKEN" --arg n "$PAYLOAD" '{action:"createProperty",token:$t,item:{name:$n,waterRate:18,electricRate:8}}')")"
+          PROP_ID="$(jq -r '.property.id // empty' <<<"$PROP")"
+          test -n "$PROP_ID"
+
+          UPDATE_PROP="$(jq -c --arg t "$TOKEN" --arg x "$PAYLOAD" '
+            .property
+            | .name=$x
+            | .address=$x
+            | .notes=$x
+            | .legalName=$x
+            | .taxId=$x
+            | .qrImage="javascript:window.__delightXss=9"
+            | {action:"updateProperty",token:$t,item:.}
+          ' <<<"$PROP")"
+          curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data "$UPDATE_PROP" >/dev/null
+
+          ROOM="$(curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data "$(jq -nc --arg t "$TOKEN" --arg p "$PROP_ID" --arg x "$PAYLOAD" '{action:"createRoom",token:$t,item:{propertyId:$p,number:$x,floor:$x,rent:1000,status:"vacant",roomType:"smoke",deposit:500}}')")"
+          ROOM_ID="$(jq -r '.room.id // empty' <<<"$ROOM")"
+          test -n "$ROOM_ID"
+
+          TENANT="$(curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data "$(jq -nc --arg t "$TOKEN" --arg r "$ROOM_ID" --arg x "$PAYLOAD" '{action:"createTenant",token:$t,item:{roomId:$r,name:$x,phone:$x,moveIn:"2099-04-01"}}')")"
+          test -n "$(jq -r '.tenant.id // empty' <<<"$TENANT")"
+
+          {
+            echo "token=$TOKEN"
+            echo "user_id=$USER_ID"
+            echo "property_id=$PROP_ID"
+            echo "payload_b64=$(printf '%s' "$PAYLOAD" | base64 -w0)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install Chromium runner
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Browser XSS verification
+        env:
+          AUTH_TOKEN: ${{ steps.fixture.outputs.token }}
+          PAYLOAD_B64: ${{ steps.fixture.outputs.payload_b64 }}
+        shell: bash
+        run: |
+          cat > /tmp/s5-xss-smoke.mjs <<'NODE'
+          import { chromium } from 'playwright';
+
+          const base=process.env.PROD_URL;
+          const token=process.env.AUTH_TOKEN;
+          const payload=Buffer.from(process.env.PAYLOAD_B64,'base64').toString('utf8');
+          const browser=await chromium.launch({headless:true});
+          const page=await browser.newPage();
+
+          await page.addInitScript(({token})=>{
+            localStorage.setItem('dorm:d1CutoverV1','1');
+            localStorage.setItem('dorm:authToken',token);
+            localStorage.removeItem('dorm:currentUser');
+            window.__delightXss=0;
+          },{token});
+
+          await page.goto(base,{waitUntil:'networkidle'});
+          await page.waitForSelector('#appRoot',{state:'visible',timeout:20000});
+          await page.waitForSelector('#propertySelect', {timeout:20000});
+
+          const assertNoXss=async(label)=>{
+            const value=await page.evaluate(()=>window.__delightXss || 0);
+            if(value!==0) throw new Error(label+': XSS executed, marker='+value);
+            const bad=await page.locator('script[src="x"], img[src="x"], svg[onload], [onerror]').count();
+            if(bad!==0) throw new Error(label+': injected executable node found');
+          };
+
+          await assertNoXss('initial');
+
+          const optionText=await page.locator('#propertySelect option:checked').textContent();
+          if(!optionText?.includes('XSS-SMOKE')) throw new Error('property payload not rendered as text');
+
+          await page.locator('[data-page="rooms"]').click();
+          await page.waitForTimeout(200);
+          if(!(await page.locator('#main').innerText()).includes('XSS-SMOKE')) throw new Error('room payload missing');
+          await assertNoXss('rooms');
+
+          await page.locator('[data-page="tenants"]').click();
+          await page.waitForTimeout(200);
+          if(!(await page.locator('#main').innerText()).includes('XSS-SMOKE')) throw new Error('tenant payload missing');
+          await assertNoXss('tenants');
+
+          await page.locator('#editPropertyBtn').click();
+          await page.waitForSelector('#f-notes');
+          if((await page.locator('#f-notes').inputValue())!==payload) throw new Error('notes value changed by escaping');
+          const src=await page.locator('#qrPreviewImg').getAttribute('src');
+          if(src && /^javascript:/i.test(src)) throw new Error('unsafe QR source survived');
+          await assertNoXss('property-settings');
+
+          await browser.close();
+          console.log('s5_xss_e2e=PASS');
+          NODE
+          node /tmp/s5-xss-smoke.mjs
+
+      - name: Cleanup isolated fixture
+        if: always()
+        env:
+          AUTH_TOKEN: ${{ steps.fixture.outputs.token }}
+          USER_ID: ${{ steps.fixture.outputs.user_id }}
+          PROPERTY_ID: ${{ steps.fixture.outputs.property_id }}
+        shell: bash
+        run: |
+          set +e
+          if [ -n "$AUTH_TOKEN" ] && [ -n "$PROPERTY_ID" ]; then
+            curl -fsS "$PROD_URL/api" -H 'content-type: application/json' --data "$(jq -nc --arg t "$AUTH_TOKEN" --arg id "$PROPERTY_ID" '{action:"deleteProperty",token:$t,id:$id}')" >/dev/null
+          fi
+          if [ -n "$USER_ID" ]; then
+            npx --yes wrangler@4 d1 execute delightapp-db --remote --command "DELETE FROM property_admins WHERE user_id='$USER_ID'; DELETE FROM users WHERE id='$USER_ID';" >/dev/null
+          fi
