@@ -70,7 +70,7 @@ Goals:
 - review QR/image/file rendering surfaces
 
 ### S6 — Superadmin Console V1
-Status: IN PROGRESS — Phase A done, Phase B next
+Status: IN PROGRESS — Phase A/B done, Phase C platform audit/health next
 
 Goals:
 - manage platform/account structure without automatically exposing tenant/business data
@@ -134,11 +134,13 @@ S4 — Tenant Account Lifecycle is production-verified.
 S5 — Frontend Security / XSS Audit is production-verified.
 
 S6 Phase A — Superadmin Platform Overview + Account Control is production-verified.
+S6 Phase B — Access Mapping Repair is production-verified.
 
-Next: S6 Phase B — Access Mapping Repair.
+Next: S6 Phase C — Platform Audit / Health.
 
 Detailed contracts:
 - `AUTH-SESSION-HARDENING-V2.md`
 - `FINANCIAL-DATA-INTEGRITY-V1.md`
 - `PAID-BILL-RECEIPT-VOID-V1.md`
 - `TENANT-ACCOUNT-LIFECYCLE-V1.md`
+- `SUPERADMIN-CONSOLE-V1.md`
