@@ -2386,8 +2386,9 @@ function attachModalEvents(){
     const id=document.querySelector('.room-detail')?.dataset.roomId;
     const room=rooms.find(r=>String(r.id)===String(id));
     if(!room) return;
-    onSaveTenant._editId=null;
-    openModal(tenantFormHtml(null, room.id));
+    const tenant=tenants.find(t=>String(t.roomId)===String(room.id)) || null;
+    onSaveTenant._editId=tenant ? tenant.id : null;
+    openModal(tenantFormHtml(tenant, room.id));
   };
   const viewBillsFromRoomBtn = document.getElementById('viewBillsFromRoomBtn');
   if(viewBillsFromRoomBtn) viewBillsFromRoomBtn.onclick = ()=>{
