@@ -3598,10 +3598,8 @@ function billEditFormHtml(bill){
     </div>
     <div class="field">
       <label>สถานะ</label>
-      <select id="f-bill-status">
-        <option value="unpaid" ${bill.status==='unpaid'?'selected':''}>ค้างชำระ</option>
-        <option value="paid" ${bill.status==='paid'?'selected':''}>ชำระแล้ว</option>
-      </select>
+      <div class="${bill.status==='paid'?'badge-paid':'badge-unpaid'}" style="font-weight:600;padding:8px 0;">${bill.status==='paid'?'ชำระแล้ว':'ค้างชำระ'}</div>
+      <p class="sub" style="font-size:12px;margin-top:4px;">สถานะการชำระเปลี่ยนจากขั้นตอน “รับชำระ / ออกใบเสร็จ” เพื่อให้ประวัติการเงินสอดคล้องกัน</p>
     </div>
     ${vatOn ? `
     <div class="field"><label>เลขที่ใบกำกับภาษี</label><input id="f-bill-taxinvoiceno" value="${escapeAuthHtml(bill.taxInvoiceNo||'')}" placeholder="กรอกเอง เว้นว่างได้ถ้ายังไม่ออก"></div>
@@ -3645,7 +3643,7 @@ async function onSaveBillEdit(billId){
   draft.rent = Number(document.getElementById('f-bill-rent').value)||0;
   draft.water = Number(document.getElementById('f-bill-water').value)||0;
   draft.electric = Number(document.getElementById('f-bill-electric').value)||0;
-  draft.status = document.getElementById('f-bill-status').value;
+  draft.status = bill.status;
   const taxInvoiceNoEl = document.getElementById('f-bill-taxinvoiceno');
   if(taxInvoiceNoEl) draft.taxInvoiceNo = taxInvoiceNoEl.value.trim();
   applyBillVat(draft);
