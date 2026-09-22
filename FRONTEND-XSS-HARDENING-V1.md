@@ -1,6 +1,6 @@
 # DelightApp — Frontend Security / XSS Hardening V1
 
-> Status: IN PROGRESS
+> Status: DONE — production verified 2026-09-22
 > Parent: STABILIZATION.md / S5
 > Goal: prevent stored/reflected HTML injection from business/user-controlled data rendered by the admin and tenant UI.
 
@@ -60,3 +60,13 @@ Invoice, receipt, deposit and report HTML must use the same escaping rules as on
 - replacing all innerHTML with DOM APIs
 
 Those may be addressed separately.
+
+
+## 6. Production verification
+
+Completed 2026-09-22:
+- frontend JavaScript syntax validation passed
+- Cloudflare pre-deploy validation passed
+- production deploy completed at 100% traffic
+- production smoke test passed
+- admin/tenant authorization and D1 schema were unchanged
