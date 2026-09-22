@@ -27,6 +27,11 @@
     --rust-soft:#F5E6DE;
     --gold:#C08A2E;
     --gold-soft:#F3E7CE;
+    --control-height:42px;
+    --control-height-sm:34px;
+    --control-radius:8px;
+    --control-soft:#EEEAE3;
+    --control-soft-hover:#E5DFD6;
     --shadow: 0 1px 2px rgba(42,35,29,0.06), 0 6px 20px rgba(42,35,29,0.05);
   }
   *{box-sizing:border-box;}
@@ -263,28 +268,37 @@
   .page-head .sub{color:var(--ink-soft);font-size:14px;margin:0;}
 
   .btn{
-    display:inline-flex;align-items:center;gap:7px;
-    padding:10px 16px;
-    border-radius:8px;
+    display:inline-flex;align-items:center;justify-content:center;gap:7px;
+    min-height:var(--control-height);
+    padding:0 16px;
+    border-radius:var(--control-radius);
     border:1px solid var(--ink);
     background:var(--ink);
     color:var(--bg);
     font-family:inherit;
     font-size:14px;
     font-weight:500;
+    line-height:1;
     cursor:pointer;
-    transition:opacity .15s ease, transform .1s ease;
+    transition:opacity .15s ease, transform .1s ease, background .15s ease;
   }
   .btn:hover{opacity:.85;}
   .btn:active{transform:scale(0.98);}
+  .btn:disabled{opacity:.45;cursor:not-allowed;transform:none;}
   .btn.ghost{
     background:transparent;
     color:var(--ink);
     border:1px solid var(--line);
   }
-  .btn.ghost:hover{background:var(--surface);}
+  .btn.ghost:hover:not(:disabled){background:var(--surface);}
+  .btn.soft{
+    background:var(--control-soft);
+    color:var(--ink);
+    border-color:var(--line);
+  }
+  .btn.soft:hover:not(:disabled){background:var(--control-soft-hover);opacity:1;}
   .btn.danger{background:var(--rust);border-color:var(--rust);}
-  .btn.small{padding:6px 11px;font-size:12.5px;border-radius:6px;}
+  .btn.small{min-height:var(--control-height-sm);padding:0 11px;font-size:12.5px;border-radius:7px;}
 
   /* ---------- Stat cards ---------- */
   .stat-row{
@@ -336,7 +350,7 @@
   .page-head-actions{display:flex;gap:8px;flex-wrap:wrap;}
   .toolbar-actions{display:flex;gap:8px;flex-wrap:wrap;padding:14px 20px;align-items:center;}
   .action-menu{position:relative;display:inline-block;}
-  .action-menu>summary{list-style:none;cursor:pointer;user-select:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:7px 10px;font-size:13px;font-weight:600;white-space:nowrap;}
+  .action-menu>summary{list-style:none;cursor:pointer;user-select:none;display:inline-flex;align-items:center;justify-content:center;min-height:var(--control-height);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:var(--control-radius);padding:0 16px;font-family:inherit;font-size:14px;font-weight:500;line-height:1;white-space:nowrap;}
   .action-menu>summary::-webkit-details-marker{display:none;}
   .action-menu[open]>summary{background:var(--bg);}
   .action-menu-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;min-width:190px;padding:6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:3px;}
@@ -701,7 +715,7 @@
     #billsTable td.actions-cell{display:flex;gap:8px;padding-top:8px;flex-wrap:wrap;align-items:flex-start;}
     #billsTable td.actions-cell>.btn{flex:1;min-width:140px;}
     #billsTable td.actions-cell .action-menu{flex:none;}
-    #billsTable td.actions-cell .action-menu>summary{padding:9px 12px;}
+    #billsTable td.actions-cell .action-menu>summary{min-height:var(--control-height-sm);padding:0 12px;font-size:12.5px;border-radius:7px;}
     #billsTable td.actions-cell .action-menu-pop{right:0;min-width:210px;}
   }
   /* ---------- เปลี่ยนรหัสผ่าน / จัดการผู้ใช้ (v16) ---------- */
