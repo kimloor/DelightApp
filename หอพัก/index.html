@@ -3781,9 +3781,10 @@ function renderTenants(){
   `;
 }
 
-function tenantFormHtml(tenant){
+function tenantFormHtml(tenant, preferredRoomId){
   const isEdit = !!tenant;
-  const roomOptions = currentRooms().map(r=>`<option value="${escapeAuthHtml(r.id)}" ${tenant&&tenant.roomId===r.id?'selected':''}>${escapeAuthHtml(r.number)}${r.status==='occupied'&&(!tenant||tenant.roomId!==r.id)?' (มีผู้เช่าแล้ว)':''}</option>`).join('');
+  const selectedRoomId = tenant ? tenant.roomId : (preferredRoomId||'');
+  const roomOptions = currentRooms().map(r=>`<option value="${escapeAuthHtml(r.id)}" ${String(selectedRoomId)===String(r.id)?'selected':''}>${escapeAuthHtml(r.number)}${r.status==='occupied'&&String(selectedRoomId)!==String(r.id)?' (มีผู้เช่าแล้ว)':''}</option>`).join('');
   return `
     <h3>${isEdit?'แก้ไขผู้เช่า':'เพิ่มผู้เช่า'}</h3>
     <div class="field"><label>ชื่อ-นามสกุล</label><input id="f-name" value="${escapeAuthHtml(tenant?tenant.name:'')}" placeholder="เว้นว่างได้ถ้ายังไม่ทราบชื่อ"></div>
@@ -4575,7 +4576,9 @@ function renderBills(){
     if(!months.includes(m)) months.unshift(m);
   });
   months.sort().reverse();
-  const monthBills = scopedBills.filter(b=>b.month===activeMonth);
+  const roomFilter = renderBills._roomFilter || '';
+  const monthBills = scopedBills.filter(b=>b.month===activeMonth && (!roomFilter || String(b.roomId)===String(roomFilter)));
+  const filteredRoom = roomFilter ? rooms.find(r=>String(r.id)===String(roomFilter)) : null;
   const prop = currentProperty() || {};
 
   if(!renderBills._selected) renderBills._selected = new Set();
@@ -4606,6 +4609,7 @@ function renderBills(){
       </div>
     </div>
 
+    ${filteredRoom?`<div class="bill-room-filter"><span>กำลังดูบิล: <strong>ห้อง ${escapeAuthHtml(filteredRoom.number)}</strong></span><button class="btn ghost small" id="clearBillRoomFilterBtn">ดูทุกห้อง</button></div>`:''}
     <div class="card">
       <div class="card-head">
         <h3>เลือกเดือน</h3>
