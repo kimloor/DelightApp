@@ -2203,12 +2203,20 @@ document.getElementById('openSettingsBtn').addEventListener('click', ()=>{
 });
 
 let platformConsoleData = null;
+let platformHealthData = null;
 
 async function openPlatformConsole(){
   openModal('<h3>Platform Console</h3><div id="platformConsoleBody" class="sub">กำลังโหลดข้อมูลระบบ…</div><div class="modal-actions"><button class="btn ghost" id="cancelBtn">ปิด</button></div>');
   try{
     platformConsoleData = await remoteAuthPost({action:'platformOverview'});
     renderPlatformConsole();
+    try{
+      platformHealthData = await remoteAuthPost({action:'platformHealth'});
+      renderPlatformConsole();
+    }catch(healthError){
+      platformHealthData = {error:String(healthError.message||healthError)};
+      renderPlatformConsole();
+    }
   }catch(e){
     if(handleUnauthorized(e)) return;
     const body=document.getElementById('platformConsoleBody');
@@ -2258,13 +2266,54 @@ function renderPlatformConsole(){
     return '<div class="user-row" style="display:block;"><b>'+escapeAuthHtml(p.name)+'</b><div style="margin-top:8px;">'+managerRows+'</div>'+addRow+'</div>';
   }).join('');
 
+
+  const health=platformHealthData;
+  let healthHtml='<div class="muted">กำลังโหลดสุขภาพระบบ…</div>';
+  if(health && health.error){
+    healthHtml='<div style="color:var(--rust);">โหลด Platform Health ไม่สำเร็จ</div>';
+  }else if(health){
+    const schema=health.schema||{};
+    const auth=health.auth||{};
+    const acc=health.access||{};
+    const noOwner=Array.isArray(acc.propertiesWithoutOwner)?acc.propertiesWithoutOwner:[];
+    const noActive=Array.isArray(acc.propertiesWithoutActiveOwner)?acc.propertiesWithoutActiveOwner:[];
+    const warningCount=noOwner.length+noActive.length+(Number(acc.invalidAdminMappings)||0)+(Number(acc.invalidTenantBindings)||0);
+    const warnings=[];
+    noOwner.forEach(p=>warnings.push('ไม่มี Owner: '+escapeAuthHtml(p.name||p.id)));
+    noActive.forEach(p=>warnings.push('ไม่มี Owner ที่ active: '+escapeAuthHtml(p.name||p.id)));
+    if(Number(acc.invalidAdminMappings)||0) warnings.push('Admin mapping ผิดโครงสร้าง: '+Number(acc.invalidAdminMappings));
+    if(Number(acc.invalidTenantBindings)||0) warnings.push('Tenant binding ผิดโครงสร้าง: '+Number(acc.invalidTenantBindings));
+    if(Array.isArray(schema.missing) && schema.missing.length) warnings.push('Schema ขาด: '+schema.missing.map(escapeAuthHtml).join(', '));
+
+    const audits=Array.isArray(health.recentPlatformAudit)?health.recentPlatformAudit:[];
+    const auditRows=audits.slice(0,20).map(a=>
+      '<div style="padding:7px 0;border-bottom:1px dashed var(--line);">'
+      +'<b>'+escapeAuthHtml(a.action||'')+'</b>'
+      +'<div class="user-sub">'+escapeAuthHtml(a.username||'system')+' · '+escapeAuthHtml(a.createdAt||'')+'</div>'
+      +(a.note?'<div class="user-sub">'+escapeAuthHtml(a.note)+'</div>':'')
+      +'</div>'
+    ).join('');
+
+    healthHtml='<div class="stat-row" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:10px;">'
+      +'<div class="stat-card"><p class="label">Schema</p><p class="value '+(schema.ok?'teal':'rust')+'">'+(schema.ok?'OK':'WARN')+'</p><p class="foot">'+(Number(schema.found)||0)+' / '+(Number(schema.expected)||0)+' structures</p></div>'
+      +'<div class="stat-card"><p class="label">Auth throttle</p><p class="value">'+(Number(auth.blockedNow)||0)+'</p><p class="foot">blocked now · '+(Number(auth.touched24h)||0)+' touched 24h</p></div>'
+      +'<div class="stat-card"><p class="label">Integrity warnings</p><p class="value '+(warningCount?'rust':'teal')+'">'+warningCount+'</p><p class="foot">'+(warningCount?'ควรตรวจสอบ':'ไม่พบปัญหา')+'</p></div></div>'
+      +(warnings.length?'<div style="padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px;">'+warnings.map(w=>'<div>• '+w+'</div>').join('')+'</div>':'')
+      +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;"><b>Recent Platform Audit</b><button class="btn ghost small" id="platformHealthRefreshBtn">รีเฟรช</button></div>'
+      +'<div class="user-list">'+(auditRows||'<div class="muted">ยังไม่มี Platform audit event</div>')+'</div>';
+  }
+
   body.innerHTML='<div class="stat-row" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px;">'
     +'<div class="stat-card"><p class="label">บัญชีทั้งหมด</p><p class="value">'+(Number(counts.users)||0)+'</p><p class="foot">'+(Number(counts.disabledUsers)||0)+' disabled</p></div>'
     +'<div class="stat-card"><p class="label">อพาร์ทเมนท์</p><p class="value">'+(Number(counts.properties)||0)+'</p><p class="foot">'+(Number(counts.propertyAccess)||0)+' mappings</p></div>'
     +'<div class="stat-card"><p class="label">บัญชีผู้เช่า</p><p class="value">'+(Number(counts.tenantAccounts)||0)+'</p><p class="foot">เฉพาะจำนวน ไม่เปิดข้อมูลผู้เช่า</p></div></div>'
     +'<div style="font-size:12px;color:var(--ink-soft);margin-bottom:12px;">Platform Console แสดงเฉพาะโครงสร้างบัญชีและสิทธิ์ ไม่โหลดห้อง ผู้เช่า บิล ใบเสร็จ หรือข้อมูลการเงิน</div>'
     +'<h4 style="margin:14px 0 8px;">บัญชีระบบ</h4><div class="user-list">'+(accountRows||'<div class="empty">ไม่มีบัญชี</div>')+'</div>'
-    +'<h4 style="margin:18px 0 8px;">Property Access</h4><div class="user-list">'+(propertyRows||'<div class="empty">ไม่มีอพาร์ทเมนท์</div>')+'</div>';
+    +'<h4 style="margin:18px 0 8px;">Property Access</h4><div class="user-list">'+(propertyRows||'<div class="empty">ไม่มีอพาร์ทเมนท์</div>')+'</div>'
+    +'<h4 style="margin:18px 0 8px;">Platform Audit / Health</h4><div>'+healthHtml+'</div>';
+
+  const healthRefreshBtn=document.getElementById('platformHealthRefreshBtn');
+  if(healthRefreshBtn) healthRefreshBtn.onclick=refreshPlatformHealth;
 
   body.querySelectorAll('[data-platform-user]').forEach(btn=>{btn.onclick=()=>onPlatformSetAccountStatus(btn.dataset.platformUser,btn.dataset.platformStatus);});
   body.querySelectorAll('[data-platform-access-user]').forEach(btn=>{
@@ -2288,6 +2337,16 @@ function renderPlatformConsole(){
 
 async function reloadPlatformConsole(){
   platformConsoleData=await remoteAuthPost({action:'platformOverview'});
+  renderPlatformConsole();
+}
+
+async function refreshPlatformHealth(){
+  try{
+    platformHealthData=await remoteAuthPost({action:'platformHealth'});
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    platformHealthData={error:String(e.message||e)};
+  }
   renderPlatformConsole();
 }
 
