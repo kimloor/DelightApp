@@ -226,7 +226,7 @@ Key examples:
 A post-foundation stabilization phase is now active before major new product features.
 
 Current priority:
-- S7 Admin Offline Read-Only Mode
+- S8 Audit Log Viewer
 
 Completed stabilization:
 - S1 Auth / Session Hardening V2
