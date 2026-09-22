@@ -5377,7 +5377,7 @@ function receiptModalHtml(bill){
   const history = receipts.filter(r=>r.billId===bill.id).sort((a,b)=> (b.date||'').localeCompare(a.date||''));
   const activeReceipt = history.find(r=>(r.status||'active')==='active') || null;
   return `
-    <h2>ออกใบเสร็จรับเงิน — ห้อง ${room?escapeAuthHtml(room.number):'-'}</h2>
+    <h2>${activeReceipt?'ใบเสร็จรับเงิน':bill.status==='paid'?'ออกใบเสร็จย้อนหลัง':'รับชำระ / ออกใบเสร็จ'} — ห้อง ${room?escapeAuthHtml(room.number):'-'}</h2>
     <p class="sub">บิลเดือน ${monthLabel(bill.month)} · ยอดรวม ${THB(bill.total)} บาท</p>
     ${history.length ? `
     <div style="max-height:140px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:16px;">
@@ -5408,11 +5408,11 @@ function receiptModalHtml(bill){
         <div class="field"><label>วันที่รับเงิน</label><input id="f-rcpt-date" type="date" value="${todayIso}"></div>
       </div>
       <div class="field"><label>หมายเหตุ (ถ้ามี)</label><input id="f-rcpt-note" placeholder="เช่น โอนผ่านธนาคาร"></div>
-      <p class="sub" style="font-size:12.5px;">เมื่อออกใบเสร็จแล้ว บิลนี้จะถูกล็อกจนกว่าจะ Void ใบเสร็จ</p>
+      <p class="sub" style="font-size:12.5px;">${bill.status==='paid' ? 'บิลนี้ถูกทำเครื่องหมายว่าชำระแล้วอยู่ก่อน แต่ยังไม่มีใบเสร็จ — การบันทึกครั้งนี้จะสร้างใบเสร็จย้อนหลังและล็อกบิล' : 'เมื่อยืนยันรับชำระ ระบบจะเปลี่ยนบิลเป็น “ชำระแล้ว” ออกใบเสร็จ และล็อกบิลจนกว่าจะ Void ใบเสร็จ'}</p>
     `}
     <div class="modal-actions">
       <button class="btn ghost" id="cancelBtn">ปิด</button>
-      ${activeReceipt ? '' : `<button class="btn" id="saveReceiptBtn" data-bill-id="${bill.id}">✓ บันทึกและพิมพ์ใบเสร็จ</button>`}
+      ${activeReceipt ? '' : `<button class="btn" id="saveReceiptBtn" data-bill-id="${bill.id}">${bill.status==='paid'?'✓ ออกใบเสร็จและพิมพ์':'✓ ยืนยันรับชำระและพิมพ์ใบเสร็จ'}</button>`}
     </div>
   `;
 }
