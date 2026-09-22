@@ -1617,12 +1617,17 @@ function renderTenantHome(){
     </div>`;
 }
 
-function showToast(msg){
+function showToast(msg, duration=2200){
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(()=>t.classList.remove('show'), 2200);
+  showToast._t = setTimeout(()=>t.classList.remove('show'), duration);
+}
+
+function showBillSelectionToast(){
+  const count=renderBills._selected ? renderBills._selected.size : 0;
+  showToast(count ? `เลือก ${count} ห้อง` : 'ยกเลิกการเลือกแล้ว', 900);
 }
 
 /* ============ Auth: login form / logout ============ */
@@ -4324,13 +4329,9 @@ function renderBills(){
             <button type="button" id="printReportBtn" ${monthBills.length===0?'disabled':''}>📊 พิมพ์รายงานเดือนนี้</button>
           </div>
         </details>
+        <button class="btn ghost small" id="moveBillsBtn" ${selectedCount===0?'disabled':''}>📅 ย้ายไปเดือนอื่น</button>
+        ${prop.vatEnabled?`<button class="btn ghost small" id="taxInvoiceRangeBtn" ${selectedCount===0?'disabled':''}>📇 กำหนดเลขที่ใบกำกับภาษี</button>`:''}
       </div>
-      ${selectedCount>0?`
-      <div style="display:flex;gap:8px;align-items:center;background:#FBF2E1;border:1px solid #E3B96A;border-radius:8px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap;">
-        <span style="font-weight:600;font-size:13.5px;">เลือกอยู่ ${selectedCount} ห้อง</span>
-        <button class="btn ghost small" id="moveBillsBtn" style="margin-left:auto;">📅 ย้ายไปเดือนอื่น</button>
-        ${prop.vatEnabled?`<button class="btn ghost small" id="taxInvoiceRangeBtn">📇 กำหนดเลขที่ใบกำกับภาษี</button>`:''}
-      </div>`:''}
       ${monthBills.length===0 ? `<div class="empty"><div class="big">🧾</div>ยังไม่มีบิลของเดือนนี้ กด “สร้างบิลเดือนนี้” เพื่อสร้างบิลให้ทุกห้องที่มีผู้เช่า</div>` : `
       <table id="billsTable">
         <thead><tr><th style="width:34px;"><input type="checkbox" id="selectAllBills" ${allSelected?'checked':''}></th><th>ห้อง</th><th>ค่าเช่า</th><th>ค่าน้ำ (เลขมิเตอร์)</th><th>ค่าไฟ (เลขมิเตอร์)</th><th>รวม</th><th>สถานะ</th><th></th></tr></thead>
@@ -4344,8 +4345,8 @@ function renderBills(){
             const receiptBtnHtml = activeReceipt
               ? `<button class="btn ghost small bill-primary-action receipt-details" data-id="${b.id}" title="ดูใบเสร็จ ${escapeAuthHtml(activeReceipt.receiptNo)}">🧾 ใบเสร็จ</button>`
               : b.status==='paid'
-                ? `<button class="btn ghost small bill-primary-action issue-receipt" data-id="${b.id}" title="บิลนี้ชำระแล้วแต่ยังไม่มีใบเสร็จ">🧾 ออกใบเสร็จ</button>`
-                : `<button class="btn small bill-primary-action issue-receipt" data-id="${b.id}">💰 รับชำระ</button>`;
+                ? `<button class="btn ghost small bill-primary-action issue-receipt" data-id="${b.id}" title="บิลนี้ชำระแล้วแต่ยังไม่มีใบเสร็จ">🧾 สร้างใบเสร็จย้อนหลัง</button>`
+                : `<button class="btn soft small bill-primary-action issue-receipt" data-id="${b.id}">💰 รับชำระ</button>`;
             const moreActions = `
               <details class="action-menu">
                 <summary aria-label="เมนูเพิ่มเติม">⋯</summary>
