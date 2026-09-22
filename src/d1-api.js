@@ -63,7 +63,7 @@ async function sha256Hex(text) {
 
 const PASSWORD_ALGO_V2 = 'pbkdf2_sha256';
 const PASSWORD_ITERATIONS_V2 = 100000;
-const SESSION_TTL_MS = 7*24*60*60*1000;
+const SESSION_TTL_MS = 30*24*60*60*1000;
 const LOGIN_WINDOW_MS = 15*60*1000;
 const LOGIN_BLOCK_MS = 15*60*1000;
 const LOGIN_MAX_FAILURES = 5;
@@ -1082,7 +1082,7 @@ async function createScopedAdminUser(env, admin, body) {
   const password=s(body.password);
   const displayName=s(body.displayName).trim() || username;
   if(!username) throw new Error('username_required');
-  if(password.length<8) throw new Error('password_too_short');
+  if(password.length<4) throw new Error('password_too_short');
   if(await userByUsername(env,username)) throw new Error('username_exists');
 
   const id=await nextNumericId(env,'users');
@@ -1280,7 +1280,7 @@ async function handlePost(request, env, body) {
   if (body.action === 'changePassword') {
     if (!await verifyUserPassword(x.user,s(body.oldPassword))) return {error:'wrong_old_password'};
     const p = s(body.newPassword);
-    if (p.length < 8) return {error:'password_too_short'};
+    if (p.length < 4) return {error:'password_too_short'};
     const pw=await makePasswordV2(p);
     await env.DB.prepare(
       'UPDATE users SET password_hash=?,salt=?,password_algo=?,password_iterations=?,session_version=session_version+1 WHERE id=?'
@@ -1316,7 +1316,7 @@ async function handlePost(request, env, body) {
       if (!target) throw new Error('user_not_found');
       if(!await adminCanManageUser(env,x.user,target.id)) throw new Error('forbidden');
       const p=s(body.newPassword);
-      if (p.length<8) throw new Error('password_too_short');
+      if (p.length<4) throw new Error('password_too_short');
       const pw=await makePasswordV2(p);
       await env.DB.prepare(
         'UPDATE users SET password_hash=?,salt=?,password_algo=?,password_iterations=?,session_version=session_version+1 WHERE id=?'
