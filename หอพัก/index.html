@@ -800,7 +800,8 @@
     .rooms-mobile-table td:nth-child(2)::before{content:"ชั้น";}
     .rooms-mobile-table td:nth-child(3)::before{content:"สถานะ";}
     .rooms-mobile-table td:nth-child(4)::before{content:"ผู้เช่า";}
-    .rooms-mobile-table td:nth-child(5)::before{content:"ค่าเช่า/เดือน";}
+    .rooms-mobile-table td:nth-child(5)::before{content:"ประเภท";}
+    .rooms-mobile-table td:nth-child(6)::before{content:"ค่าเช่า/เดือน";}
     .tenants-mobile-table td:nth-child(1)::before{content:"ชื่อ";}
     .tenants-mobile-table td:nth-child(2)::before{content:"ห้อง";}
     .tenants-mobile-table td:nth-child(3)::before{content:"เบอร์โทร";}
@@ -884,6 +885,39 @@
     .audit-filter-grid,.audit-filter-grid .field{min-width:0;max-width:100%;}
     .audit-filter-grid input{min-width:0;max-width:100%;}
   }
+
+  /* ---------- Rooms Redesign V1 ---------- */
+  .room-add-summary{border-color:var(--ink)!important;background:var(--ink)!important;color:var(--bg)!important;}
+  .room-header-actions .action-menu-pop{min-width:220px;}
+  .room-type-line{font-size:12px;color:var(--ink-soft);margin-top:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .room-detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:18px;}
+  .room-detail-kicker{margin:0 0 3px;color:var(--ink-soft);font-size:11px;text-transform:uppercase;letter-spacing:.05em;}
+  .room-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:14px;}
+  .room-detail-item{padding:12px 14px;border:1px solid var(--line);border-radius:9px;background:var(--bg);min-width:0;}
+  .room-detail-item span,.room-detail-label{display:block;color:var(--ink-soft);font-size:11.5px;margin-bottom:4px;}
+  .room-detail-item strong{font-size:14px;overflow-wrap:anywhere;}
+  .room-detail-section{padding:13px 0;border-top:1px solid var(--line);}
+  .room-detail-value{font-size:14px;overflow-wrap:anywhere;}
+  .room-bulk-quick{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:8px 0 12px;}
+  .room-bulk-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end;}
+  .room-bulk-fields .field{margin:0;}
+  .room-bulk-table-wrap{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:8px;}
+  .room-bulk-table input,.room-bulk-table select{max-width:100%;}
+  @media(max-width:760px){
+    .room-header-actions .action-menu{width:100%;}
+    .room-header-actions .action-menu>summary{width:100%;}
+    .room-header-actions .action-menu-pop{left:0!important;right:0!important;width:100%;min-width:0;}
+    .room-detail-grid{grid-template-columns:1fr 1fr;}
+    .room-detail-actions{flex-direction:column-reverse;}
+    .room-bulk-fields{grid-template-columns:1fr 1fr;}
+    .room-bulk-quick .toolbar-select{width:100%;}
+    .room-bulk-table-wrap{max-width:100%;overflow:auto;}
+    .room-bulk-table{min-width:720px;}
+  }
+  @media(max-width:430px){
+    .room-detail-grid,.room-bulk-fields{grid-template-columns:1fr;}
+  }
+
 </style>
 </head>
 <body>
@@ -6054,7 +6088,7 @@ document.addEventListener('click', (e)=>{
   if(roomTag) onSaveRoom._editId = roomTag.dataset.id;
   const editTenant = e.target.closest('.edit-tenant');
   if(editTenant) onSaveTenant._editId = editTenant.dataset.id;
-  if(e.target.id==='addRoomBtn') onSaveRoom._editId = null;
+  if(e.target.id==='addRoomSingleBtn') onSaveRoom._editId = null;
   if(e.target.id==='addTenantBtn') onSaveTenant._editId = null;
 });
 
