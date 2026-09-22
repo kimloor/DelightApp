@@ -774,6 +774,15 @@ async function updateBillRow(env, user, item) {
 
 async function batchUpdateBills(env, user, items) {
   const list=Array.isArray(items)?items:[];
+  // Validate the whole batch before mutating any bill so a locked bill cannot
+  // leave earlier rows updated and later rows rejected.
+  for (const item of list) {
+    const id=s(item?.id);
+    const existing=await dbBill(env,id);
+    if (!existing) throw new Error('bill_not_found');
+    await requireRoomAdminAccess(env,user,existing.room_id);
+    await requireBillUnlocked(env,id);
+  }
   const out=[];
   for (const item of list) out.push(await updateBillRow(env,user,item));
   return out;
