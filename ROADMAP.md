@@ -70,7 +70,7 @@ Major roadmap features resume after S1-S5 production verification unless a later
 
 ## 1. Payment Slip Verification
 
-**Status:** IDEA
+**Status:** PLANNED — Phase 1 foundation/design started
 
 เป้าหมาย: ตรวจสลิปก่อนบันทึกการชำระเงิน เพื่อลดสลิปปลอม สลิปแก้ไข และการส่งสลิปซ้ำ
 
