@@ -202,7 +202,8 @@ function publicUser(u) {
     displayName:u.display_name || '',
     isAdmin:u.role === 'admin',
     platformRole:u.platform_role || 'normal',
-    isSuperadmin:u.platform_role === 'superadmin'
+    isSuperadmin:u.platform_role === 'superadmin',
+    accountStatus:u.account_status || 'active'
   };
 }
 
@@ -355,9 +356,26 @@ async function getAdminScopedAll(env, user) {
   ]);
 
   const [p,r,t,b,d,m,rc,l] = results.map(x=>x.results || []);
+  const tenantAccountsQ=await env.DB.prepare(
+    `SELECT ta.tenant_id,ta.user_id,u.username,u.display_name,u.account_status
+     FROM tenant_accounts ta
+     JOIN users u ON u.id=ta.user_id
+     JOIN tenants t ON t.id=ta.tenant_id
+     JOIN rooms rr ON rr.id=t.room_id
+     WHERE rr.property_id IN (${qs})
+     ORDER BY CAST(ta.tenant_id AS INTEGER),ta.tenant_id`
+  ).bind(...propertyIds).all();
+
   return {
     properties:p.map(rowProperty), rooms:r.map(rowRoom), tenants:t.map(rowTenant), bills:b.map(rowBill),
-    deposits:d.map(rowDeposit), meterReadings:m.map(rowMeter), receipts:rc.map(rowReceipt), roomLayouts:l.map(rowLayout)
+    deposits:d.map(rowDeposit), meterReadings:m.map(rowMeter), receipts:rc.map(rowReceipt), roomLayouts:l.map(rowLayout),
+    tenantAccounts:(tenantAccountsQ.results||[]).map(x=>({
+      tenantId:String(x.tenant_id),
+      userId:String(x.user_id),
+      username:x.username||'',
+      displayName:x.display_name||'',
+      accountStatus:x.account_status||'active'
+    }))
   };
 }
 
@@ -674,11 +692,19 @@ async function deleteTenantRow(env, user, tenantId) {
   if (!room) throw new Error('room_not_found');
   await requireAdminProperty(env,user,room.property_id);
 
-  await env.DB.batch([
+  const binding=await env.DB.prepare('SELECT user_id FROM tenant_accounts WHERE tenant_id=?').bind(id).first();
+  const stmts=[];
+  if(binding){
+    stmts.push(
+      env.DB.prepare("UPDATE users SET account_status='disabled',session_version=session_version+1 WHERE id=?").bind(String(binding.user_id))
+    );
+  }
+  stmts.push(
     env.DB.prepare('DELETE FROM tenant_accounts WHERE tenant_id=?').bind(id),
     env.DB.prepare('DELETE FROM tenants WHERE id=?').bind(id),
-    env.DB.prepare("UPDATE rooms SET status='vacant' WHERE id=?").bind(String(existing.room_id)),
-  ]);
+    env.DB.prepare("UPDATE rooms SET status='vacant' WHERE id=?").bind(String(existing.room_id))
+  );
+  await env.DB.batch(stmts);
   await appendLog(env,user,'delete','tenants',[id],1,'room '+existing.room_id);
   return {success:true,id,room:rowRoom(await dbRoom(env,existing.room_id))};
 }
@@ -1169,6 +1195,76 @@ async function createScopedAdminUser(env, admin, body) {
   return publicUser(await userById(env,id));
 }
 
+
+async function provisionTenantAccount(env, admin, body) {
+  if (!admin || admin.role!=='admin') throw new Error('forbidden');
+  const tenantId=s(body.tenantId);
+  const tenant=await dbTenant(env,tenantId);
+  if(!tenant) throw new Error('tenant_not_found');
+  const room=await dbRoom(env,tenant.room_id);
+  if(!room) throw new Error('room_not_found');
+  await requireAdminProperty(env,admin,room.property_id);
+
+  const existingBinding=await env.DB.prepare('SELECT user_id FROM tenant_accounts WHERE tenant_id=? LIMIT 1')
+    .bind(tenantId).first();
+  if(existingBinding) throw new Error('tenant_account_exists');
+
+  const username=s(body.username).trim();
+  const password=s(body.password);
+  const displayName=s(body.displayName).trim() || s(tenant.name).trim() || username;
+  if(!username) throw new Error('username_required');
+  if(password.length<4) throw new Error('password_too_short');
+  if(await userByUsername(env,username)) throw new Error('username_exists');
+
+  const id=await nextNumericId(env,'users');
+  const pw=await makePasswordV2(password);
+  const now=new Date().toISOString();
+
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO users (id,username,password_hash,salt,display_name,created_at,role,platform_role,password_algo,password_iterations,session_version,account_status) VALUES (?,?,?,?,?,?,'tenant','normal',?,?,1,'active')"
+    ).bind(id,username,pw.hash,pw.salt,displayName,now,pw.algo,pw.iterations),
+    env.DB.prepare(
+      'INSERT INTO tenant_accounts (user_id,tenant_id,created_at) VALUES (?,?,?)'
+    ).bind(id,tenantId,now)
+  ]);
+
+  await appendLog(env,admin,'provisionTenantAccount','tenant_accounts',[tenantId],1,'user '+id);
+  const user=await userById(env,id);
+  return {
+    tenantId,
+    user:publicUser(user)
+  };
+}
+
+async function setTenantAccountStatus(env, admin, body) {
+  if (!admin || admin.role!=='admin') throw new Error('forbidden');
+  const tenantId=s(body.tenantId);
+  const targetStatus=s(body.status);
+  if(!['active','disabled'].includes(targetStatus)) throw new Error('invalid_account_status');
+
+  const row=await env.DB.prepare(
+    `SELECT ta.user_id,t.room_id,r.property_id
+     FROM tenant_accounts ta
+     JOIN tenants t ON t.id=ta.tenant_id
+     JOIN rooms r ON r.id=t.room_id
+     WHERE ta.tenant_id=?`
+  ).bind(tenantId).first();
+  if(!row) throw new Error('tenant_account_not_found');
+
+  await requireAdminProperty(env,admin,row.property_id);
+  await env.DB.prepare(
+    'UPDATE users SET account_status=?,session_version=session_version+1 WHERE id=?'
+  ).bind(targetStatus,String(row.user_id)).run();
+
+  const user=await userById(env,row.user_id);
+  await appendLog(env,admin,'setTenantAccountStatus','users',[String(row.user_id)],1,targetStatus+' tenant '+tenantId);
+  return {
+    tenantId,
+    user:publicUser(user)
+  };
+}
+
 async function removeAdminPropertyAccess(env, admin, targetUserId, propertyId) {
   await requirePropertyOwner(env,admin,propertyId);
   const targetId=s(targetUserId);
@@ -1192,7 +1288,9 @@ async function handlePost(request, env, body) {
     const state=await loginLimitState(env,request,username || '__empty__');
     if (state.blocked) return {error:'too_many_attempts'};
     const user = username ? await userByUsername(env, username) : null;
-    const valid = user ? await verifyUserPassword(user,s(body.password)) : false;
+    const valid = user && (user.account_status||'active')==='active'
+      ? await verifyUserPassword(user,s(body.password))
+      : false;
     if (!valid) {
       await recordLoginFailure(env,state);
       return {error:'invalid_credentials'};
@@ -1394,6 +1492,16 @@ async function handlePost(request, env, body) {
       await appendLog(env,x.user,'adminResetPassword','users',[String(target.id)],1,'account '+target.username+' sessions revoked');
       return {success:true};
     } catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'provisionTenantAccount') {
+    try { return {success:true,...await provisionTenantAccount(env,x.user,body)}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'setTenantAccountStatus') {
+    try { return {success:true,...await setTenantAccountStatus(env,x.user,body)}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
   if (body.action === 'adminRemovePropertyAccess') {
