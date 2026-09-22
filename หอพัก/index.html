@@ -1011,7 +1011,7 @@ try{
 let syncState = 'unknown'; // 'unknown' | 'ok' | 'error'
 let offlineReadOnly = false;
 let offlineSince = null;
-const OFFLINE_READ_ACTIONS = new Set(['me','getAdminScoped','getTenantHome','adminListUsers','platformOverview','platformHealth']);
+const OFFLINE_READ_ACTIONS = new Set(['me','getAdminScoped','getTenantHome','adminListUsers','platformOverview','platformHealth','auditListOwner','auditListPlatform']);
 
 function setOfflineReadOnly(on){
   offlineReadOnly = !!on;
@@ -2458,8 +2458,19 @@ function settingsFormHtml(){
   const adminButton = (currentUser && currentUser.isAdmin)
     ? '<button class="btn ghost" id="settingsAdminUsersBtn">👥 จัดการผู้ใช้</button>'
     : '';
+  const ownsCurrentProperty = !!(currentUser && propertyAdmins.some(a=>
+    String(a.propertyId)===String(currentPropertyId) &&
+    String(a.userId)===String(currentUser.id) &&
+    a.accessRole==='owner'
+  ));
+  const auditButton = ownsCurrentProperty
+    ? '<button class="btn ghost" id="settingsAuditBtn">📜 Audit Log ของอพาร์ทเมนท์นี้</button>'
+    : '';
   const platformButton = (currentUser && currentUser.isSuperadmin)
     ? '<button class="btn ghost" id="settingsPlatformBtn">🛡 Platform Console</button>'
+    : '';
+  const platformAuditButton = (currentUser && currentUser.isSuperadmin)
+    ? '<button class="btn ghost" id="settingsPlatformAuditBtn">📜 Platform Audit</button>'
     : '';
   const platformLabel = currentUser && currentUser.isSuperadmin
     ? ' <span class="badge-admin">Superadmin</span>'
@@ -2473,7 +2484,9 @@ function settingsFormHtml(){
     </div>
     <div style="display:grid;gap:8px;">
       ${platformButton}
+      ${platformAuditButton}
       ${adminButton}
+      ${auditButton}
       <button class="btn ghost" id="settingsChangePwBtn">🔑 เปลี่ยนรหัสผ่าน</button>
       <button class="btn ghost" id="settingsLogoutAllBtn">🛡 ออกจากระบบทุกอุปกรณ์</button>
       <button class="btn danger" id="settingsLogoutBtn">⎋ ออกจากระบบเครื่องนี้</button>
@@ -2487,6 +2500,12 @@ function settingsFormHtml(){
 function wireSettingsActions(){
   const platformBtn = document.getElementById('settingsPlatformBtn');
   if(platformBtn) platformBtn.onclick = openPlatformConsole;
+
+  const platformAuditBtn = document.getElementById('settingsPlatformAuditBtn');
+  if(platformAuditBtn) platformAuditBtn.onclick = ()=>openAuditViewer('platform');
+
+  const auditBtn = document.getElementById('settingsAuditBtn');
+  if(auditBtn) auditBtn.onclick = ()=>openAuditViewer('owner');
 
   const adminBtn = document.getElementById('settingsAdminUsersBtn');
   if(adminBtn) adminBtn.onclick = openAdminUsers;
@@ -2517,6 +2536,130 @@ function wireSettingsActions(){
     showToast('ออกจากระบบแล้ว');
   };
 }
+let auditViewerState = null;
+
+function formatAuditDate(iso){
+  if(!iso) return '—';
+  const d=new Date(iso);
+  if(Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('th-TH',{dateStyle:'short',timeStyle:'medium'});
+}
+
+async function openAuditViewer(mode){
+  if(offlineReadOnly){
+    showToast('Audit Log ต้องเชื่อมต่อ D1 ก่อน');
+    return;
+  }
+  const isPlatform=mode==='platform';
+  auditViewerState={
+    mode:isPlatform?'platform':'owner',
+    propertyId:isPlatform?'':String(currentPropertyId||''),
+    offset:0,
+    limit:50,
+    total:0,
+    actor:'',
+    auditAction:'',
+    dateFrom:'',
+    dateTo:''
+  };
+  openModal(
+    '<h3>'+(isPlatform?'Platform Audit':'Audit Log — '+escapeAuthHtml((currentProperty()||{}).name||''))+'</h3>'
+    +'<div id="auditViewerBody" class="sub">กำลังโหลด…</div>'
+    +'<div class="modal-actions"><button class="btn ghost" id="cancelBtn">ปิด</button></div>'
+  );
+  await loadAuditViewer();
+}
+
+function auditViewerFilterHtml(){
+  const s=auditViewerState||{};
+  return '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px;">'
+    +'<div class="field" style="margin:0;"><label>ผู้ทำรายการ</label><input id="auditActor" value="'+escapeAuthHtml(s.actor||'')+'" placeholder="username"></div>'
+    +'<div class="field" style="margin:0;"><label>Action</label><input id="auditAction" value="'+escapeAuthHtml(s.auditAction||'')+'" placeholder="เช่น update, voidReceipt"></div>'
+    +'<div class="field" style="margin:0;"><label>ตั้งแต่วันที่</label><input id="auditDateFrom" type="date" value="'+escapeAuthHtml(s.dateFrom||'')+'"></div>'
+    +'<div class="field" style="margin:0;"><label>ถึงวันที่</label><input id="auditDateTo" type="date" value="'+escapeAuthHtml(s.dateTo||'')+'"></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:12px;">'
+    +'<button class="btn ghost small" id="auditClearBtn">ล้างตัวกรอง</button>'
+    +'<button class="btn small" id="auditApplyBtn">ค้นหา</button>'
+    +'</div>';
+}
+
+async function loadAuditViewer(){
+  const body=document.getElementById('auditViewerBody');
+  const s=auditViewerState;
+  if(!body || !s) return;
+  body.innerHTML='<div class="loading-note">กำลังโหลด Audit Log…</div>';
+
+  try{
+    const payload={
+      action:s.mode==='platform'?'auditListPlatform':'auditListOwner',
+      actor:s.actor,
+      auditAction:s.auditAction,
+      dateFrom:s.dateFrom,
+      dateTo:s.dateTo,
+      limit:s.limit,
+      offset:s.offset
+    };
+    if(s.mode==='owner') payload.propertyId=s.propertyId;
+    const data=await remoteAuthPost(payload);
+    s.total=Number(data.total)||0;
+    renderAuditViewer(data.logs||[]);
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    body.style.color='var(--rust)';
+    body.textContent=String(e.message||e)==='forbidden'
+      ? 'ไม่มีสิทธิ์ดู Audit Log นี้'
+      : 'โหลด Audit Log ไม่สำเร็จ';
+  }
+}
+
+function renderAuditViewer(logs){
+  const body=document.getElementById('auditViewerBody');
+  const s=auditViewerState;
+  if(!body || !s) return;
+
+  const rows=logs.length ? logs.map(a=>
+    '<div style="padding:10px 0;border-bottom:1px solid var(--line);">'
+    +'<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">'
+    +'<div><b>'+escapeAuthHtml(a.action||'')+'</b>'
+    +(a.tableName?' <span class="user-sub">· '+escapeAuthHtml(a.tableName)+'</span>':'')
+    +'</div><span class="user-sub">'+escapeAuthHtml(formatAuditDate(a.createdAt))+'</span></div>'
+    +'<div class="user-sub" style="margin-top:4px;">ผู้ทำรายการ: '+escapeAuthHtml(a.username||'system')
+    +(a.affectedIds?' · ID '+escapeAuthHtml(a.affectedIds):'')+'</div>'
+    +(a.note?'<div class="user-sub" style="margin-top:3px;">'+escapeAuthHtml(a.note)+'</div>':'')
+    +'</div>'
+  ).join('') : '<div class="empty">ไม่พบ Audit Log ตามเงื่อนไข</div>';
+
+  const from=s.total ? s.offset+1 : 0;
+  const to=Math.min(s.offset+s.limit,s.total);
+  body.style.color='';
+  body.innerHTML=auditViewerFilterHtml()
+    +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;">'
+    +'<span class="muted" style="font-size:12px;">แสดง '+from+'–'+to+' จาก '+s.total+' รายการ</span>'
+    +'<div style="display:flex;gap:6px;"><button class="btn ghost small" id="auditPrevBtn" '+(s.offset<=0?'disabled':'')+'>ก่อนหน้า</button>'
+    +'<button class="btn ghost small" id="auditNextBtn" '+(s.offset+s.limit>=s.total?'disabled':'')+'>ถัดไป</button></div></div>'
+    +'<div>'+rows+'</div>';
+
+  const apply=document.getElementById('auditApplyBtn');
+  if(apply) apply.onclick=()=>{
+    s.actor=document.getElementById('auditActor').value.trim();
+    s.auditAction=document.getElementById('auditAction').value.trim();
+    s.dateFrom=document.getElementById('auditDateFrom').value;
+    s.dateTo=document.getElementById('auditDateTo').value;
+    s.offset=0;
+    loadAuditViewer();
+  };
+  const clear=document.getElementById('auditClearBtn');
+  if(clear) clear.onclick=()=>{
+    s.actor='';s.auditAction='';s.dateFrom='';s.dateTo='';s.offset=0;
+    loadAuditViewer();
+  };
+  const prev=document.getElementById('auditPrevBtn');
+  if(prev) prev.onclick=()=>{ s.offset=Math.max(0,s.offset-s.limit); loadAuditViewer(); };
+  const next=document.getElementById('auditNextBtn');
+  if(next) next.onclick=()=>{ s.offset+=s.limit; loadAuditViewer(); };
+}
+
 /* ตั้งใจไม่ปิด modal เมื่อคลิกพื้นหลังนอกกล่อง (overlay) แล้ว — เพื่อกันข้อมูลที่กำลังกรอก/แก้ไข
    หายไปโดยไม่ตั้งใจจากการคลิกพลาดออกนอกฟอร์ม ผู้ใช้ต้องกดปุ่ม "ยกเลิก"/กากบาท หรือกดบันทึก
    เพื่อปิดหน้าต่างเท่านั้น */
