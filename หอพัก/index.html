@@ -4330,8 +4330,21 @@ function renderBills(){
             const activeReceipt = billReceipts.find(rc=>(rc.status||'active')==='active') || null;
             const locked = !!activeReceipt;
             const receiptBtnHtml = activeReceipt
-              ? `<button class="btn ghost small print-receipt" data-id="${activeReceipt.id}" title="พิมพ์ใบเสร็จ ${escapeAuthHtml(activeReceipt.receiptNo)}">🔒 ใบเสร็จ</button>`
-              : `<button class="btn small issue-receipt" data-id="${b.id}">🧾 ออกใบเสร็จ</button>`;
+              ? `<button class="btn ghost small bill-primary-action receipt-details" data-id="${b.id}" title="ดูใบเสร็จ ${escapeAuthHtml(activeReceipt.receiptNo)}">🧾 ใบเสร็จ</button>`
+              : b.status==='paid'
+                ? `<button class="btn ghost small bill-primary-action issue-receipt" data-id="${b.id}" title="บิลนี้ชำระแล้วแต่ยังไม่มีใบเสร็จ">🧾 ออกใบเสร็จ</button>`
+                : `<button class="btn small bill-primary-action issue-receipt" data-id="${b.id}">💰 รับชำระ</button>`;
+            const moreActions = `
+              <details class="action-menu">
+                <summary aria-label="เมนูเพิ่มเติม">⋯</summary>
+                <div class="action-menu-pop">
+                  <button type="button" class="print-bill" data-id="${b.id}">🖨 พิมพ์ใบแจ้งหนี้</button>
+                  <button type="button" class="export-bill-pdf" data-id="${b.id}">📄 บันทึก PDF</button>
+                  ${locked?'':`
+                    <button type="button" class="edit-bill" data-id="${b.id}">✎ แก้ไขบิล</button>
+                    <button type="button" class="delete-bill danger" data-id="${b.id}">🗑 ลบบิล</button>`}
+                </div>
+              </details>`;
             return `<tr data-id="${b.id}" class="${isSel?'row-selected':''}">
               <td class="select-cell"><input type="checkbox" class="bill-select" data-id="${b.id}" ${isSel?'checked':''}></td>
               <td class="room-cell" data-label="ห้อง">${room?escapeAuthHtml(room.number):'—'}</td>
@@ -4339,19 +4352,14 @@ function renderBills(){
               <td class="edit-water" data-id="${b.id}" data-label="ค่าน้ำ" style="cursor:${locked?'not-allowed':'pointer'};">${meterCellHtml(b,'water')}</td>
               <td class="edit-electric" data-id="${b.id}" data-label="ค่าไฟ" style="cursor:${locked?'not-allowed':'pointer'};">${meterCellHtml(b,'electric')}</td>
               <td class="mono" data-label="รวม" style="font-weight:600;">${THB(b.total)} บ.${prop.vatEnabled?`<br><span class="muted" style="font-weight:400;font-size:11px;">รวม VAT ${THB(b.vatAmount||0)}</span>`:''}</td>
-              <td data-label="สถานะ">
-                <select class="bill-status ${b.status==='paid'?'badge-paid':'badge-unpaid'}" data-id="${b.id}" ${locked?'disabled title="บิลถูกล็อกหลังออกใบเสร็จ"':''}>
-                  <option value="unpaid" ${b.status==='unpaid'?'selected':''}>ค้างชำระ</option>
-                  <option value="paid" ${b.status==='paid'?'selected':''}>ชำระแล้ว</option>
-                </select>
-              </td>
-              <td class="actions-cell">${receiptBtnHtml}<button class="btn ghost small print-bill" data-id="${b.id}">🖨 พิมพ์บิล</button><button class="btn ghost small export-bill-pdf" data-id="${b.id}">📄 PDF</button><button class="btn ghost small edit-bill" data-id="${b.id}" ${locked?'disabled title="Void ใบเสร็จก่อนแก้บิล"':''}>✎ แก้ไข</button><button class="btn ghost small delete-bill" data-id="${b.id}" ${locked?'disabled title="Void ใบเสร็จก่อนลบบิล"':''}>🗑 ลบ</button></td>
+              <td data-label="สถานะ"><span class="bill-status-text ${b.status==='paid'?'paid':'unpaid'}">${b.status==='paid'?'ชำระแล้ว':'ค้างชำระ'}</span></td>
+              <td class="actions-cell">${receiptBtnHtml}${moreActions}</td>
             </tr>`;
           }).join('')}
         </tbody>
       </table>`}
     </div>
-    <p class="sub" style="font-size:12.5px;">เคล็ดลับ: คลิกที่ช่อง “ค่าน้ำ” หรือ “ค่าไฟ” เพื่อจดเลขมิเตอร์ปัจจุบันของบิลนั้น ระบบจะคำนวณหน่วยที่ใช้และยอดเงินให้อัตโนมัติ · แตะติ๊กที่ห้องที่ชำระแล้วได้หลายห้อง แล้วกด “ทำเครื่องหมายว่าชำระแล้ว” เพื่ออัปเดตพร้อมกันทีเดียว หรือติ๊กที่หัวตารางเพื่อเลือกทั้งหมด</p>
+    <p class="sub" style="font-size:12.5px;">เคล็ดลับ: คลิกช่อง “ค่าน้ำ” หรือ “ค่าไฟ” เพื่อจดเลขมิเตอร์ ระบบจะคำนวณยอดให้อัตโนมัติ · บิลค้างชำระให้กด “รับชำระ” เพื่อออกใบเสร็จและเปลี่ยนสถานะเป็นชำระแล้วในขั้นตอนเดียว</p>
   `;
 }
 
