@@ -22,7 +22,7 @@ Property business-data access remains governed by `property_admins`.
 
 ### Phase A — Platform Overview + Account Control
 
-Implement first.
+**Status: DONE — production verified 2026-09-22**
 
 Superadmin may view:
 - platform user accounts: id, username, display name, app role, platform role, account status, created date
@@ -43,9 +43,9 @@ Guardrails:
 
 ### Phase B — Access Mapping Repair
 
-Only after Phase A production verification.
+**Status: IN PROGRESS**
 
-Planned:
+Implemented scope:
 - assign ordinary admin to property
 - remove ordinary admin from property
 - transfer/add Owner with zero-owner protection
@@ -56,6 +56,14 @@ Every mutation requires:
 - server-side validation
 - audit logging
 - property must retain at least one Owner
+
+Phase B implementation rules:
+- target must be an ordinary admin account (`role=admin`, `platform_role=normal`)
+- tenant and superadmin accounts cannot be assigned through this repair flow
+- add/update mapping uses explicit Owner/Admin role
+- removing the last Owner is rejected with `property_requires_owner`
+- every change is audit logged
+- Superadmin still receives no implicit business-data access
 
 ### Phase C — Platform Audit / Health
 
@@ -143,4 +151,8 @@ The console is not a property admin screen and must not load `getAdminScoped` to
 
 ## 7. Lead decision
 
-Implement Phase A first and production-verify it before enabling access-mapping repair.
+Phase A is production-verified.
+
+Current work: Phase B — Access Mapping Repair.
+
+After Phase B production verification, continue to Phase C — Platform Audit / Health.
