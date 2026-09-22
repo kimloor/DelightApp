@@ -1,0 +1,35 @@
+name: S4 Tenant Account Production Migration
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    if: contains(github.event.head_commit.message, '[S4-MIGRATE]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Apply forward-only migrations
+        run: npx --yes wrangler@4 d1 migrations apply delightapp-db --remote
+
+      - name: Validate S4 schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT account_status,COUNT(*) AS c FROM users GROUP BY account_status;"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_users_account_status';"
+          APPLIED="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS c FROM d1_migrations WHERE name='0007_tenant_account_lifecycle_v1.sql';" --json | jq -r '.[0].results[0].c')"
+          test "$APPLIED" = "1"
+          echo "s4_migration=PASS"
