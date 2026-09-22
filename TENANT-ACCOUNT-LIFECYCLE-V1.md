@@ -1,6 +1,6 @@
 # DelightApp — Tenant Account Lifecycle V1
 
-> Status: IN PROGRESS
+> Status: DONE — production verified 2026-09-22
 > Parent: STABILIZATION.md / S4
 > Goal: make tenant login provisioning and deactivation a normal property-admin workflow instead of manual D1 work.
 
@@ -152,3 +152,21 @@ Required:
 ## 10. Lead rollout
 
 Implement on branch -> Pre-Deploy Validate -> migration first -> Worker/UI deploy -> isolated production E2E -> remove temporary workflows -> mark S4 DONE.
+
+
+## 11. Production verification
+
+Completed 2026-09-22:
+- migration 0007 applied successfully
+- all existing users remained active
+- property-scoped tenant account provisioning succeeded
+- cross-property provisioning was denied
+- tenant login reached only its mapped tenant/room/property
+- tenant could not access admin scoped endpoint
+- disable revoked the active tenant token immediately
+- disabled login returned generic invalid_credentials
+- enable restored login access
+- moving the tenant to another room preserved account binding and portal access followed the new room
+- deleting the tenant revoked the active token, disabled the user account and removed the tenant_accounts binding
+- isolated E2E properties/accounts were cleaned up
+- temporary migration/E2E workflows were removed
