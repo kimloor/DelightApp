@@ -1,6 +1,6 @@
 # DelightApp — Audit Log Viewer V1
 
-> Status: IN PROGRESS
+> Status: DONE — production verified 2026-09-22
 > Parent: STABILIZATION.md / S8
 > Goal: make existing audit history useful without widening access to business data.
 
@@ -87,3 +87,17 @@ Superadmin:
 - property-scoped logs continue after records are deleted
 - filters and pagination work
 - audit viewer does not alter business data
+
+
+## 7. Production verification
+
+Completed 2026-09-22:
+- migration 0008 applied successfully
+- production Worker deployed successfully
+- Owner property audit returned only the owned property's scoped events
+- Owner request for an unowned property was denied
+- ordinary Admin audit access was denied
+- Superadmin platform audit included platform access events
+- Superadmin platform audit excluded normal room/business create events
+- temporary E2E users/property were cleaned up
+- temporary migration/E2E workflows were removed after successful use
