@@ -462,15 +462,26 @@ async function getAdminScopedAll(env, user) {
   ]);
 
   const [p,r,t,b,d,m,rc,l] = results.map(x=>x.results || []);
-  const tenantAccountsQ=await env.DB.prepare(
-    `SELECT ta.tenant_id,ta.user_id,u.username,u.display_name,u.account_status
-     FROM tenant_accounts ta
-     JOIN users u ON u.id=ta.user_id
-     JOIN tenants t ON t.id=ta.tenant_id
-     JOIN rooms rr ON rr.id=t.room_id
-     WHERE rr.property_id IN (${qs})
-     ORDER BY CAST(ta.tenant_id AS INTEGER),ta.tenant_id`
-  ).bind(...propertyIds).all();
+  const [tenantAccountsQ,managersQ]=await Promise.all([
+    env.DB.prepare(
+      `SELECT ta.tenant_id,ta.user_id,u.username,u.display_name,u.account_status
+       FROM tenant_accounts ta
+       JOIN users u ON u.id=ta.user_id
+       JOIN tenants t ON t.id=ta.tenant_id
+       JOIN rooms rr ON rr.id=t.room_id
+       WHERE rr.property_id IN (${qs})
+       ORDER BY CAST(ta.tenant_id AS INTEGER),ta.tenant_id`
+    ).bind(...propertyIds).all(),
+    env.DB.prepare(
+      `SELECT pa.property_id,pa.access_role,u.id AS user_id,u.username,u.display_name,u.platform_role
+       FROM property_admins pa
+       JOIN users u ON u.id=pa.user_id
+       WHERE pa.property_id IN (${qs})
+       ORDER BY pa.property_id,
+                CASE pa.access_role WHEN 'owner' THEN 0 ELSE 1 END,
+                u.display_name,u.username`
+    ).bind(...propertyIds).all()
+  ]);
 
   return {
     properties:p.map(rowProperty), rooms:r.map(rowRoom), tenants:t.map(rowTenant), bills:b.map(rowBill),
@@ -481,6 +492,14 @@ async function getAdminScopedAll(env, user) {
       username:x.username||'',
       displayName:x.display_name||'',
       accountStatus:x.account_status||'active'
+    })),
+    propertyAdmins:(managersQ.results||[]).map(x=>({
+      propertyId:String(x.property_id),
+      userId:String(x.user_id),
+      username:x.username||'',
+      displayName:x.display_name||'',
+      accessRole:x.access_role||'admin',
+      platformRole:x.platform_role||'normal'
     }))
   };
 }
