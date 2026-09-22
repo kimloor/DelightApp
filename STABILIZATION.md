@@ -40,7 +40,7 @@ Goals:
 - add idempotency/transaction protection where appropriate
 
 ### S3 — Paid Bill Lock + Void Workflow
-Status: NEXT
+Status: DONE
 
 Goals:
 - define immutable accounting behavior after receipt issuance
@@ -50,7 +50,7 @@ Goals:
 - audit every financial correction
 
 ### S4 — Tenant Account Lifecycle
-Status: PLANNED
+Status: NEXT
 
 Goals:
 - allow an authorized property owner/admin flow to provision tenant login
@@ -128,9 +128,11 @@ Major roadmap features may resume after S1-S5 unless a later audit identifies a 
 
 S1 — Auth / Session Hardening is production-verified.
 S2 — Financial / Database Integrity is production-verified.
+S3 — Paid Bill Lock + Receipt Void is production-verified.
 
-Next: S3 — Paid Bill Lock + Void Workflow.
+Next: S4 — Tenant Account Lifecycle.
 
 Detailed contracts:
 - `AUTH-SESSION-HARDENING-V2.md`
 - `FINANCIAL-DATA-INTEGRITY-V1.md`
+- `PAID-BILL-RECEIPT-VOID-V1.md`
