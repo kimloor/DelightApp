@@ -43,7 +43,7 @@ Guardrails:
 
 ### Phase B — Access Mapping Repair
 
-**Status: NEXT**
+**Status: DONE — production verified 2026-09-22**
 
 Planned:
 - assign an ordinary admin account to a property
@@ -98,7 +98,9 @@ Every mutation requires:
 
 ### Phase C — Platform Audit / Health
 
-May later surface:
+**Status: NEXT**
+
+Planned:
 - recent platform-level audit events
 - migration/schema health
 - failed auth/throttle summaries
@@ -200,4 +202,27 @@ Completed 2026-09-22:
 - platformSetAccountStatus audit events were verified
 - all temporary accounts/workflows were cleaned up
 
-Next: Phase B — Access Mapping Repair.
+Phase B production verification completed 2026-09-22.
+
+Next: Phase C — Platform Audit / Health.
+
+
+## 9. Phase B production verification
+
+Completed 2026-09-22:
+- Pre-Deploy Validate passed
+- Production Deploy + smoke passed
+- normal admin was denied Phase B platform actions
+- tenant account target was rejected
+- superadmin account target was rejected
+- ordinary admin mapping could be added
+- Admin -> Owner promotion succeeded
+- Owner -> Admin demotion succeeded when another Owner remained
+- last Owner demotion was rejected
+- last Owner removal was rejected
+- removal succeeded after another Owner existed
+- platformOverview reflected the final repaired mapping
+- access changes were audit logged
+- temporary test users/property/workflow were cleaned up
+
+Next: Phase C — Platform Audit / Health.
