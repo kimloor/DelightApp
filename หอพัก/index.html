@@ -4954,22 +4954,12 @@ function attachPageEvents(){
       if(cb){ cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
     };
   });
-  const markPaidBtn = document.getElementById('markPaidBtn');
-  if(markPaidBtn) markPaidBtn.onclick = ()=> bulkSetBillStatus('paid');
-  const markUnpaidBtn = document.getElementById('markUnpaidBtn');
-  if(markUnpaidBtn) markUnpaidBtn.onclick = ()=> bulkSetBillStatus('unpaid');
   const moveBillsBtn = document.getElementById('moveBillsBtn');
   if(moveBillsBtn) moveBillsBtn.onclick = ()=> openModal(moveBillsModalHtml());
   const taxInvoiceRangeBtn = document.getElementById('taxInvoiceRangeBtn');
   if(taxInvoiceRangeBtn) taxInvoiceRangeBtn.onclick = ()=> openModal(taxInvoiceRangeModalHtml(renderBills._selected.size));
-  document.querySelectorAll('.issue-receipt').forEach(el=>{
+  document.querySelectorAll('.issue-receipt, .receipt-details').forEach(el=>{
     el.onclick = ()=> onIssueReceipt(el.dataset.id);
-  });
-  document.querySelectorAll('#billsTable .print-receipt').forEach(el=>{
-    el.onclick = ()=>{
-      const rc = receipts.find(r=>r.id===el.dataset.id);
-      if(rc) printReceipt(rc);
-    };
   });
   document.querySelectorAll('.print-bill').forEach(el=>{
     el.onclick = ()=>{
@@ -4998,25 +4988,6 @@ function attachPageEvents(){
       onDeleteBill(el.dataset.id);
     };
   });
-  document.querySelectorAll('.bill-status').forEach(el=>{
-    el.onchange = async (e)=>{
-      const bill = bills.find(b=>b.id===el.dataset.id);
-      if(!bill) return;
-      const draft={...bill,status:e.target.value};
-      try{
-        const data=await remoteAuthPost({action:'updateBill',item:draft});
-        const i=bills.findIndex(b=>b.id===data.bill.id);
-        if(i>=0) bills[i]=data.bill;
-        cacheLocally();
-        render();
-        showToast(data.bill.status==='paid' ? 'บันทึกว่าชำระแล้ว' : 'บันทึกว่าค้างชำระ');
-      }catch(err){
-        if(handleUnauthorized(err)) return;
-        render();
-        showToast('อัปเดตสถานะบิลไม่สำเร็จ');
-      }
-    };
-  });
   document.querySelectorAll('.edit-water').forEach(el=>{
     el.onclick = ()=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
@@ -5035,8 +5006,6 @@ function attachPageEvents(){
       openModal(meterFormHtml(bill, 'electric'));
     };
   });
-  const rateSettingsBtn = document.getElementById('rateSettingsBtn');
-  if(rateSettingsBtn) rateSettingsBtn.onclick = ()=> openModal(ratesFormHtml());
   const bulkMeterBtn = document.getElementById('bulkMeterBtn');
   if(bulkMeterBtn) bulkMeterBtn.onclick = ()=>{
     const month = renderBills._month || defaultBillingMonth();
