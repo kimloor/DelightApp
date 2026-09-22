@@ -226,13 +226,14 @@ Key examples:
 A post-foundation stabilization phase is now active before major new product features.
 
 Current priority:
-- S5 Frontend Security / XSS Audit
+- S6 Superadmin Console V1
 
 Completed stabilization:
 - S1 Auth / Session Hardening V2
 - S2 Financial / Database Integrity V1
 - S3 Paid Bill Lock + Receipt Void V1
 - S4 Tenant Account Lifecycle V1
+- S5 Frontend Security / XSS Hardening V1
 
 Planned stabilization:
 - financial/database integrity
