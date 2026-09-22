@@ -3049,17 +3049,12 @@ function renderRooms(){
         <p class="sub">${roomList.length} ห้อง — คลิกห้องเพื่อดูรายละเอียด แล้วค่อยเลือกแก้ไข</p>
       </div>
       <div class="mobile-header-actions room-header-actions" style="display:flex;gap:8px;">
-        <details class="action-menu">
-          <summary>จัดการหลายห้อง ▾</summary>
-          <div class="action-menu-pop">
-            <button type="button" id="bulkEditRoomsBtn">✎ แก้ไขข้อมูลหลายห้อง</button>
-          </div>
-        </details>
-        <details class="action-menu">
-          <summary class="btn room-add-summary">+ เพิ่มห้อง ▾</summary>
+        <details class="action-menu room-manage-menu">
+          <summary class="btn room-add-summary">จัดการห้อง ▾</summary>
           <div class="action-menu-pop">
             <button type="button" id="addRoomSingleBtn">+ เพิ่มห้องเดียว</button>
             <button type="button" id="addRoomsBulkBtn">＋ เพิ่มหลายห้อง</button>
+            <button type="button" id="bulkEditRoomsBtn">✎ แก้ไขข้อมูลหลายห้อง</button>
           </div>
         </details>
       </div>
