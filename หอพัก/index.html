@@ -4284,10 +4284,14 @@ function renderBills(){
         <p class="sub">จัดการบิลรายเดือนของแต่ละห้อง · น้ำ ${THB(prop.waterRate)} บ./หน่วย · ไฟ ${THB(prop.electricRate)} บ./หน่วย</p>
       </div>
       <div class="page-head-actions">
-        <button class="btn ghost" id="rateSettingsBtn">⚙︎ ตั้งค่าอพาร์ทเมนท์</button>
         <button class="btn ghost" id="bulkMeterBtn">📋 จดมิเตอร์ทั้งหมด</button>
-        <button class="btn ghost" id="recheckMetersBtn">🔄 รีเช็คค่าน้ำ-ไฟ</button>
-        <button class="btn ghost" id="meterHistoryBtn">📜 ประวัติมิเตอร์</button>
+        <details class="action-menu">
+          <summary>⋯ เครื่องมือ</summary>
+          <div class="action-menu-pop">
+            <button type="button" id="recheckMetersBtn">🔄 รีเช็คค่าน้ำ-ไฟ</button>
+            <button type="button" id="meterHistoryBtn">📜 ประวัติมิเตอร์</button>
+          </div>
+        </details>
         <button class="btn" id="genBillBtn" ${currentRooms().filter(r=>r.status==='occupied').length===0?'disabled':''}>+ สร้างบิลเดือนนี้</button>
       </div>
     </div>
@@ -4300,16 +4304,19 @@ function renderBills(){
         </select>
       </div>
       <div class="toolbar-actions">
-        <button class="btn ghost small" id="printSelectedBtn" ${selectedCount===0?'disabled':''}>🖨 พิมพ์บิลที่เลือก (${selectedCount})</button>
-        <button class="btn ghost small" id="exportSelectedPdfBtn" ${selectedCount===0?'disabled':''}>📄 บันทึกเป็น PDF (${selectedCount})</button>
-        <button class="btn ghost small" id="printReportBtn" ${monthBills.length===0?'disabled':''}>🖨 พิมพ์รายงานเดือนนี้</button>
+        <details class="action-menu">
+          <summary>🖨 พิมพ์ / Export</summary>
+          <div class="action-menu-pop" style="left:0;right:auto;">
+            <button type="button" id="printSelectedBtn" ${selectedCount===0?'disabled':''}>🖨 พิมพ์บิลที่เลือก (${selectedCount})</button>
+            <button type="button" id="exportSelectedPdfBtn" ${selectedCount===0?'disabled':''}>📄 PDF บิลที่เลือก (${selectedCount})</button>
+            <button type="button" id="printReportBtn" ${monthBills.length===0?'disabled':''}>📊 พิมพ์รายงานเดือนนี้</button>
+          </div>
+        </details>
       </div>
       ${selectedCount>0?`
       <div style="display:flex;gap:8px;align-items:center;background:#FBF2E1;border:1px solid #E3B96A;border-radius:8px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap;">
         <span style="font-weight:600;font-size:13.5px;">เลือกอยู่ ${selectedCount} ห้อง</span>
-        <button class="btn small" id="markPaidBtn" style="margin-left:auto;">✓ ทำเครื่องหมายว่าชำระแล้ว</button>
-        <button class="btn ghost small" id="markUnpaidBtn">ทำเครื่องหมายว่าค้างชำระ</button>
-        <button class="btn ghost small" id="moveBillsBtn">📅 ย้ายไปเดือนอื่น</button>
+        <button class="btn ghost small" id="moveBillsBtn" style="margin-left:auto;">📅 ย้ายไปเดือนอื่น</button>
         ${prop.vatEnabled?`<button class="btn ghost small" id="taxInvoiceRangeBtn">📇 กำหนดเลขที่ใบกำกับภาษี</button>`:''}
       </div>`:''}
       ${monthBills.length===0 ? `<div class="empty"><div class="big">🧾</div>ยังไม่มีบิลของเดือนนี้ กด “สร้างบิลเดือนนี้” เพื่อสร้างบิลให้ทุกห้องที่มีผู้เช่า</div>` : `
