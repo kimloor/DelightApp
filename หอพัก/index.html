@@ -334,7 +334,19 @@
     font-size:17px;font-weight:600;margin:0;
   }
   .page-head-actions{display:flex;gap:8px;flex-wrap:wrap;}
-  .toolbar-actions{display:flex;gap:8px;flex-wrap:wrap;padding:14px 20px;}
+  .toolbar-actions{display:flex;gap:8px;flex-wrap:wrap;padding:14px 20px;align-items:center;}
+  .action-menu{position:relative;display:inline-block;}
+  .action-menu>summary{list-style:none;cursor:pointer;user-select:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:7px 10px;font-size:13px;font-weight:600;white-space:nowrap;}
+  .action-menu>summary::-webkit-details-marker{display:none;}
+  .action-menu[open]>summary{background:var(--bg);}
+  .action-menu-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;min-width:190px;padding:6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:3px;}
+  .action-menu-pop button{width:100%;text-align:left;border:none;background:transparent;color:var(--ink);font:inherit;font-size:13px;padding:8px 10px;border-radius:7px;cursor:pointer;}
+  .action-menu-pop button:hover{background:var(--bg);}
+  .action-menu-pop button.danger{color:var(--rust);}
+  .bill-primary-action{min-width:108px;justify-content:center;}
+  .bill-status-text{font-weight:600;font-size:13px;}
+  .bill-status-text.paid{color:var(--teal);}
+  .bill-status-text.unpaid{color:var(--rust);}
 
   /* ---------- Room key-tag grid ---------- */
   .room-grid{
@@ -686,8 +698,11 @@
       text-transform:uppercase;letter-spacing:0.03em;margin-bottom:2px;
     }
     #billsTable td.room-cell{font-size:17px;font-weight:700;padding-right:46px;cursor:pointer;}
-    #billsTable td.actions-cell{display:flex;gap:8px;padding-top:8px;flex-wrap:wrap;}
-    #billsTable td.actions-cell button{flex:1;}
+    #billsTable td.actions-cell{display:flex;gap:8px;padding-top:8px;flex-wrap:wrap;align-items:flex-start;}
+    #billsTable td.actions-cell>.btn{flex:1;min-width:140px;}
+    #billsTable td.actions-cell .action-menu{flex:none;}
+    #billsTable td.actions-cell .action-menu>summary{padding:9px 12px;}
+    #billsTable td.actions-cell .action-menu-pop{right:0;min-width:210px;}
   }
   /* ---------- เปลี่ยนรหัสผ่าน / จัดการผู้ใช้ (v16) ---------- */
   .login-card .login-forgot{
@@ -790,7 +805,7 @@
     </div>
     <div class="topbar-right">
       <div id="syncStatusLine">กำลังตรวจสอบ…</div>
-      <button class="settings-btn" id="openSettingsBtn">⚙︎ <span class="label">ตั้งค่า</span></button>
+      <button class="settings-btn" id="openSettingsBtn">⚙︎ <span class="label">บัญชี / ระบบ</span></button>
     </div>
   </header>
   <div id="offlineReadOnlyBanner" style="display:none;margin:10px 14px 0;padding:10px 12px;border:1px solid var(--rust);background:var(--rust-soft);color:var(--rust);border-radius:10px;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -822,7 +837,7 @@
       <label style="color:var(--ink-soft);">อพาร์ทเมนท์ที่กำลังจัดการ</label>
       <div style="display:flex;gap:6px;">
         <select id="propertySelect" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13.5px;background:var(--bg);color:var(--ink);"></select>
-        <button class="btn ghost small" id="editPropertyBtn" title="แก้ไข/ลบอพาร์ทเมนท์นี้" style="flex:none;padding:8px 10px;">✏️</button>
+        <button class="btn ghost small" id="editPropertyBtn" title="ตั้งค่าอพาร์ทเมนท์นี้" style="flex:none;padding:8px 10px;">✏️</button>
       </div>
     </div>
     <nav id="nav">
