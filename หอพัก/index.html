@@ -868,6 +868,7 @@ let properties = [];
 let receipts = [];
 let roomLayouts = [];
 let propertyAdmins = [];
+let tenantAccounts = [];
 let tenantHomeData = null;
 let currentPropertyId = null;
 try{ currentPropertyId = localStorage.getItem('dorm:currentProperty') || null; }catch(e){}
@@ -1106,9 +1107,9 @@ function showAppScreen(){
 /* ล้างข้อมูลตารางที่แคชไว้ในเครื่อง (localStorage) กันไม่ให้ข้อมูลของบัญชีก่อนหน้าเหลือค้าง
    ถ้าสลับไปใช้อีกบัญชีบนเครื่อง/เบราว์เซอร์เดียวกัน (เช่น ใช้เครื่องคอมร่วมกันหลายคน) */
 function clearLocalDataCache(){
-  ['dorm:rooms','dorm:tenants','dorm:bills','dorm:properties','dorm:deposits','dorm:meterReadings','dorm:receipts','dorm:roomLayouts','dorm:currentProperty']
+  ['dorm:rooms','dorm:tenants','dorm:bills','dorm:properties','dorm:deposits','dorm:meterReadings','dorm:receipts','dorm:roomLayouts','dorm:tenantAccounts','dorm:currentProperty']
     .forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
-  rooms=[]; tenants=[]; bills=[]; properties=[]; deposits=[]; meterReadings=[]; receipts=[]; roomLayouts=[]; propertyAdmins=[]; tenantHomeData=null; currentPropertyId=null;
+  rooms=[]; tenants=[]; bills=[]; properties=[]; deposits=[]; meterReadings=[]; receipts=[]; roomLayouts=[]; propertyAdmins=[]; tenantAccounts=[]; tenantHomeData=null; currentPropertyId=null;
 }
 
 function doLogout(){
@@ -1150,6 +1151,7 @@ function cacheLocally(){
     localStorage.setItem('dorm:meterReadings', JSON.stringify(meterReadings));
     localStorage.setItem('dorm:receipts', JSON.stringify(receipts));
     localStorage.setItem('dorm:roomLayouts', JSON.stringify(roomLayouts));
+    localStorage.setItem('dorm:tenantAccounts', JSON.stringify(tenantAccounts));
   }catch(e){}
 }
 function loadFromLocalCache(){
@@ -1161,6 +1163,7 @@ function loadFromLocalCache(){
   try{ meterReadings = JSON.parse(localStorage.getItem('dorm:meterReadings')||'[]'); }catch(e){ meterReadings=[]; }
   try{ receipts = JSON.parse(localStorage.getItem('dorm:receipts')||'[]'); }catch(e){ receipts=[]; }
   try{ roomLayouts = JSON.parse(localStorage.getItem('dorm:roomLayouts')||'[]'); }catch(e){ roomLayouts=[]; }
+  try{ tenantAccounts = JSON.parse(localStorage.getItem('dorm:tenantAccounts')||'[]'); }catch(e){ tenantAccounts=[]; }
 }
 
 /* ย้ายข้อมูลเก่า (ก่อนมีฟีเจอร์หลายอพาร์ทเมนท์) ให้เข้าอพาร์ทเมนท์เริ่มต้นอัตโนมัติ */
@@ -1382,6 +1385,7 @@ async function loadData(){
       receipts = data.receipts || [];
       roomLayouts = data.roomLayouts || [];
       propertyAdmins = data.propertyAdmins || [];
+      tenantAccounts = data.tenantAccounts || [];
       syncState = 'ok';
       cacheLocally();
     }catch(e){
@@ -2039,6 +2043,14 @@ function attachModalEvents(){
   if(saveTenantBtn) saveTenantBtn.onclick = onSaveTenant;
   const deleteTenantBtn = document.getElementById('deleteTenantBtn');
   if(deleteTenantBtn) deleteTenantBtn.onclick = onDeleteTenant;
+  const provisionTenantAccountBtn=document.getElementById('provisionTenantAccountBtn');
+  if(provisionTenantAccountBtn) provisionTenantAccountBtn.onclick=()=>onProvisionTenantAccount(provisionTenantAccountBtn.dataset.id);
+  const tenantToggleAccountBtn=document.getElementById('tenantToggleAccountBtn');
+  if(tenantToggleAccountBtn) tenantToggleAccountBtn.onclick=()=>onSetTenantAccountStatus(tenantToggleAccountBtn.dataset.id,tenantToggleAccountBtn.dataset.status);
+  const tenantResetPwBtn=document.getElementById('tenantResetPwBtn');
+  if(tenantResetPwBtn) tenantResetPwBtn.onclick=()=>openModal(tenantResetPasswordHtml(tenantResetPwBtn.dataset.userId,tenantResetPwBtn.dataset.tenantId));
+  const tenantResetPwSaveBtn=document.getElementById('tenantResetPwSaveBtn');
+  if(tenantResetPwSaveBtn) tenantResetPwSaveBtn.onclick=()=>onTenantResetPassword(tenantResetPwSaveBtn.dataset.userId,tenantResetPwSaveBtn.dataset.tenantId);
 
   const saveDepositBtn = document.getElementById('saveDepositBtn');
   if(saveDepositBtn) saveDepositBtn.onclick = ()=> onSaveDeposit(saveDepositBtn.dataset.tenantId, false);
@@ -2798,24 +2810,42 @@ function filterTenants(query){
   });
 }
 
+function tenantAccountFor(tenantId){
+  return tenantAccounts.find(a=>String(a.tenantId)===String(tenantId)) || null;
+}
+
+function tenantAccountBadgeHtml(account){
+  if(!account) return '<span class="status-pill vacant">ไม่มีบัญชี</span>';
+  if((account.accountStatus||'active')==='disabled'){
+    return '<span class="status-pill vacant">ปิดใช้งาน</span>';
+  }
+  return '<span class="status-pill occupied">ใช้งานอยู่</span>';
+}
+
 function tenantTableHtml(list){
   if(list.length===0){
     return `<div class="empty"><div class="big">🧑‍🤝‍🧑</div>${currentRooms().length===0?'เพิ่มห้องพักก่อน แล้วค่อยเพิ่มผู้เช่า':'ไม่พบผู้เช่าที่ตรงกับคำค้นหา'}</div>`;
   }
   return `
     <table>
-      <thead><tr><th>ชื่อ</th><th>ห้อง</th><th>เบอร์โทร</th><th>วันเข้าพัก</th><th></th></tr></thead>
+      <thead><tr><th>ชื่อ</th><th>ห้อง</th><th>เบอร์โทร</th><th>วันเข้าพัก</th><th>บัญชี</th><th></th></tr></thead>
       <tbody>
         ${list.map(t=>{
           const room = rooms.find(r=>r.id===t.roomId);
+          const account=tenantAccountFor(t.id);
           return `<tr data-id="${t.id}">
-            <td>${t.name&&t.name.trim() ? t.name : `<span class="muted" style="font-style:italic;">${tenantDisplayName(t)}</span>`}</td>
-            <td class="mono">${room?room.number:'—'}</td>
-            <td class="muted">${t.phone||'—'}</td>
-            <td class="muted">${formatThaiDate(t.moveIn)}</td>
+            <td>${t.name&&t.name.trim() ? escapeAuthHtml(t.name) : `<span class="muted" style="font-style:italic;">${escapeAuthHtml(tenantDisplayName(t))}</span>`}</td>
+            <td class="mono">${room?escapeAuthHtml(room.number):'—'}</td>
+            <td class="muted">${escapeAuthHtml(t.phone||'—')}</td>
+            <td class="muted">${escapeAuthHtml(formatThaiDate(t.moveIn))}</td>
             <td>
+              ${tenantAccountBadgeHtml(account)}
+              ${account?`<div class="user-sub" style="margin-top:4px;">${escapeAuthHtml(account.username)}</div>`:''}
+            </td>
+            <td style="white-space:nowrap;">
               <button class="btn ghost small edit-tenant" data-id="${t.id}">แก้ไข</button>
               <button class="btn ghost small deposit-tenant" data-id="${t.id}">🧾 ใบรับมัดจำ</button>
+              <button class="btn ghost small account-tenant" data-id="${t.id}">👤 บัญชี</button>
             </td>
           </tr>`;
         }).join('')}
@@ -2837,6 +2867,145 @@ function attachTenantRowEvents(){
       openModal(depositModalHtml(tenant), {wide:true});
     };
   });
+  document.querySelectorAll('.account-tenant').forEach(el=>{
+    el.onclick = ()=>{
+      const tenant=tenants.find(t=>t.id===el.dataset.id);
+      if(tenant) openTenantAccountModal(tenant.id);
+    };
+  });
+}
+
+
+function tenantAccountModalHtml(tenantId){
+  const tenant=tenants.find(t=>String(t.id)===String(tenantId));
+  if(!tenant) return '<div class="tenant-error">ไม่พบผู้เช่า</div>';
+  const room=rooms.find(r=>r.id===tenant.roomId);
+  const account=tenantAccountFor(tenantId);
+
+  if(!account){
+    return `
+      <h3>สร้างบัญชีผู้เช่า</h3>
+      <p class="sub">${escapeAuthHtml(tenantDisplayName(tenant))} · ห้อง ${room?escapeAuthHtml(room.number):'—'}</p>
+      <div class="field"><label>ชื่อผู้ใช้</label><input id="ta-username" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+      <div class="field"><label>ชื่อที่แสดง</label><input id="ta-display" value="${escapeAuthHtml(tenant.name||'')}"></div>
+      <div class="field"><label>รหัสผ่านเริ่มต้น (อย่างน้อย 4 ตัวอักษร)</label><input id="ta-password" type="password" autocomplete="new-password"></div>
+      <div class="field"><label>ยืนยันรหัสผ่าน</label><input id="ta-confirm" type="password" autocomplete="new-password"></div>
+      <div id="taMsg" style="font-size:12.5px;color:var(--rust);min-height:18px;"></div>
+      <p class="sub" style="font-size:12px;">ระบบจะไม่แสดงรหัสผ่านอีกหลังสร้างบัญชี กรุณาแจ้งรหัสเริ่มต้นให้ผู้เช่าโดยตรง</p>
+      <div class="modal-actions">
+        <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+        <button class="btn" id="provisionTenantAccountBtn" data-id="${tenant.id}">สร้างบัญชี</button>
+      </div>`;
+  }
+
+  const disabled=(account.accountStatus||'active')==='disabled';
+  return `
+    <h3>บัญชีผู้เช่า</h3>
+    <p class="sub">${escapeAuthHtml(tenantDisplayName(tenant))} · ห้อง ${room?escapeAuthHtml(room.number):'—'}</p>
+    <div class="tenant-info">
+      <div class="tenant-info-line"><span>ชื่อผู้ใช้</span><strong>${escapeAuthHtml(account.username)}</strong></div>
+      <div class="tenant-info-line"><span>สถานะ</span><strong>${disabled?'ปิดใช้งาน':'ใช้งานอยู่'}</strong></div>
+    </div>
+    <p class="sub" style="font-size:12px;">การปิดบัญชีจะยกเลิก session ที่ล็อกอินอยู่ทันที แต่ไม่ลบข้อมูลผู้เช่าหรือประวัติ</p>
+    <div class="modal-actions" style="flex-wrap:wrap;">
+      <button class="btn ghost" id="tenantResetPwBtn" data-user-id="${escapeAuthHtml(account.userId)}" data-tenant-id="${escapeAuthHtml(tenant.id)}">รีเซ็ตรหัสผ่าน</button>
+      <button class="btn ${disabled?'':'danger'}" id="tenantToggleAccountBtn" data-id="${escapeAuthHtml(tenant.id)}" data-status="${disabled?'active':'disabled'}">${disabled?'เปิดใช้งานบัญชี':'ปิดใช้งานบัญชี'}</button>
+      <button class="btn ghost" id="cancelBtn">ปิด</button>
+    </div>`;
+}
+
+function openTenantAccountModal(tenantId){
+  openModal(tenantAccountModalHtml(tenantId));
+}
+
+async function onProvisionTenantAccount(tenantId){
+  const username=document.getElementById('ta-username').value.trim();
+  const displayName=document.getElementById('ta-display').value.trim();
+  const password=document.getElementById('ta-password').value;
+  const confirmPassword=document.getElementById('ta-confirm').value;
+  const msg=document.getElementById('taMsg');
+  const btn=document.getElementById('provisionTenantAccountBtn');
+  msg.textContent='';
+  if(!username){ msg.textContent='กรอกชื่อผู้ใช้'; return; }
+  if(password.length<4){ msg.textContent='รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
+  if(password!==confirmPassword){ msg.textContent='รหัสผ่านที่ยืนยันไม่ตรงกัน'; return; }
+  btn.disabled=true;
+  try{
+    const data=await remoteAuthPost({action:'provisionTenantAccount',tenantId,username,password,displayName});
+    tenantAccounts.push({
+      tenantId:String(data.tenantId),
+      userId:String(data.user.id),
+      username:data.user.username,
+      displayName:data.user.displayName||'',
+      accountStatus:data.user.accountStatus||'active'
+    });
+    cacheLocally();
+    closeModal();
+    render();
+    showToast('สร้างบัญชีผู้เช่าเรียบร้อยแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    const m=String(e.message||e);
+    msg.textContent=m==='username_exists'?'ชื่อผู้ใช้นี้ถูกใช้แล้ว'
+      :m==='tenant_account_exists'?'ผู้เช่าคนนี้มีบัญชีอยู่แล้ว'
+      :m==='password_too_short'?'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'
+      :m==='forbidden'?'ไม่มีสิทธิ์จัดการผู้เช่ารายนี้'
+      :'สร้างบัญชีไม่สำเร็จ';
+    btn.disabled=false;
+  }
+}
+
+async function onSetTenantAccountStatus(tenantId,status){
+  const account=tenantAccountFor(tenantId);
+  if(!account) return;
+  const label=status==='disabled'?'ปิดบัญชีผู้เช่านี้? session ที่กำลังใช้งานจะถูกยกเลิกทันที':'เปิดใช้งานบัญชีผู้เช่านี้?';
+  if(!confirm(label)) return;
+  try{
+    const data=await remoteAuthPost({action:'setTenantAccountStatus',tenantId,status});
+    account.accountStatus=data.user.accountStatus||status;
+    account.displayName=data.user.displayName||account.displayName;
+    cacheLocally();
+    closeModal();
+    render();
+    showToast(status==='disabled'?'ปิดบัญชีผู้เช่าแล้ว':'เปิดใช้งานบัญชีผู้เช่าแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('เปลี่ยนสถานะบัญชีไม่สำเร็จ');
+  }
+}
+
+function tenantResetPasswordHtml(userId,tenantId){
+  const account=tenantAccountFor(tenantId);
+  return `
+    <h3>รีเซ็ตรหัสผ่านผู้เช่า</h3>
+    <p class="sub">${account?escapeAuthHtml(account.username):''}</p>
+    <div class="field"><label>รหัสผ่านใหม่ (อย่างน้อย 4 ตัวอักษร)</label><input id="trp-new" type="password" autocomplete="new-password"></div>
+    <div class="field"><label>ยืนยันรหัสผ่านใหม่</label><input id="trp-confirm" type="password" autocomplete="new-password"></div>
+    <div id="trpMsg" style="font-size:12.5px;color:var(--rust);min-height:18px;"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+      <button class="btn" id="tenantResetPwSaveBtn" data-user-id="${escapeAuthHtml(userId)}" data-tenant-id="${escapeAuthHtml(tenantId)}">ตั้งรหัสใหม่</button>
+    </div>`;
+}
+
+async function onTenantResetPassword(userId,tenantId){
+  const p=document.getElementById('trp-new').value;
+  const c=document.getElementById('trp-confirm').value;
+  const msg=document.getElementById('trpMsg');
+  const btn=document.getElementById('tenantResetPwSaveBtn');
+  msg.textContent='';
+  if(p.length<4){ msg.textContent='รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)'; return; }
+  if(p!==c){ msg.textContent='รหัสผ่านที่ยืนยันไม่ตรงกัน'; return; }
+  btn.disabled=true;
+  try{
+    await remoteAuthPost({action:'adminResetPassword',userId,newPassword:p});
+    closeModal();
+    showToast('รีเซ็ตรหัสผ่านผู้เช่าแล้ว session เก่าถูกยกเลิก');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    msg.textContent=pwErrorText(e);
+    btn.disabled=false;
+  }
 }
 
 function renderTenants(){
@@ -4534,6 +4703,7 @@ async function onDeleteTenant(){
   try{
     const data=await remoteAuthPost({action:'deleteTenant', id:editId});
     tenants = tenants.filter(t=>t.id!==editId);
+    tenantAccounts = tenantAccounts.filter(a=>String(a.tenantId)!==String(editId));
     if(data.room){
       const ri=rooms.findIndex(r=>r.id===data.room.id);
       if(ri>=0) rooms[ri]=data.room;
