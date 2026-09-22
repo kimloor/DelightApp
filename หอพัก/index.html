@@ -2091,6 +2091,11 @@ function attachModalEvents(){
 
   const saveReceiptBtn = document.getElementById('saveReceiptBtn');
   if(saveReceiptBtn) saveReceiptBtn.onclick = ()=> onSaveReceipt(saveReceiptBtn.dataset.billId);
+  document.querySelectorAll('.void-receipt').forEach(el=>{
+    el.onclick = ()=> openModal(voidReceiptModalHtml(el.dataset.id));
+  });
+  const saveVoidReceiptBtn=document.getElementById('saveVoidReceiptBtn');
+  if(saveVoidReceiptBtn) saveVoidReceiptBtn.onclick=()=>onVoidReceipt(saveVoidReceiptBtn.dataset.id);
   document.querySelectorAll('.print-receipt').forEach(el=>{
     el.onclick = ()=>{
       const rc = receipts.find(r=>r.id===el.dataset.id);
@@ -3049,7 +3054,7 @@ async function onSaveBillEdit(billId){
     showToast('บันทึกบิลแล้ว');
   }catch(e){
     if(handleUnauthorized(e)) return;
-    showToast('บันทึกบิลไม่สำเร็จ');
+    showToast(String(e.message||e)==='bill_locked_by_receipt' ? 'บิลถูกล็อกหลังออกใบเสร็จ — Void ใบเสร็จก่อนแก้' : 'บันทึกบิลไม่สำเร็จ');
   }
 }
 
@@ -3070,7 +3075,7 @@ async function onDeleteBill(billId){
     showToast('ลบบิลแล้ว');
   }catch(e){
     if(handleUnauthorized(e)) return;
-    showToast('ลบบิลไม่สำเร็จ');
+    showToast(String(e.message||e)==='bill_locked_by_receipt' ? 'ลบบิลไม่ได้ เพราะมีใบเสร็จ active อยู่' : 'ลบบิลไม่สำเร็จ');
   }
 }
 
@@ -3636,6 +3641,14 @@ function renderRangeReport(type, months){
   `;
 }
 
+function activeReceiptForBillLocal(billId){
+  return receipts.find(r=>r.billId===billId && (r.status||'active')==='active') || null;
+}
+
+function billLockedByReceipt(billId){
+  return !!activeReceiptForBillLocal(billId);
+}
+
 function renderBills(){
   const scopedBills = currentBills();
   const months = Array.from(new Set(scopedBills.map(b=>b.month).filter(m=>/^\d{4}-\d{2}$/.test(m)))).sort().reverse();
@@ -3702,23 +3715,25 @@ function renderBills(){
             const room = rooms.find(r=>r.id===b.roomId);
             const isSel = renderBills._selected.has(b.id);
             const billReceipts = receipts.filter(rc=>rc.billId===b.id).sort((x,y)=> (y.date||'').localeCompare(x.date||''));
-            const receiptBtnHtml = b.status==='unpaid'
-              ? `<button class="btn small issue-receipt" data-id="${b.id}">🧾 ออกใบเสร็จ</button>`
-              : (billReceipts.length ? `<button class="btn ghost small print-receipt" data-id="${billReceipts[0].id}" title="พิมพ์ใบเสร็จ ${billReceipts[0].receiptNo}">🖨 ใบเสร็จ</button>` : '');
+            const activeReceipt = billReceipts.find(rc=>(rc.status||'active')==='active') || null;
+            const locked = !!activeReceipt;
+            const receiptBtnHtml = activeReceipt
+              ? `<button class="btn ghost small print-receipt" data-id="${activeReceipt.id}" title="พิมพ์ใบเสร็จ ${activeReceipt.receiptNo}">🔒 ใบเสร็จ</button>`
+              : `<button class="btn small issue-receipt" data-id="${b.id}">🧾 ออกใบเสร็จ</button>`;
             return `<tr data-id="${b.id}" class="${isSel?'row-selected':''}">
               <td class="select-cell"><input type="checkbox" class="bill-select" data-id="${b.id}" ${isSel?'checked':''}></td>
               <td class="room-cell" data-label="ห้อง">${room?room.number:'—'}</td>
               <td class="mono muted" data-label="ค่าเช่า">${THB(b.rent)}</td>
-              <td class="edit-water" data-id="${b.id}" data-label="ค่าน้ำ" style="cursor:pointer;">${meterCellHtml(b,'water')}</td>
-              <td class="edit-electric" data-id="${b.id}" data-label="ค่าไฟ" style="cursor:pointer;">${meterCellHtml(b,'electric')}</td>
+              <td class="edit-water" data-id="${b.id}" data-label="ค่าน้ำ" style="cursor:${locked?'not-allowed':'pointer'};">${meterCellHtml(b,'water')}</td>
+              <td class="edit-electric" data-id="${b.id}" data-label="ค่าไฟ" style="cursor:${locked?'not-allowed':'pointer'};">${meterCellHtml(b,'electric')}</td>
               <td class="mono" data-label="รวม" style="font-weight:600;">${THB(b.total)} บ.${prop.vatEnabled?`<br><span class="muted" style="font-weight:400;font-size:11px;">รวม VAT ${THB(b.vatAmount||0)}</span>`:''}</td>
               <td data-label="สถานะ">
-                <select class="bill-status ${b.status==='paid'?'badge-paid':'badge-unpaid'}" data-id="${b.id}">
+                <select class="bill-status ${b.status==='paid'?'badge-paid':'badge-unpaid'}" data-id="${b.id}" ${locked?'disabled title="บิลถูกล็อกหลังออกใบเสร็จ"':''}>
                   <option value="unpaid" ${b.status==='unpaid'?'selected':''}>ค้างชำระ</option>
                   <option value="paid" ${b.status==='paid'?'selected':''}>ชำระแล้ว</option>
                 </select>
               </td>
-              <td class="actions-cell">${receiptBtnHtml}<button class="btn ghost small print-bill" data-id="${b.id}">🖨 พิมพ์บิล</button><button class="btn ghost small export-bill-pdf" data-id="${b.id}">📄 PDF</button><button class="btn ghost small edit-bill" data-id="${b.id}">✎ แก้ไข</button><button class="btn ghost small delete-bill" data-id="${b.id}">🗑 ลบ</button></td>
+              <td class="actions-cell">${receiptBtnHtml}<button class="btn ghost small print-bill" data-id="${b.id}">🖨 พิมพ์บิล</button><button class="btn ghost small export-bill-pdf" data-id="${b.id}">📄 PDF</button><button class="btn ghost small edit-bill" data-id="${b.id}" ${locked?'disabled title="Void ใบเสร็จก่อนแก้บิล"':''}>✎ แก้ไข</button><button class="btn ghost small delete-bill" data-id="${b.id}" ${locked?'disabled title="Void ใบเสร็จก่อนลบบิล"':''}>🗑 ลบ</button></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -4384,6 +4399,7 @@ function attachPageEvents(){
   document.querySelectorAll('.edit-water').forEach(el=>{
     el.onclick = ()=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
+      if(billLockedByReceipt(bill.id)){ showToast('บิลถูกล็อกหลังออกใบเสร็จ — Void ใบเสร็จก่อนแก้'); return; }
       onSaveMeter._billId = bill.id;
       onSaveMeter._type = 'water';
       openModal(meterFormHtml(bill, 'water'));
@@ -4392,6 +4408,7 @@ function attachPageEvents(){
   document.querySelectorAll('.edit-electric').forEach(el=>{
     el.onclick = ()=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
+      if(billLockedByReceipt(bill.id)){ showToast('บิลถูกล็อกหลังออกใบเสร็จ — Void ใบเสร็จก่อนแก้'); return; }
       onSaveMeter._billId = bill.id;
       onSaveMeter._type = 'electric';
       openModal(meterFormHtml(bill, 'electric'));
@@ -4736,35 +4753,44 @@ function receiptModalHtml(bill){
   const room = rooms.find(r=>r.id===bill.roomId);
   const todayIso = new Date().toISOString().slice(0,10);
   const history = receipts.filter(r=>r.billId===bill.id).sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  const activeReceipt = history.find(r=>(r.status||'active')==='active') || null;
   return `
     <h2>ออกใบเสร็จรับเงิน — ห้อง ${room?room.number:'-'}</h2>
     <p class="sub">บิลเดือน ${monthLabel(bill.month)} · ยอดรวม ${THB(bill.total)} บาท</p>
     ${history.length ? `
     <div style="max-height:140px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:16px;">
       <table>
-        <thead><tr><th>เลขที่ใบเสร็จ</th><th>วันที่</th><th>จำนวนเงิน</th><th></th></tr></thead>
+        <thead><tr><th>เลขที่ใบเสร็จ</th><th>วันที่</th><th>สถานะ</th><th>จำนวนเงิน</th><th></th></tr></thead>
         <tbody>
           ${history.map(r=>`<tr data-rcpt-id="${r.id}">
-            <td class="mono">${r.receiptNo}</td>
+            <td class="mono">${escapeAuthHtml(r.receiptNo)}</td>
             <td class="muted">${formatThaiDate(r.date)}</td>
+            <td>${(r.status||'active')==='void'
+              ? '<span class="status-pill vacant">VOID</span>'
+              : '<span class="status-pill occupied">ACTIVE</span>'}</td>
             <td class="mono" style="font-weight:600;">${THB(r.amount)} บ.</td>
             <td style="white-space:nowrap;">
-              <button class="btn ghost small print-receipt" data-id="${r.id}">🖨 พิมพ์ซ้ำ</button>
+              <button class="btn ghost small print-receipt" data-id="${r.id}">🖨 พิมพ์</button>
               <button class="btn ghost small export-receipt-pdf" data-id="${r.id}">📄 PDF</button>
+              ${(r.status||'active')==='active'? `<button class="btn danger small void-receipt" data-id="${r.id}">Void</button>` : ''}
             </td>
           </tr>`).join('')}
         </tbody>
       </table>
     </div>` : ''}
-    <div class="field-row">
-      <div class="field"><label>จำนวนเงินที่รับ (บาท)</label><input id="f-rcpt-amount" type="number" value="${bill.total}" readonly></div>
-      <div class="field"><label>วันที่รับเงิน</label><input id="f-rcpt-date" type="date" value="${todayIso}"></div>
-    </div>
-    <div class="field"><label>หมายเหตุ (ถ้ามี)</label><input id="f-rcpt-note" placeholder="เช่น โอนผ่านธนาคาร"></div>
-    <p class="sub" style="font-size:12.5px;">กด "บันทึกและพิมพ์ใบเสร็จ" แล้วระบบจะปรับสถานะบิลนี้เป็น "ชำระแล้ว" ให้อัตโนมัติ</p>
+    ${activeReceipt ? `
+      <div class="tenant-error" style="margin-bottom:14px;">บิลนี้ถูกล็อกด้วยใบเสร็จ ${escapeAuthHtml(activeReceipt.receiptNo)} หากต้องแก้บิล ให้ Owner Void ใบเสร็จก่อน</div>
+    ` : `
+      <div class="field-row">
+        <div class="field"><label>จำนวนเงินที่รับ (บาท)</label><input id="f-rcpt-amount" type="number" value="${bill.total}" readonly></div>
+        <div class="field"><label>วันที่รับเงิน</label><input id="f-rcpt-date" type="date" value="${todayIso}"></div>
+      </div>
+      <div class="field"><label>หมายเหตุ (ถ้ามี)</label><input id="f-rcpt-note" placeholder="เช่น โอนผ่านธนาคาร"></div>
+      <p class="sub" style="font-size:12.5px;">เมื่อออกใบเสร็จแล้ว บิลนี้จะถูกล็อกจนกว่าจะ Void ใบเสร็จ</p>
+    `}
     <div class="modal-actions">
       <button class="btn ghost" id="cancelBtn">ปิด</button>
-      <button class="btn" id="saveReceiptBtn" data-bill-id="${bill.id}">✓ บันทึกและพิมพ์ใบเสร็จ</button>
+      ${activeReceipt ? '' : `<button class="btn" id="saveReceiptBtn" data-bill-id="${bill.id}">✓ บันทึกและพิมพ์ใบเสร็จ</button>`}
     </div>
   `;
 }
@@ -4773,6 +4799,41 @@ function onIssueReceipt(billId){
   const bill = bills.find(b=>b.id===billId);
   if(!bill){ showToast('ไม่พบบิลนี้'); return; }
   openModal(receiptModalHtml(bill));
+}
+
+function voidReceiptModalHtml(receiptId){
+  const rc=receipts.find(r=>r.id===receiptId);
+  return `
+    <h3>Void ใบเสร็จ ${rc?escapeAuthHtml(rc.receiptNo):''}</h3>
+    <p class="sub">เฉพาะ Owner เท่านั้น · ใบเสร็จเดิมจะยังอยู่ในประวัติ และบิลจะกลับเป็นค้างชำระ</p>
+    <div class="field"><label>เหตุผลในการ Void</label><textarea id="f-void-reason" rows="3" placeholder="กรุณาระบุเหตุผล"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+      <button class="btn danger" id="saveVoidReceiptBtn" data-id="${receiptId}">ยืนยัน Void</button>
+    </div>
+  `;
+}
+
+async function onVoidReceipt(receiptId){
+  const reason=document.getElementById('f-void-reason').value.trim();
+  if(!reason){ showToast('กรุณาระบุเหตุผลในการ Void'); return; }
+  try{
+    const data=await remoteAuthPost({action:'voidReceipt',receiptId,reason});
+    const ri=receipts.findIndex(r=>r.id===data.receipt.id);
+    if(ri>=0) receipts[ri]=data.receipt;
+    const bi=bills.findIndex(b=>b.id===data.bill.id);
+    if(bi>=0) bills[bi]=data.bill;
+    cacheLocally();
+    closeModal();
+    render();
+    showToast('Void ใบเสร็จแล้ว บิลกลับเป็นค้างชำระ');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    const m=String(e.message||e);
+    showToast(m==='owner_required' ? 'เฉพาะ Owner เท่านั้นที่ Void ใบเสร็จได้'
+      : m==='void_reason_required' ? 'กรุณาระบุเหตุผล'
+      : 'Void ใบเสร็จไม่สำเร็จ');
+  }
 }
 
 async function onSaveReceipt(billId){
