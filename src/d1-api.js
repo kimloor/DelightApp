@@ -235,6 +235,7 @@ async function authenticate(env, token) {
   if (!auth) return null;
   const user = await userById(env, auth.uid);
   if (!user) return null;
+  if ((user.account_status||'active')!=='active') return null;
   const tokenVersion=Number(auth.sv || 1);
   const currentVersion=Number(user.session_version)||1;
   if (tokenVersion !== currentVersion) return null;
