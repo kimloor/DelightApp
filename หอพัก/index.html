@@ -912,11 +912,35 @@
     .room-detail-actions{flex-direction:column-reverse;}
     .room-bulk-fields{grid-template-columns:1fr 1fr;}
     .room-bulk-quick .toolbar-select{width:100%;}
-    .room-bulk-table-wrap{max-width:100%;overflow:auto;}
-    .room-bulk-table{min-width:720px;}
   }
   @media(max-width:430px){
     .room-detail-grid,.room-bulk-fields{grid-template-columns:1fr;}
+  }
+
+
+  /* ---------- Rooms Polish Round 2 ---------- */
+  .room-manage-menu .action-menu-pop{min-width:240px;}
+  .room-bulk-applybar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0;flex-wrap:wrap;}
+  .room-bulk-select-all{display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;}
+  .room-bulk-list{display:grid;gap:10px;max-height:390px;overflow-y:auto;overflow-x:hidden;padding-right:3px;}
+  .room-bulk-card{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:12px 14px;min-width:0;}
+  .room-bulk-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}
+  .room-bulk-room-id{display:flex;align-items:center;gap:8px;min-width:0;}
+  .room-bulk-card-head .status-pill{white-space:nowrap;flex:none;}
+  .room-bulk-card-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;}
+  .room-bulk-card-fields .field{margin:0;min-width:0;}
+  .room-bulk-card-fields input,.room-bulk-card-fields select{width:100%;min-width:0;}
+  .bill-room-filter{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--teal-soft);font-size:13px;}
+  @media(max-width:760px){
+    .room-bulk-card-fields{grid-template-columns:1fr 1fr;}
+    .room-bulk-list{max-height:50vh;}
+    .room-bulk-applybar .btn{width:100%;}
+    .bill-room-filter{align-items:stretch;flex-direction:column;}
+    .bill-room-filter .btn{width:100%;}
+  }
+  @media(max-width:430px){
+    .room-bulk-card{padding:11px 12px;}
+    .room-bulk-card-fields{grid-template-columns:1fr;}
   }
 
 </style>
@@ -2348,12 +2372,32 @@ function attachModalEvents(){
   const viewTenantFromRoomBtn = document.getElementById('viewTenantFromRoomBtn');
   if(viewTenantFromRoomBtn) viewTenantFromRoomBtn.onclick = ()=>{
     const id=document.querySelector('.room-detail')?.dataset.roomId;
-    const room=rooms.find(r=>r.id===id);
-    const tenant=room ? tenants.find(t=>t.roomId===room.id) : null;
+    const room=rooms.find(r=>String(r.id)===String(id));
+    const tenant=room ? tenants.find(t=>String(t.roomId)===String(room.id)) : null;
     if(!tenant) return;
     renderTenants._query=tenantDisplayName(tenant);
     currentPage='tenants';
     document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.page==='tenants'));
+    closeModal();
+    render();
+  };
+  const addTenantDetailsFromRoomBtn = document.getElementById('addTenantDetailsFromRoomBtn');
+  if(addTenantDetailsFromRoomBtn) addTenantDetailsFromRoomBtn.onclick = ()=>{
+    const id=document.querySelector('.room-detail')?.dataset.roomId;
+    const room=rooms.find(r=>String(r.id)===String(id));
+    if(!room) return;
+    onSaveTenant._editId=null;
+    openModal(tenantFormHtml(null, room.id));
+  };
+  const viewBillsFromRoomBtn = document.getElementById('viewBillsFromRoomBtn');
+  if(viewBillsFromRoomBtn) viewBillsFromRoomBtn.onclick = ()=>{
+    const detail=document.querySelector('.room-detail');
+    const id=detail?.dataset.roomId;
+    const latestMonth=detail?.dataset.latestBillMonth;
+    renderBills._roomFilter=id||'';
+    if(latestMonth) renderBills._month=latestMonth;
+    currentPage='bills';
+    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.page==='bills'));
     closeModal();
     render();
   };
@@ -5232,6 +5276,8 @@ function attachPageEvents(){
   if(genBillBtn) genBillBtn.onclick = generateBills;
   const monthSelect = document.getElementById('monthSelect');
   if(monthSelect) monthSelect.onchange = (e)=>{ renderBills._month = e.target.value; render(); };
+  const clearBillRoomFilterBtn = document.getElementById('clearBillRoomFilterBtn');
+  if(clearBillRoomFilterBtn) clearBillRoomFilterBtn.onclick = ()=>{ renderBills._roomFilter=''; render(); };
   const printReportBtn = document.getElementById('printReportBtn');
   if(printReportBtn) printReportBtn.onclick = ()=> printMonthReport(renderBills._month || defaultBillingMonth());
   const printSelectedBtn = document.getElementById('printSelectedBtn');
