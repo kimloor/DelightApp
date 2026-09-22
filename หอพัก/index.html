@@ -793,6 +793,10 @@
       <button class="settings-btn" id="openSettingsBtn">⚙︎ <span class="label">ตั้งค่า</span></button>
     </div>
   </header>
+  <div id="offlineReadOnlyBanner" style="display:none;margin:10px 14px 0;padding:10px 12px;border:1px solid var(--rust);background:var(--rust-soft);color:var(--rust);border-radius:10px;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+    <div><b>⚠ โหมดออฟไลน์ — อ่านอย่างเดียว</b><div style="font-size:12px;margin-top:2px;">กำลังแสดงข้อมูลแคชล่าสุด ข้อมูลอาจไม่เป็นปัจจุบัน และระบบปิดการแก้ไข/บันทึกชั่วคราว</div></div>
+    <button class="btn ghost small" id="offlineRetryBtn" type="button">ลองเชื่อมต่อใหม่</button>
+  </div>
   <div class="app-body">
   <aside class="sidebar">
     <div class="brand">
@@ -1005,12 +1009,36 @@ try{
   }
 }catch(e){}
 let syncState = 'unknown'; // 'unknown' | 'ok' | 'error'
+let offlineReadOnly = false;
+let offlineSince = null;
+const OFFLINE_READ_ACTIONS = new Set(['me','getAdminScoped','getTenantHome','adminListUsers','platformOverview','platformHealth']);
+
+function setOfflineReadOnly(on){
+  offlineReadOnly = !!on;
+  offlineSince = offlineReadOnly ? (offlineSince || Date.now()) : null;
+  const banner=document.getElementById('offlineReadOnlyBanner');
+  if(banner) banner.style.display = offlineReadOnly ? 'flex' : 'none';
+  updateSyncLine();
+}
+
+function restoreOfflineSnapshot(){
+  loadFromLocalCache();
+  if (!currentPropertyId || !properties.some(p=>String(p.id)===String(currentPropertyId))) {
+    currentPropertyId = properties.length ? String(properties[0].id) : null;
+  }
+  if(dataReady){
+    renderPropertySelect();
+    render();
+  }
+}
 
 function updateSyncLine(){
   const el = document.getElementById('syncStatusLine');
   if(!el) return;
   if(!sheetUrl){
     el.textContent = 'เก็บข้อมูลในเครื่องนี้เท่านั้น';
+  } else if(offlineReadOnly){
+    el.textContent = '🔴 ออฟไลน์ · อ่านอย่างเดียว (ข้อมูลแคช)';
   } else if(syncState === 'ok'){
     el.textContent = '🟢 ซิงก์กับ Cloudflare D1 แล้ว';
   } else if(syncState === 'error'){
@@ -1072,6 +1100,11 @@ async function remoteRegister(username, password, displayName){
 
 /* เรียก action ที่ต้องแนบ token (me / changePassword / adminListUsers / adminResetPassword) */
 async function remoteAuthPost(payload){
+  const action=String((payload && payload.action) || '');
+  if(offlineReadOnly && !OFFLINE_READ_ACTIONS.has(action)){
+    restoreOfflineSnapshot();
+    throw new Error('offline_read_only');
+  }
   const res = await fetch(sheetUrl, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -1130,6 +1163,17 @@ async function openLogoutAllConfirm(){
     if(handleUnauthorized(e)) return;
     showToast('ออกจากระบบทุกอุปกรณ์ไม่สำเร็จ');
   }
+}
+
+async function retryOnlineSync(){
+  const btn=document.getElementById('offlineRetryBtn');
+  if(btn){ btn.disabled=true; btn.textContent='กำลังเชื่อมต่อ…'; }
+  syncState='unknown';
+  updateSyncLine();
+  await loadData();
+  const nextBtn=document.getElementById('offlineRetryBtn');
+  if(nextBtn){ nextBtn.disabled=false; nextBtn.textContent='ลองเชื่อมต่อใหม่'; }
+  if(!offlineReadOnly) showToast('เชื่อมต่อ D1 และโหลดข้อมูลล่าสุดแล้ว');
 }
 
 async function wsGet(key){
@@ -1387,6 +1431,7 @@ async function loadData(){
       propertyAdmins = data.propertyAdmins || [];
       tenantAccounts = data.tenantAccounts || [];
       syncState = 'ok';
+      setOfflineReadOnly(false);
       cacheLocally();
     }catch(e){
       console.error('sheet load error', e);
@@ -1398,6 +1443,7 @@ async function loadData(){
       }
       syncState = 'error';
       loadFromLocalCache();
+      setOfflineReadOnly(true);
     }
   } else if (window.storage) {
     const [r,t,b,p,dep,mtr,rcpt,rl] = await Promise.all([wsGet('dorm:rooms'), wsGet('dorm:tenants'), wsGet('dorm:bills'), wsGet('dorm:properties'), wsGet('dorm:deposits'), wsGet('dorm:meterReadings'), wsGet('dorm:receipts'), wsGet('dorm:roomLayouts')]);
@@ -1608,6 +1654,7 @@ function pwErrorText(e){
   if(m === 'wrong_old_password') return 'รหัสผ่านเดิมไม่ถูกต้อง';
   if(m === 'password_too_short') return 'รหัสผ่านสั้นเกินไป (อย่างน้อย 4 ตัวอักษร)';
   if(m === 'too_many_attempts') return 'ลองเข้าสู่ระบบผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่';
+  if(m === 'offline_read_only') return 'โหมดออฟไลน์: อ่านข้อมูลได้อย่างเดียว กรุณาเชื่อมต่อ D1 ก่อนบันทึก';
   if(m === 'forbidden') return 'ไม่มีสิทธิ์ทำรายการนี้ (ต้องเป็นแอดมิน)';
   if(/^(HTTP |Failed to fetch|NetworkError|Load failed)/i.test(m) || !m) return 'ทำรายการไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่';
   return m; // ข้อความภาษาไทยจาก backend เช่น "รหัสผ่านสั้นเกินไป..."
@@ -1615,9 +1662,14 @@ function pwErrorText(e){
 
 /* token ใช้ไม่ได้แล้ว (หมดอายุ) — เด้งกลับหน้า login เหมือนที่อื่นในแอป; คืน true ถ้าจัดการให้แล้ว */
 function handleUnauthorized(e){
-  if(String((e && e.message) || '') === 'unauthorized'){
+  const message=String((e && e.message) || '');
+  if(message === 'unauthorized'){
     closeModal();
     doLogout();
+    return true;
+  }
+  if(message === 'offline_read_only'){
+    showToast('โหมดออฟไลน์: อ่านข้อมูลได้อย่างเดียว กรุณาเชื่อมต่อ D1 ก่อนบันทึก');
     return true;
   }
   return false;
@@ -2197,6 +2249,9 @@ function attachModalEvents(){
 function closeModal(){
   document.getElementById('overlay').classList.remove('open');
 }
+const offlineRetryBtn=document.getElementById('offlineRetryBtn');
+if(offlineRetryBtn) offlineRetryBtn.addEventListener('click', retryOnlineSync);
+
 document.getElementById('openSettingsBtn').addEventListener('click', ()=>{
   openModal(settingsFormHtml());
   wireSettingsActions();
