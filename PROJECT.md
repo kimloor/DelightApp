@@ -226,7 +226,8 @@ Key examples:
 A post-foundation stabilization phase is now active before major new product features.
 
 Current priority:
-- Product roadmap may resume; S9 frontend modularization remains deferred
+- Payment Slip Verification V1 — Phase 1 foundation/design
+- S9 frontend modularization remains deferred
 
 Completed stabilization:
 - S1 Auth / Session Hardening V2
