@@ -1416,6 +1416,16 @@ async function loadData(){
   // Production D1 data is already migrated and canonical.
   // Never rewrite server tables automatically from a client snapshot during load.
 
+  // Fresh browsers/new accounts may not have a saved property selection yet.
+  // Select the first server-authorized property rather than rendering an empty dashboard.
+  if (!currentPropertyId || !properties.some(p=>String(p.id)===String(currentPropertyId))) {
+    currentPropertyId = properties.length ? String(properties[0].id) : null;
+    try{
+      if(currentPropertyId) localStorage.setItem('dorm:currentProperty', currentPropertyId);
+      else localStorage.removeItem('dorm:currentProperty');
+    }catch(err){}
+  }
+
   updateSyncLine();
   dataReady = true;
   renderPropertySelect();
