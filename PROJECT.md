@@ -226,7 +226,7 @@ Key examples:
 A post-foundation stabilization phase is now active before major new product features.
 
 Current priority:
-- S6 Superadmin Console V1 — Phase B Access Mapping Repair
+- S6 Superadmin Console V1 — Phase C Platform Audit / Health
 
 Completed stabilization:
 - S1 Auth / Session Hardening V2
