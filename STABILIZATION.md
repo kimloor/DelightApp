@@ -80,7 +80,7 @@ Goals:
 - expose platform-level audit/health information
 
 ### S7 — Admin Offline Read-Only Mode
-Status: NEXT
+Status: DONE
 
 Goals:
 - if D1 is unavailable, clearly label cached data as stale/offline
@@ -88,7 +88,7 @@ Goals:
 - never imply cached data is current server state
 
 ### S8 — Audit Log Viewer
-Status: PLANNED
+Status: NEXT
 
 Goals:
 - owner-scoped operational audit view
@@ -135,7 +135,9 @@ S5 — Frontend Security / XSS Audit is production-verified.
 
 S6 Phase A/B/C — Superadmin Console V1 is production-verified.
 
-Next: S7 — Admin Offline Read-Only Mode.
+S7 — Admin Offline Read-Only Mode is production-verified.
+
+Next: S8 — Audit Log Viewer.
 
 Detailed contracts:
 - `AUTH-SESSION-HARDENING-V2.md`
