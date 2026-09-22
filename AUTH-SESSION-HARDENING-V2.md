@@ -51,15 +51,15 @@ Normal single-device logout may remain client-side token removal.
 ### Token lifetime
 
 Keep a bounded expiry.
-Initial V2 target:
-- maximum 7 days unless a later product decision changes it
+Production policy:
+- maximum 30 days
 
 A shorter lifetime reduces stolen-token exposure while session_version supplies immediate revocation.
 
 ### Password policy
 
 New password minimum:
-- at least 8 characters
+- at least 4 characters
 
 Do not require complexity rules such as mandatory uppercase/symbols in V2.
 
@@ -172,3 +172,13 @@ Completed 2026-09-21:
 - re-login with the changed password succeeded
 - temporary E2E account was removed after verification
 - temporary migration/E2E workflows were removed after successful use
+
+
+## 10. Product policy adjustment — 2026-09-22
+
+Adjusted after production review:
+- session lifetime changed from 7 days to 30 days
+- minimum password length changed from 8 characters to 4 characters
+- session revocation through session_version remains unchanged
+- password change, admin reset and logoutAll still invalidate older tokens immediately
+- login throttling and PBKDF2 hashing remain unchanged
