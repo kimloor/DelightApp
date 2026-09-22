@@ -1266,6 +1266,91 @@ async function setTenantAccountStatus(env, admin, body) {
   };
 }
 
+
+async function requireSuperadminUser(user) {
+  if (!user || user.platform_role!=='superadmin') throw new Error('forbidden');
+  return user;
+}
+
+async function platformOverview(env, user) {
+  await requireSuperadminUser(user);
+
+  const [usersQ,propsQ,accessQ,tenantCountQ]=await Promise.all([
+    env.DB.prepare(
+      `SELECT id,username,display_name,role,platform_role,account_status,created_at
+       FROM users
+       ORDER BY CASE WHEN platform_role='superadmin' THEN 0 ELSE 1 END,
+                CASE role WHEN 'admin' THEN 0 ELSE 1 END,
+                LOWER(username),id`
+    ).all(),
+    env.DB.prepare('SELECT id,name FROM properties ORDER BY name,id').all(),
+    env.DB.prepare(
+      `SELECT pa.property_id,pa.user_id,pa.access_role,u.username,u.display_name
+       FROM property_admins pa
+       JOIN users u ON u.id=pa.user_id
+       ORDER BY pa.property_id,
+                CASE pa.access_role WHEN 'owner' THEN 0 ELSE 1 END,
+                LOWER(u.username),u.id`
+    ).all(),
+    env.DB.prepare('SELECT COUNT(*) AS c FROM tenant_accounts').first(),
+  ]);
+
+  const users=(usersQ.results||[]).map(r=>({
+    id:String(r.id),
+    username:r.username||'',
+    displayName:r.display_name||'',
+    role:r.role==='tenant'?'tenant':'admin',
+    platformRole:r.platform_role==='superadmin'?'superadmin':'normal',
+    accountStatus:r.account_status==='disabled'?'disabled':'active',
+    createdAt:r.created_at||'',
+  }));
+  const properties=(propsQ.results||[]).map(r=>({id:String(r.id),name:r.name||''}));
+  const propertyAccess=(accessQ.results||[]).map(r=>({
+    propertyId:String(r.property_id),
+    userId:String(r.user_id),
+    username:r.username||'',
+    displayName:r.display_name||'',
+    accessRole:r.access_role==='owner'?'owner':'admin',
+  }));
+
+  return {
+    success:true,
+    counts:{
+      users:users.length,
+      activeUsers:users.filter(u=>u.accountStatus==='active').length,
+      disabledUsers:users.filter(u=>u.accountStatus==='disabled').length,
+      properties:properties.length,
+      propertyAccess:propertyAccess.length,
+      tenantAccounts:Number(tenantCountQ?.c)||0,
+    },
+    users,
+    properties,
+    propertyAccess,
+  };
+}
+
+async function platformSetAccountStatus(env, user, body) {
+  await requireSuperadminUser(user);
+  const targetId=s(body.userId);
+  const targetStatus=s(body.status);
+  if(!['active','disabled'].includes(targetStatus)) throw new Error('invalid_account_status');
+  if(!targetId) throw new Error('user_id_required');
+  if(String(user.id)===targetId) throw new Error('cannot_change_self_status');
+
+  const target=await userById(env,targetId);
+  if(!target) throw new Error('user_not_found');
+
+  await env.DB.prepare(
+    'UPDATE users SET account_status=?,session_version=session_version+1 WHERE id=?'
+  ).bind(targetStatus,targetId).run();
+
+  await appendLog(
+    env,user,'platformSetAccountStatus','users',[targetId],1,
+    targetStatus+' account '+(target.username||targetId)
+  );
+  return {success:true,user:publicUser(await userById(env,targetId))};
+}
+
 async function removeAdminPropertyAccess(env, admin, targetUserId, propertyId) {
   await requirePropertyOwner(env,admin,propertyId);
   const targetId=s(targetUserId);
@@ -1502,6 +1587,16 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'setTenantAccountStatus') {
     try { return {success:true,...await setTenantAccountStatus(env,x.user,body)}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'platformOverview') {
+    try { return await platformOverview(env,x.user); }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'platformSetAccountStatus') {
+    try { return await platformSetAccountStatus(env,x.user,body); }
     catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
