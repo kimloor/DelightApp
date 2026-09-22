@@ -855,6 +855,35 @@
     .modal{padding:18px 14px;}
   }
 
+  /* ---------- Mobile UI Hotfix V1 ---------- */
+  .bill-select-all-mobile{display:none;}
+  #auditViewerBody{width:100%;max-width:100%;min-width:0;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;}
+  #auditViewerBody *{max-width:100%;}
+  .audit-log-row,.audit-log-head,.audit-log-head>div{min-width:0;}
+  .audit-log-row,.audit-log-row .user-sub,.audit-log-head b{overflow-wrap:anywhere;word-break:break-word;}
+  @media (max-width:760px){
+    .bill-select-all-mobile{display:flex;align-items:center;gap:8px;margin:12px 14px 4px;min-height:38px;font-size:13px;font-weight:600;color:var(--ink);}
+    .bill-select-all-mobile input{width:24px;height:24px;flex:none;accent-color:var(--teal,#2E8B57);}
+    .bulk-meter-table,.bulk-meter-table tbody,.bulk-meter-table tr,.bulk-meter-table td{display:block;width:100%;}
+    .bulk-meter-table thead{display:none;}
+    .bulk-meter-table{overflow:visible!important;}
+    .bulk-meter-table tbody{min-width:0!important;}
+    .bulk-meter-table tr{margin:0 0 10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);}
+    .bulk-meter-table td{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line);min-width:0;}
+    .bulk-meter-table td:last-child{border-bottom:none;}
+    .bulk-meter-table td::before{flex:0 0 32%;color:var(--ink-soft);font-size:11.5px;font-weight:600;text-align:left;}
+    .bulk-meter-table td:nth-child(1)::before{content:"ห้อง";}
+    .bulk-meter-table td:nth-child(2)::before{content:"น้ำ";}
+    .bulk-meter-table td:nth-child(3)::before{content:"ไฟ";}
+    .bulk-meter-table td:nth-child(4)::before{content:"รวม";}
+    .bulk-meter-table td>div{flex:1 1 auto;min-width:0;justify-content:flex-end;}
+    .bulk-meter-table .toolbar-input{width:min(110px,44vw)!important;max-width:100%;}
+    #auditViewerBody{position:relative;}
+    .audit-log-head{flex-direction:column;gap:3px!important;}
+    .audit-pager{width:100%;max-width:100%;overflow:hidden;}
+    .audit-filter-grid,.audit-filter-grid .field{min-width:0;max-width:100%;}
+    .audit-filter-grid input{min-width:0;max-width:100%;}
+  }
 </style>
 </head>
 <body>
@@ -2776,8 +2805,8 @@ function renderAuditViewer(logs){
   if(!body || !s) return;
 
   const rows=logs.length ? logs.map(a=>
-    '<div style="padding:10px 0;border-bottom:1px solid var(--line);">'
-    +'<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">'
+    '<div class="audit-log-row" style="padding:10px 0;border-bottom:1px solid var(--line);">'
+    +'<div class="audit-log-head" style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">'
     +'<div><b>'+escapeAuthHtml(a.action||'')+'</b>'
     +(a.tableName?' <span class="user-sub">· '+escapeAuthHtml(a.tableName)+'</span>':'')
     +'</div><span class="user-sub">'+escapeAuthHtml(formatAuditDate(a.createdAt))+'</span></div>'
@@ -4054,7 +4083,7 @@ function bulkMeterFormHtml(month){
     </p>
     ${monthBills.length===0 ? `<div class="empty"><div class="big">🧾</div>เดือนนี้ยังไม่มีบิล</div>` : `
     <div style="max-height:52vh;overflow-y:auto;border:1px solid var(--line);border-radius:8px;">
-    <table>
+    <table class="bulk-meter-table">
       <thead><tr><th>ห้อง</th><th>น้ำ (เดิม→ปัจจุบัน)</th><th>ไฟ (เดิม→ปัจจุบัน)</th><th>รวม</th></tr></thead>
       <tbody>
         ${monthBills.map(b=>{
@@ -4456,6 +4485,7 @@ function renderBills(){
         ${prop.vatEnabled?`<button class="btn ghost small" id="taxInvoiceRangeBtn" ${selectedCount===0?'disabled':''}>📇 กำหนดเลขที่ใบกำกับภาษี</button>`:''}
       </div>
       ${monthBills.length===0 ? `<div class="empty"><div class="big">🧾</div>ยังไม่มีบิลของเดือนนี้ กด “สร้างบิลเดือนนี้” เพื่อสร้างบิลให้ทุกห้องที่มีผู้เช่า</div>` : `
+      <label class="bill-select-all-mobile"><input type="checkbox" id="selectAllBillsMobile" ${allSelected?'checked':''}> <span>เลือกทั้งหมด</span></label>
       <table id="billsTable">
         <thead><tr><th style="width:34px;"><input type="checkbox" id="selectAllBills" ${allSelected?'checked':''}></th><th>ห้อง</th><th>ค่าเช่า</th><th>ค่าน้ำ (เลขมิเตอร์)</th><th>ค่าไฟ (เลขมิเตอร์)</th><th>รวม</th><th>สถานะ</th><th></th></tr></thead>
         <tbody>
@@ -5070,15 +5100,19 @@ function attachPageEvents(){
     const selected = bills.filter(b=>renderBills._selected.has(b.id));
     exportInvoicesPdf(selected);
   };
-  const selectAllBills = document.getElementById('selectAllBills');
-  if(selectAllBills) selectAllBills.onchange = (e)=>{
-    const activeMonth = renderBills._month || defaultBillingMonth();
-    const monthBills = currentBills().filter(b=>b.month===activeMonth);
-    if(e.target.checked){ monthBills.forEach(b=>renderBills._selected.add(b.id)); }
-    else { monthBills.forEach(b=>renderBills._selected.delete(b.id)); }
-    render();
-    showBillSelectionToast();
+  const wireSelectAllBills = (el)=>{
+    if(!el) return;
+    el.onchange = (e)=>{
+      const activeMonth = renderBills._month || defaultBillingMonth();
+      const monthBills = currentBills().filter(b=>b.month===activeMonth);
+      if(e.target.checked){ monthBills.forEach(b=>renderBills._selected.add(b.id)); }
+      else { monthBills.forEach(b=>renderBills._selected.delete(b.id)); }
+      render();
+      showBillSelectionToast();
+    };
   };
+  wireSelectAllBills(document.getElementById('selectAllBills'));
+  wireSelectAllBills(document.getElementById('selectAllBillsMobile'));
   document.querySelectorAll('.bill-select').forEach(el=>{
     el.onchange = (e)=>{
       if(e.target.checked) renderBills._selected.add(el.dataset.id);
