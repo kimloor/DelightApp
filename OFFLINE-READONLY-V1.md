@@ -1,6 +1,6 @@
 # DelightApp — Admin Offline Read-Only Mode V1
 
-> Status: IN PROGRESS
+> Status: DONE — production verified 2026-09-22
 > Parent: STABILIZATION.md / S7
 > Goal: when D1 is temporarily unavailable, allow Admin to view the last cached snapshot without allowing business/financial mutations or implying the cache is current.
 
@@ -82,3 +82,18 @@ Reconnect button:
 - background sync of edits
 - offline tenant portal
 - PWA caching of authenticated API responses
+
+
+## 8. Production verification
+
+Completed 2026-09-22:
+- Pre-Deploy Validate passed
+- Production Deploy + smoke passed
+- browser E2E simulated API outage with cached admin data
+- stale/read-only banner appeared
+- cached navigation remained readable
+- mutation was rejected locally with offline_read_only
+- blocked mutation did not send an API request
+- cached snapshot remained unchanged
+- reconnect restored fresh D1 data and removed read-only mode
+- isolated test account/property were cleaned up
