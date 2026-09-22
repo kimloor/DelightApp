@@ -47,7 +47,7 @@ Progress:
 
 ## Stabilization Phase
 
-**Status:** IN PROGRESS — S1/S2/S3 done, S4 Tenant Account Lifecycle next
+**Status:** IN PROGRESS — S1-S4 done, S5 Frontend Security / XSS Audit next
 
 ก่อนเพิ่มฟีเจอร์หลักใหม่ ให้ปิดช่องว่างด้าน security / financial integrity / tenant lifecycle ที่ตรวจพบหลัง D1 + Access Control + Tenant Foundation ขึ้น production
 
