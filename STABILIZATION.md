@@ -50,7 +50,7 @@ Goals:
 - audit every financial correction
 
 ### S4 — Tenant Account Lifecycle
-Status: NEXT
+Status: DONE
 
 Goals:
 - allow an authorized property owner/admin flow to provision tenant login
@@ -61,7 +61,7 @@ Goals:
 - avoid manual D1 edits for routine tenant onboarding
 
 ### S5 — Frontend Security / XSS Audit
-Status: PLANNED
+Status: NEXT
 
 Goals:
 - escape all user-controlled/business-data output before innerHTML use
@@ -129,10 +129,12 @@ Major roadmap features may resume after S1-S5 unless a later audit identifies a 
 S1 — Auth / Session Hardening is production-verified.
 S2 — Financial / Database Integrity is production-verified.
 S3 — Paid Bill Lock + Receipt Void is production-verified.
+S4 — Tenant Account Lifecycle is production-verified.
 
-Next: S4 — Tenant Account Lifecycle.
+Next: S5 — Frontend Security / XSS Audit.
 
 Detailed contracts:
 - `AUTH-SESSION-HARDENING-V2.md`
 - `FINANCIAL-DATA-INTEGRITY-V1.md`
 - `PAID-BILL-RECEIPT-VOID-V1.md`
+- `TENANT-ACCOUNT-LIFECYCLE-V1.md`
