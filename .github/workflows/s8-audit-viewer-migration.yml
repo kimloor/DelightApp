@@ -1,0 +1,35 @@
+name: Audit Viewer Production Migration
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    if: contains(github.event.head_commit.message, '[S8-MIGRATE]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Apply forward-only migrations
+        run: npx --yes wrangler@4 d1 migrations apply delightapp-db --remote
+
+      - name: Validate S8 schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "PRAGMA table_info(audit_logs);"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_audit_logs_property_created_at','idx_audit_logs_action_created_at') ORDER BY name;"
+          APPLIED="$(npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS c FROM d1_migrations WHERE name='0008_audit_log_viewer_v1.sql';" --json | jq -r '.[0].results[0].c')"
+          test "$APPLIED" = "1"
+          echo "s8_migration=PASS"
