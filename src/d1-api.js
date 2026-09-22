@@ -249,11 +249,47 @@ async function requireAdmin(env, token) {
   return x;
 }
 
-async function appendLog(env, user, action, tableName='', ids=[], count=0, note='') {
+async function resolveAuditPropertyId(env, tableName, ids=[], note='') {
   try {
+    const first=String((ids||[])[0]||'');
+    if (tableName==='properties' && first) return first;
+
+    const propertyMatch=/\bproperty\s+([^\s,]+)/i.exec(String(note||''));
+    if (propertyMatch) return propertyMatch[1];
+
+    const roomMatch=/\broom\s+([^\s,]+)/i.exec(String(note||''));
+    if (roomMatch) {
+      const room=await env.DB.prepare('SELECT property_id FROM rooms WHERE id=?').bind(roomMatch[1]).first();
+      if(room?.property_id) return String(room.property_id);
+    }
+
+    const idList=(ids||[]).map(String).filter(Boolean);
+    if(!idList.length) return '';
+    const qs=idList.map(()=>'?').join(',');
+    let sql='';
+    if(tableName==='rooms') sql=`SELECT DISTINCT property_id FROM rooms WHERE id IN (${qs})`;
+    else if(tableName==='tenants') sql=`SELECT DISTINCT r.property_id FROM tenants x JOIN rooms r ON r.id=x.room_id WHERE x.id IN (${qs})`;
+    else if(tableName==='bills') sql=`SELECT DISTINCT r.property_id FROM bills x JOIN rooms r ON r.id=x.room_id WHERE x.id IN (${qs})`;
+    else if(tableName==='deposits') sql=`SELECT DISTINCT r.property_id FROM deposits x JOIN rooms r ON r.id=x.room_id WHERE x.id IN (${qs})`;
+    else if(tableName==='meter_readings') sql=`SELECT DISTINCT r.property_id FROM meter_readings x JOIN rooms r ON r.id=x.room_id WHERE x.id IN (${qs})`;
+    else if(tableName==='receipts') sql=`SELECT DISTINCT r.property_id FROM receipts x JOIN rooms r ON r.id=x.room_id WHERE x.id IN (${qs})`;
+    else if(tableName==='room_layouts') sql=`SELECT DISTINCT r.property_id FROM room_layouts x JOIN rooms r ON r.id=x.room_id WHERE x.id IN (${qs})`;
+    else if(tableName==='tenant_accounts') sql=`SELECT DISTINCT r.property_id FROM tenant_accounts ta JOIN tenants t ON t.id=ta.tenant_id JOIN rooms r ON r.id=t.room_id WHERE ta.tenant_id IN (${qs})`;
+    if(!sql) return '';
+    const q=await env.DB.prepare(sql).bind(...idList).all();
+    const props=(q.results||[]).map(x=>String(x.property_id)).filter(Boolean);
+    return props.length===1 ? props[0] : '';
+  } catch {
+    return '';
+  }
+}
+
+async function appendLog(env, user, action, tableName='', ids=[], count=0, note='', propertyId='') {
+  try {
+    const scopedProperty=String(propertyId || await resolveAuditPropertyId(env,tableName,ids,note) || '');
     await env.DB.prepare(
-      'INSERT INTO audit_logs (created_at,user_id,username,action,table_name,affected_ids,item_count,note) VALUES (?,?,?,?,?,?,?,?)'
-    ).bind(new Date().toISOString(), user?.id || '', user?.username || '', action, tableName, ids.join(','), count, note).run();
+      'INSERT INTO audit_logs (created_at,user_id,username,action,table_name,affected_ids,item_count,note,property_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).bind(new Date().toISOString(), user?.id || '', user?.username || '', action, tableName, ids.join(','), count, note, scopedProperty).run();
   } catch (e) {
     console.error('audit_log_write_failed', {
       action,
@@ -262,6 +298,75 @@ async function appendLog(env, user, action, tableName='', ids=[], count=0, note=
       error: String(e?.message || e),
     });
   }
+}
+
+function rowAudit(r) {
+  return {
+    id:Number(r.id)||0,
+    createdAt:r.created_at||'',
+    userId:String(r.user_id||''),
+    username:r.username||'',
+    action:r.action||'',
+    tableName:r.table_name||'',
+    affectedIds:r.affected_ids||'',
+    itemCount:Number(r.item_count)||0,
+    note:r.note||'',
+    propertyId:String(r.property_id||'')
+  };
+}
+
+function auditFilters(body, params) {
+  const where=[];
+  const actor=s(body.actor).trim();
+  const action=s(body.auditAction).trim();
+  const dateFrom=s(body.dateFrom).trim();
+  const dateTo=s(body.dateTo).trim();
+  if(actor){ where.push('username LIKE ?'); params.push('%'+actor+'%'); }
+  if(action){ where.push('action=?'); params.push(action); }
+  if(/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)){ where.push('created_at>=?'); params.push(dateFrom+'T00:00:00.000Z'); }
+  if(/^\d{4}-\d{2}-\d{2}$/.test(dateTo)){ where.push('created_at<=?'); params.push(dateTo+'T23:59:59.999Z'); }
+  return where;
+}
+
+async function auditListOwner(env, user, body) {
+  if(!user || user.role!=='admin') throw new Error('forbidden');
+  const propertyId=s(body.propertyId);
+  if(!propertyId) throw new Error('property_id_required');
+  await requirePropertyOwner(env,user,propertyId);
+
+  const limit=Math.max(1,Math.min(100,Number(body.limit)||50));
+  const offset=Math.max(0,Number(body.offset)||0);
+  const params=[propertyId];
+  const where=['property_id=?',...auditFilters(body,params)];
+  const sqlWhere=' WHERE '+where.join(' AND ');
+  const [rows,count]=await Promise.all([
+    env.DB.prepare(
+      `SELECT * FROM audit_logs${sqlWhere} ORDER BY id DESC LIMIT ? OFFSET ?`
+    ).bind(...params,limit,offset).all(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM audit_logs${sqlWhere}`
+    ).bind(...params).first()
+  ]);
+  return {success:true,logs:(rows.results||[]).map(rowAudit),total:Number(count?.c)||0,limit,offset};
+}
+
+async function auditListPlatform(env, user, body) {
+  await requireSuperadminUser(user);
+  const limit=Math.max(1,Math.min(100,Number(body.limit)||50));
+  const offset=Math.max(0,Number(body.offset)||0);
+  const params=[];
+  const platformClause=`(action LIKE 'platform%' OR action IN ('adminCreateUser','adminResetPassword','removePropertyAdmin','provisionTenantAccount','setTenantAccountStatus','changePassword','logoutAll'))`;
+  const where=[platformClause,...auditFilters(body,params)];
+  const sqlWhere=' WHERE '+where.join(' AND ');
+  const [rows,count]=await Promise.all([
+    env.DB.prepare(
+      `SELECT * FROM audit_logs${sqlWhere} ORDER BY id DESC LIMIT ? OFFSET ?`
+    ).bind(...params,limit,offset).all(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM audit_logs${sqlWhere}`
+    ).bind(...params).first()
+  ]);
+  return {success:true,logs:(rows.results||[]).map(rowAudit),total:Number(count?.c)||0,limit,offset};
 }
 
 function rowProperty(r) {
@@ -617,7 +722,7 @@ async function deleteRoomRow(env, user, roomId) {
     env.DB.prepare('DELETE FROM room_layouts WHERE room_id=?').bind(id),
     env.DB.prepare('DELETE FROM rooms WHERE id=?').bind(id),
   ]);
-  await appendLog(env,user,'delete','rooms',[id],1,'');
+  await appendLog(env,user,'delete','rooms',[id],1,'',String(existing.property_id));
   return {success:true,id};
 }
 
@@ -677,7 +782,10 @@ async function updateTenantRow(env, user, item) {
     stmts.push(env.DB.prepare("UPDATE rooms SET status='vacant' WHERE id=?").bind(String(existing.room_id)));
   }
   await env.DB.batch(stmts);
-  await appendLog(env,user,'update','tenants',[id],1,'room '+newRoomId);
+  await appendLog(env,user,'update','tenants',[id],1,'room '+newRoomId,String(newRoom.property_id));
+  if(String(oldRoom.property_id)!==String(newRoom.property_id)){
+    await appendLog(env,user,'moveOut','tenants',[id],1,'room '+existing.room_id,String(oldRoom.property_id));
+  }
   return {
     tenant:rowTenant(await dbTenant(env,id)),
     room:rowRoom(await dbRoom(env,newRoomId)),
@@ -944,7 +1052,7 @@ async function deletePropertyRow(env, user, propertyId) {
     env.DB.prepare('DELETE FROM properties WHERE id=?').bind(id)
   );
   await env.DB.batch(stmts);
-  await appendLog(env,user,'delete','properties',[id],1,'cascade property delete');
+  await appendLog(env,user,'delete','properties',[id],1,'cascade property delete',id);
   return {success:true,id,roomIds,tenantIds};
 }
 
@@ -1061,6 +1169,8 @@ async function upsertRoomLayoutRow(env, user, item) {
      ON CONFLICT(room_id) DO UPDATE SET x=excluded.x,y=excluded.y`
   ).bind(id,roomId,n(item?.x),n(item?.y)).run();
   const saved=await env.DB.prepare('SELECT * FROM room_layouts WHERE room_id=? LIMIT 1').bind(roomId).first();
+  const room=await dbRoom(env,roomId);
+  await appendLog(env,user,'upsert','room_layouts',[String(saved.id)],1,'room '+roomId,String(room?.property_id||''));
   return rowLayout(saved);
 }
 
@@ -1068,7 +1178,12 @@ async function deleteRoomLayoutsRows(env, user, roomIds) {
   const ids=[...new Set((Array.isArray(roomIds)?roomIds:[]).map(s).filter(Boolean))];
   for (const roomId of ids) await requireRoomAdminAccess(env,user,roomId);
   if (ids.length) {
-    await env.DB.prepare(`DELETE FROM room_layouts WHERE room_id IN (${ids.map(()=>'?').join(',')})`).bind(...ids).run();
+    for(const roomId of ids){
+      const row=await env.DB.prepare('SELECT id FROM room_layouts WHERE room_id=? LIMIT 1').bind(roomId).first();
+      const room=await dbRoom(env,roomId);
+      await env.DB.prepare('DELETE FROM room_layouts WHERE room_id=?').bind(roomId).run();
+      if(row) await appendLog(env,user,'delete','room_layouts',[String(row.id)],1,'room '+roomId,String(room?.property_id||''));
+    }
   }
   return {success:true,roomIds:ids};
 }
@@ -1230,7 +1345,7 @@ async function provisionTenantAccount(env, admin, body) {
     ).bind(id,tenantId,now)
   ]);
 
-  await appendLog(env,admin,'provisionTenantAccount','tenant_accounts',[tenantId],1,'user '+id);
+  await appendLog(env,admin,'provisionTenantAccount','tenant_accounts',[tenantId],1,'user '+id,String(room.property_id));
   const user=await userById(env,id);
   return {
     tenantId,
@@ -1259,7 +1374,7 @@ async function setTenantAccountStatus(env, admin, body) {
   ).bind(targetStatus,String(row.user_id)).run();
 
   const user=await userById(env,row.user_id);
-  await appendLog(env,admin,'setTenantAccountStatus','users',[String(row.user_id)],1,targetStatus+' tenant '+tenantId);
+  await appendLog(env,admin,'setTenantAccountStatus','users',[String(row.user_id)],1,targetStatus+' tenant '+tenantId,String(row.property_id));
   return {
     tenantId,
     user:publicUser(user)
@@ -1490,7 +1605,7 @@ async function platformSetPropertyAccess(env, user, body) {
 
   await appendLog(
     env,user,'platformSetPropertyAccess','property_admins',[targetId],1,
-    accessRole+' property '+propertyId
+    accessRole+' property '+propertyId,propertyId
   );
 
   return {success:true,propertyId,userId:targetId,accessRole};
@@ -1524,7 +1639,7 @@ async function platformRemovePropertyAccess(env, user, body) {
 
   await appendLog(
     env,user,'platformRemovePropertyAccess','property_admins',[targetId],1,
-    'property '+propertyId
+    'property '+propertyId,propertyId
   );
 
   return {success:true,propertyId,userId:targetId};
@@ -1543,7 +1658,7 @@ async function removeAdminPropertyAccess(env, admin, targetUserId, propertyId) {
 
   await env.DB.prepare('DELETE FROM property_admins WHERE property_id=? AND user_id=?')
     .bind(s(propertyId),targetId).run();
-  await appendLog(env,admin,'removePropertyAdmin','property_admins',[targetId],1,'property '+propertyId);
+  await appendLog(env,admin,'removePropertyAdmin','property_admins',[targetId],1,'property '+propertyId,propertyId);
   return {success:true,userId:targetId,propertyId:s(propertyId)};
 }
 
@@ -1766,6 +1881,16 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'setTenantAccountStatus') {
     try { return {success:true,...await setTenantAccountStatus(env,x.user,body)}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'auditListOwner') {
+    try { return await auditListOwner(env,x.user,body); }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'auditListPlatform') {
+    try { return await auditListPlatform(env,x.user,body); }
     catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
