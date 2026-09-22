@@ -3274,34 +3274,52 @@ async function onSaveBulkRooms(){
    ติ๊กเลือกห้อง + กรอกค่าด้านบน + กด "ใช้กับห้องที่เลือก" จะกรอกค่าเดียวกันลงทุกแถวที่ติ๊กไว้ให้
    (ยังไม่บันทึก แค่กรอกในตาราง) แล้วกด "บันทึกทั้งหมด" ครั้งเดียวค่อยส่งขึ้น backend จริง */
 function bulkEditRoomTypeDepositHtml(){
-  const roomList = roomNavOrder(); // ลำดับเดียวกับที่ใช้แสดงหน้าห้องพักปกติ อ่านง่าย ไล่ตามชั้น
+  const roomList = roomNavOrder();
+  const floors = Array.from(new Set(roomList.map(r=>r.floor||'').filter(Boolean))).sort((a,b)=>a.localeCompare(b,'th',{numeric:true}));
   return `
-    <h3>แก้ไขประเภทห้อง & ค่ามัดจำ (หลายห้องพร้อมกัน)</h3>
-    <p class="sub" style="font-size:12px;margin-top:-6px;">ติ๊กเลือกห้องที่ต้องการ แล้วกรอกค่าด้านบนกด "ใช้กับห้องที่เลือก" เพื่อกรอกครั้งเดียวใช้กับหลายห้อง หรือจะแก้ทีละช่องในตารางเองก็ได้ กด "บันทึกทั้งหมด" ครั้งเดียวตอนเสร็จ</p>
-    <div class="field-row" style="align-items:flex-end;">
+    <h3>แก้ไขข้อมูลหลายห้อง</h3>
+    <p class="sub" style="font-size:12px;margin-top:-6px;">เลือกห้องก่อน แล้วกำหนดเฉพาะค่าที่ต้องการเปลี่ยน จากนั้นกด “ใช้กับห้องที่เลือก” เพื่อตรวจสอบในตารางก่อนบันทึกจริง</p>
+    <div class="room-bulk-quick">
+      <button class="btn ghost small" type="button" data-rtd-select="all">ทั้งหมด</button>
+      <button class="btn ghost small" type="button" data-rtd-select="vacant">ห้องว่าง</button>
+      <button class="btn ghost small" type="button" data-rtd-select="occupied">มีผู้เช่า</button>
+      <select id="rtdQuickFloor" class="toolbar-select">
+        <option value="">เลือกตามชั้น…</option>
+        ${floors.map(f=>`<option value="${escapeAuthHtml(f)}">ชั้น ${escapeAuthHtml(f)}</option>`).join('')}
+      </select>
+    </div>
+
+    <div class="room-bulk-fields">
       <div class="field">
         <label>ประเภทห้อง</label>
         <select id="rtd-bulk-type">
           <option value="">— ไม่เปลี่ยน —</option>
+          <option value="__clear__">ล้างประเภทห้อง</option>
           <option value="ห้องพัดลม">ห้องพัดลม</option>
           <option value="ห้องแอร์">ห้องแอร์</option>
         </select>
       </div>
-      <div class="field"><label>ค่ามัดจำ (บาท)</label><input id="rtd-bulk-deposit" type="number" placeholder="เว้นว่าง = ไม่เปลี่ยน"></div>
-      <div class="field" style="flex:0 0 auto;"><button class="btn ghost" type="button" id="applyRtdBulkBtn">ใช้กับห้องที่เลือก</button></div>
+      <div class="field"><label>ค่าเช่า / เดือน</label><input id="rtd-bulk-rent" type="number" placeholder="เว้นว่าง = ไม่เปลี่ยน"></div>
+      <div class="field"><label>ค่ามัดจำ</label><input id="rtd-bulk-deposit" type="number" placeholder="เว้นว่าง = ไม่เปลี่ยน"></div>
+      <div class="field"><label>ชั้น</label><input id="rtd-bulk-floor" placeholder="เว้นว่าง = ไม่เปลี่ยน"></div>
     </div>
-    <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin:8px 0;cursor:pointer;">
-      <input type="checkbox" id="rtdSelectAll"> เลือกทั้งหมด (${roomList.length} ห้อง)
-    </label>
-    <div style="max-height:360px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;">
-      <table>
-        <thead><tr><th style="width:32px;"></th><th>ห้อง</th><th>ชั้น</th><th>ประเภทห้อง</th><th>ค่ามัดจำ</th></tr></thead>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0;flex-wrap:wrap;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="rtdSelectAll"> เลือกทั้งหมด (${roomList.length} ห้อง)
+      </label>
+      <button class="btn ghost small" type="button" id="applyRtdBulkBtn">ใช้ค่าด้านบนกับห้องที่เลือก</button>
+    </div>
+
+    <div class="room-bulk-table-wrap">
+      <table class="room-bulk-table">
+        <thead><tr><th style="width:32px;"></th><th>ห้อง</th><th>ชั้น</th><th>ประเภทห้อง</th><th>ค่าเช่า</th><th>ค่ามัดจำ</th></tr></thead>
         <tbody>
           ${roomList.map(r=>`
-            <tr class="rtd-row" data-id="${r.id}">
+            <tr class="rtd-row" data-id="${r.id}" data-status="${r.status}" data-floor="${escapeAuthHtml(r.floor||'')}">
               <td><input type="checkbox" class="rtd-check"></td>
               <td style="font-weight:600;">${escapeAuthHtml(r.number)}${r.status==='occupied'?' <span class="muted" style="font-weight:400;">(มีผู้เช่า)</span>':''}</td>
-              <td class="muted">${escapeAuthHtml(r.floor||'-')}</td>
+              <td><input class="rtd-floor" style="width:80px;" value="${escapeAuthHtml(r.floor||'')}"></td>
               <td>
                 <select class="rtd-type">
                   <option value="" ${!r.roomType?'selected':''}>— ยังไม่ระบุ —</option>
@@ -3309,7 +3327,8 @@ function bulkEditRoomTypeDepositHtml(){
                   <option value="ห้องแอร์" ${r.roomType==='ห้องแอร์'?'selected':''}>ห้องแอร์</option>
                 </select>
               </td>
-              <td><input type="number" class="rtd-deposit" style="width:100px;" value="${r.deposit?r.deposit:''}"></td>
+              <td><input type="number" class="rtd-rent" style="width:100px;" value="${Number(r.rent)||0}"></td>
+              <td><input type="number" class="rtd-deposit" style="width:100px;" value="${Number(r.deposit)||0}"></td>
             </tr>
           `).join('')}
         </tbody>
@@ -3328,9 +3347,11 @@ async function onSaveRoomTypeDepositBulk(){
     const room = rooms.find(r=>r.id===row.dataset.id);
     if(!room) return;
     const newType = row.querySelector('.rtd-type').value;
+    const newRent = Number(row.querySelector('.rtd-rent').value) || 0;
     const newDeposit = Number(row.querySelector('.rtd-deposit').value) || 0;
-    if(room.roomType !== newType || room.deposit !== newDeposit){
-      updates.push({...room, roomType:newType, deposit:newDeposit});
+    const newFloor = row.querySelector('.rtd-floor').value.trim();
+    if(room.roomType !== newType || Number(room.rent||0) !== newRent || Number(room.deposit||0) !== newDeposit || (room.floor||'') !== newFloor){
+      updates.push({...room, roomType:newType, rent:newRent, deposit:newDeposit, floor:newFloor});
     }
   });
   if(!updates.length){ closeModal(); showToast('ไม่มีการเปลี่ยนแปลง'); return; }
@@ -3349,6 +3370,7 @@ async function onSaveRoomTypeDepositBulk(){
     showToast('บันทึกห้องไม่สำเร็จ');
   }
 }
+
 
 /* ลำดับห้องสำหรับปุ่มเลื่อนซ้าย-ขวาในหน้าต่างแก้ไขห้องพัก
    ใช้ลำดับเดียวกับที่แสดงในหน้าห้องพัก (จัดกลุ่มตามชั้น + เรียงตามโหมดที่เลือกไว้)
