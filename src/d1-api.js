@@ -276,7 +276,17 @@ function rowTenant(r) { return {id:String(r.id),roomId:String(r.room_id),name:r.
 function rowBill(r) { return {id:String(r.id),roomId:String(r.room_id),month:r.month||'',invoiceNo:r.invoice_no||'',rent:n(r.rent),waterPrev:n(r.water_prev),waterCurr:n(r.water_curr),water:n(r.water_charge),electricPrev:n(r.electric_prev),electricCurr:n(r.electric_curr),electric:n(r.electric_charge),total:n(r.total),status:r.status==='paid'?'paid':'unpaid',vatSubtotal:n(r.vat_subtotal),vatAmount:n(r.vat_amount),taxInvoiceNo:r.tax_invoice_no||''}; }
 function rowDeposit(r) { return {id:String(r.id),roomId:String(r.room_id),receiptNo:r.receipt_no||'',amount:n(r.amount),date:r.received_date||'',note:r.note||''}; }
 function rowMeter(r) { return {id:String(r.id),roomId:String(r.room_id),billId:String(r.bill_id||''),month:r.month||'',type:r.type||'',prev:n(r.previous_reading),curr:n(r.current_reading),units:n(r.units_used),rate:n(r.rate),cost:n(r.cost),recordedAt:r.recorded_at||''}; }
-function rowReceipt(r) { return {id:String(r.id),roomId:String(r.room_id),billId:String(r.bill_id||''),receiptNo:r.receipt_no||'',amount:n(r.amount),date:r.received_date||'',note:r.note||'',vatSubtotal:n(r.vat_subtotal),vatAmount:n(r.vat_amount)}; }
+function rowReceipt(r) {
+  return {
+    id:String(r.id),roomId:String(r.room_id),billId:String(r.bill_id||''),
+    receiptNo:r.receipt_no||'',amount:n(r.amount),date:r.received_date||'',note:r.note||'',
+    vatSubtotal:n(r.vat_subtotal),vatAmount:n(r.vat_amount),
+    status:r.status==='void'?'void':'active',
+    voidedAt:r.voided_at||'',
+    voidedByUserId:String(r.voided_by_user_id||''),
+    voidReason:r.void_reason||''
+  };
+}
 function rowLayout(r) { return {id:String(r.id),roomId:String(r.room_id),x:n(r.x),y:n(r.y)}; }
 
 async function getAll(env) {
@@ -685,6 +695,17 @@ async function dbBill(env, billId) {
   return env.DB.prepare('SELECT * FROM bills WHERE id=?').bind(String(billId)).first();
 }
 
+async function activeReceiptForBill(env, billId) {
+  return env.DB.prepare(
+    "SELECT * FROM receipts WHERE bill_id=? AND status='active' ORDER BY CAST(id AS INTEGER) DESC,id DESC LIMIT 1"
+  ).bind(String(billId)).first();
+}
+
+async function requireBillUnlocked(env, billId) {
+  if (await activeReceiptForBill(env,billId)) throw new Error('bill_locked_by_receipt');
+}
+
+
 async function nextInvoiceNo(env, month) {
   const seq=await nextDocumentSequence(env,'invoice');
   const ym=s(month).replace('-','');
@@ -726,6 +747,7 @@ async function updateBillRow(env, user, item) {
   const existing=await dbBill(env,id);
   if (!existing) throw new Error('bill_not_found');
   await requireRoomAdminAccess(env,user,existing.room_id);
+  await requireBillUnlocked(env,id);
 
   const roomId=s(item?.roomId);
   await requireRoomAdminAccess(env,user,roomId);
@@ -762,6 +784,7 @@ async function deleteBillRow(env, user, billId) {
   const existing=await dbBill(env,id);
   if (!existing) throw new Error('bill_not_found');
   await requireRoomAdminAccess(env,user,existing.room_id);
+  await requireBillUnlocked(env,id);
   await env.DB.prepare('DELETE FROM bills WHERE id=?').bind(id).run();
   await appendLog(env,user,'delete','bills',[id],1,'room '+existing.room_id);
   return {success:true,id};
@@ -777,6 +800,7 @@ async function moveBillsRows(env, user, ids, targetMonth) {
     const existing=await dbBill(env,id);
     if (!existing) continue;
     await requireRoomAdminAccess(env,user,existing.room_id);
+    if (await activeReceiptForBill(env,id)) { skipped++; continue; }
     if (existing.month===targetMonth) continue;
 
     const dup=await env.DB.prepare('SELECT id FROM bills WHERE room_id=? AND month=? AND id<>? LIMIT 1')
@@ -927,7 +951,7 @@ async function createReceiptRow(env, user, item) {
   if (!bill) throw new Error('bill_not_found');
   await requireRoomAdminAccess(env,user,bill.room_id);
 
-  const existingReceipt=await env.DB.prepare('SELECT id FROM receipts WHERE bill_id=? LIMIT 1').bind(billId).first();
+  const existingReceipt=await activeReceiptForBill(env,billId);
   if (existingReceipt) throw new Error('receipt_already_exists');
 
   const date=s(item?.date);
@@ -948,7 +972,7 @@ async function createReceiptRow(env, user, item) {
 
   await env.DB.batch([
     env.DB.prepare(
-      'INSERT INTO receipts (id,room_id,bill_id,receipt_no,amount,received_date,note,vat_subtotal,vat_amount) VALUES (?,?,?,?,?,?,?,?,?)'
+      "INSERT INTO receipts (id,room_id,bill_id,receipt_no,amount,received_date,note,vat_subtotal,vat_amount,status,voided_at,voided_by_user_id,void_reason) VALUES (?,?,?,?,?,?,?,?,?,'active','','','')"
     ).bind(id,receipt.roomId,billId,receiptNo,receipt.amount,date,receipt.note,receipt.vatSubtotal,receipt.vatAmount),
     env.DB.prepare("UPDATE bills SET status='paid' WHERE id=?").bind(billId),
   ]);
@@ -956,6 +980,38 @@ async function createReceiptRow(env, user, item) {
   return {
     receipt:rowReceipt(await env.DB.prepare('SELECT * FROM receipts WHERE id=?').bind(id).first()),
     bill:rowBill(await dbBill(env,billId)),
+  };
+}
+
+
+async function voidReceiptRow(env, user, receiptId, reason) {
+  const id=s(receiptId);
+  const why=s(reason).trim();
+  if (!why) throw new Error('void_reason_required');
+
+  const receipt=await env.DB.prepare('SELECT * FROM receipts WHERE id=?').bind(id).first();
+  if (!receipt) throw new Error('receipt_not_found');
+  if ((receipt.status||'active')!=='active') throw new Error('receipt_already_void');
+
+  const room=await dbRoom(env,receipt.room_id);
+  if (!room) throw new Error('room_not_found');
+  await requirePropertyOwner(env,user,room.property_id);
+
+  const bill=await dbBill(env,receipt.bill_id);
+  if (!bill) throw new Error('bill_not_found');
+
+  const now=new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(
+      "UPDATE receipts SET status='void',voided_at=?,voided_by_user_id=?,void_reason=? WHERE id=? AND status='active'"
+    ).bind(now,String(user.id),why,id),
+    env.DB.prepare("UPDATE bills SET status='unpaid' WHERE id=?").bind(String(bill.id))
+  ]);
+
+  await appendLog(env,user,'voidReceipt','receipts',[id],1,'bill '+bill.id+' reason '+why);
+  return {
+    receipt:rowReceipt(await env.DB.prepare('SELECT * FROM receipts WHERE id=?').bind(id).first()),
+    bill:rowBill(await dbBill(env,bill.id))
   };
 }
 
@@ -1264,6 +1320,11 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'createReceipt') {
     try { return {success:true,...await createReceiptRow(env,x.user,body.item||{})}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'voidReceipt') {
+    try { return {success:true,...await voidReceiptRow(env,x.user,body.receiptId,body.reason)}; }
     catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
