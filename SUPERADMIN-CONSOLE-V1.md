@@ -46,10 +46,49 @@ Guardrails:
 **Status: NEXT**
 
 Planned:
-- assign ordinary admin to property
-- remove ordinary admin from property
-- transfer/add Owner with zero-owner protection
-- repair orphaned/mistaken mappings
+- assign an ordinary admin account to a property
+- add/promote an ordinary admin to Owner
+- change Owner -> Admin only when another Owner remains
+- remove Admin/Owner mapping only when another Owner remains if target is Owner
+- repair orphaned/mistaken mappings without opening property business data
+
+Phase B API contract:
+
+#### `platformSetPropertyAccess`
+
+Input:
+- `propertyId`
+- `userId`
+- `accessRole`: owner | admin
+
+Rules:
+- Superadmin only
+- target property must exist
+- target user must exist and have application role `admin`
+- target must be an ordinary platform account (`platform_role=normal`) in V1
+- insert mapping if absent
+- change mapping role if present
+- Owner -> Admin must be rejected when target is the last Owner
+- every change increments no user session automatically because business-data authorization is checked from D1 on every request; the change is nevertheless audit logged
+
+#### `platformRemovePropertyAccess`
+
+Input:
+- `propertyId`
+- `userId`
+
+Rules:
+- Superadmin only
+- mapping must exist
+- removing the last Owner is rejected
+- mapping removal is audit logged
+
+UI behavior:
+- property card lists current Owner/Admin mappings
+- Superadmin may add an eligible Admin account
+- Superadmin may promote/demote mapping
+- Superadmin may remove mapping
+- destructive/ownership changes require confirmation
 
 Every mutation requires:
 - explicit target account/property
