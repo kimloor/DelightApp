@@ -3395,6 +3395,43 @@ function roomNavOrder(){
   return ordered;
 }
 
+function roomDetailHtml(room){
+  const tenant = room.status==='occupied' ? tenants.find(t=>t.roomId===room.id) : null;
+  const latestBill = currentBills().filter(b=>b.roomId===room.id).slice().sort((a,b)=>(b.month||'').localeCompare(a.month||''))[0] || null;
+  const billHtml = latestBill
+    ? `<div class="room-detail-value">${monthLabel(latestBill.month)} · <span class="bill-status-text ${latestBill.status==='paid'?'paid':'unpaid'}">${latestBill.status==='paid'?'ชำระแล้ว':'ค้างชำระ'}</span>${latestBill.status==='paid'?'':` · ${THB(latestBill.total)} บ.`}</div>`
+    : '<div class="room-detail-value muted">ยังไม่มีบิล</div>';
+  return `
+    <div class="room-detail" data-room-id="${room.id}">
+      <div class="room-detail-head">
+        <div><p class="room-detail-kicker">รายละเอียดห้องพัก</p><h3 style="margin:0;">ห้อง ${escapeAuthHtml(room.number)}</h3></div>
+        <span class="status-pill ${room.status==='occupied'?'occupied':'vacant'}">${room.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span>
+      </div>
+      <div class="room-detail-grid">
+        <div class="room-detail-item"><span>ชั้น</span><strong>${escapeAuthHtml(room.floor||'—')}</strong></div>
+        <div class="room-detail-item"><span>ประเภทห้อง</span><strong>${escapeAuthHtml(room.roomType||'ยังไม่ระบุ')}</strong></div>
+        <div class="room-detail-item"><span>ค่าเช่า / เดือน</span><strong>${THB(room.rent)} บาท</strong></div>
+        <div class="room-detail-item"><span>ค่ามัดจำ</span><strong>${THB(room.deposit)} บาท</strong></div>
+      </div>
+      <div class="room-detail-section">
+        <div class="room-detail-label">ผู้เช่าปัจจุบัน</div>
+        ${tenant
+          ? `<div class="room-detail-value"><strong>${escapeAuthHtml(tenantDisplayName(tenant))}</strong><div class="muted" style="font-size:12px;margin-top:3px;">เข้าพัก ${escapeAuthHtml(formatThaiDate(tenant.moveIn))}</div></div>`
+          : '<div class="room-detail-value muted">ห้องว่าง — ยังไม่มีผู้เช่า</div>'}
+      </div>
+      <div class="room-detail-section">
+        <div class="room-detail-label">บิลล่าสุด</div>
+        ${billHtml}
+      </div>
+      <div class="modal-actions room-detail-actions">
+        <button class="btn ghost" id="cancelBtn">ปิด</button>
+        ${tenant?'<button class="btn ghost" id="viewTenantFromRoomBtn">ดูผู้เช่า</button>':''}
+        <button class="btn" id="editRoomFromDetailBtn">แก้เขห้อง</button>
+      </div>
+    </div>
+  `;
+}
+
 function roomFormHtml(room){
   const isEdit = !!room;
   let navHtml = '';
