@@ -27,7 +27,7 @@ Goals:
 - preserve existing accounts and avoid forced password resets unless necessary
 
 ### S2 — Financial / Database Integrity
-Status: NEXT
+Status: DONE
 
 Goals:
 - enforce critical uniqueness at the database layer
@@ -40,7 +40,7 @@ Goals:
 - add idempotency/transaction protection where appropriate
 
 ### S3 — Paid Bill Lock + Void Workflow
-Status: PLANNED
+Status: NEXT
 
 Goals:
 - define immutable accounting behavior after receipt issuance
@@ -127,7 +127,10 @@ Major roadmap features may resume after S1-S5 unless a later audit identifies a 
 ## 5. Current lead decision
 
 S1 — Auth / Session Hardening is production-verified.
+S2 — Financial / Database Integrity is production-verified.
 
-Next: S2 — Financial / Database Integrity.
+Next: S3 — Paid Bill Lock + Void Workflow.
 
-Detailed S1 implementation contract: `AUTH-SESSION-HARDENING-V2.md`.
+Detailed contracts:
+- `AUTH-SESSION-HARDENING-V2.md`
+- `FINANCIAL-DATA-INTEGRITY-V1.md`
