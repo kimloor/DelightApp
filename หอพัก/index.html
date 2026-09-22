@@ -732,6 +732,127 @@
   .user-row .badge-admin{
     margin-left:8px;font-size:11px;padding:1px 7px;border-radius:999px;background:var(--teal);color:#fff;
   }
+
+  /* ---------- Mobile Responsive Polish V1 ----------
+     Reports are intentionally excluded; report content stays desktop/export-oriented. */
+  main{min-width:0;}
+  .card,.tenant-section,.user-row{min-width:0;}
+  .tenant-row>div:first-child,.user-row>div:first-child{min-width:0;}
+  .user-sub,.tenant-row-title,.tenant-row-sub{overflow-wrap:anywhere;}
+  .mobile-header-actions{flex-wrap:wrap;}
+  .toolbar-input,.toolbar-select{max-width:100%;}
+
+  @media (max-width:760px){
+    main{width:100%;padding:20px 14px 46px;}
+    .page-head{align-items:stretch;margin-bottom:20px;}
+    .page-head h2{font-size:24px;}
+    .page-head-actions,.mobile-header-actions{width:100%;flex-direction:column;}
+    .page-head-actions .btn,.page-head-actions .action-menu,.mobile-header-actions .btn{width:100%;}
+    .page-head-actions .action-menu>summary{width:100%;}
+
+    .toolbar-actions .action-menu{width:100%;}
+    .toolbar-actions .action-menu>summary{width:100%;}
+    .toolbar-actions .action-menu-pop,.page-head-actions .action-menu-pop{
+      left:0!important;right:0!important;min-width:0;width:100%;
+    }
+
+    .tenant-toolbar{width:100%;flex-direction:column;align-items:stretch!important;}
+    .tenant-toolbar .toolbar-input{width:100%!important;}
+    .tenant-toolbar .btn{width:100%;}
+
+    .mobile-card-table,
+    .mobile-card-table tbody,
+    .mobile-card-table tr,
+    .mobile-card-table td{display:block;width:100%;}
+    .mobile-card-table thead{display:none;}
+    .mobile-card-table tr{
+      margin:0 0 10px;
+      padding:9px 12px;
+      border:1px solid var(--line);
+      border-radius:10px;
+      background:var(--surface);
+    }
+    .mobile-card-table tbody tr:last-child{margin-bottom:0;}
+    .mobile-card-table td{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      min-width:0;
+      padding:7px 2px;
+      border-bottom:1px dashed var(--line);
+      text-align:right;
+      overflow-wrap:anywhere;
+    }
+    .mobile-card-table td:last-child{border-bottom:none;}
+    .mobile-card-table td::before{
+      flex:0 0 38%;
+      color:var(--ink-soft);
+      font-size:11.5px;
+      font-weight:600;
+      text-align:left;
+    }
+    .dashboard-mobile-table td:nth-child(1)::before{content:"ห้อง";}
+    .dashboard-mobile-table td:nth-child(2)::before{content:"เดือน";}
+    .dashboard-mobile-table td:nth-child(3)::before{content:"ยอดรวม";}
+    .dashboard-mobile-table td:nth-child(4)::before{content:"สถานะ";}
+    .rooms-mobile-table td:nth-child(1)::before{content:"ห้อง";}
+    .rooms-mobile-table td:nth-child(2)::before{content:"ชั้น";}
+    .rooms-mobile-table td:nth-child(3)::before{content:"สถานะ";}
+    .rooms-mobile-table td:nth-child(4)::before{content:"ผู้เช่า";}
+    .rooms-mobile-table td:nth-child(5)::before{content:"ค่าเช่า/เดือน";}
+    .tenants-mobile-table td:nth-child(1)::before{content:"ชื่อ";}
+    .tenants-mobile-table td:nth-child(2)::before{content:"ห้อง";}
+    .tenants-mobile-table td:nth-child(3)::before{content:"เบอร์โทร";}
+    .tenants-mobile-table td:nth-child(4)::before{content:"วันเข้าพัก";}
+    .tenants-mobile-table td:nth-child(5)::before{content:"บัญชี";}
+    .tenants-mobile-table td:nth-child(6)::before{content:"จัดการ";}
+    .tenants-mobile-table td:last-child{white-space:normal!important;flex-wrap:wrap;}
+    .tenants-mobile-table td:last-child::before{width:100%;flex-basis:100%;}
+    .tenants-mobile-table td:last-child .btn{flex:1 1 120px;min-width:0;}
+    .rooms-mobile-table td:nth-child(4){
+      max-width:none!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;
+    }
+
+    .overlay{padding:12px;}
+    .modal{max-width:100%;padding:20px 18px;max-height:calc(100dvh - 24px);}
+    .modal.wide{max-width:100%;}
+    .modal-actions{flex-direction:column-reverse;align-items:stretch;}
+    .modal-actions .btn{width:100%;}
+
+    .user-row{flex-direction:column;align-items:stretch!important;}
+    .user-row>.btn{width:100%;}
+    .user-row .badge-admin{display:inline-block;margin-top:4px;}
+    .platform-manager-row{flex-direction:column;align-items:stretch!important;}
+    .platform-manager-row>div:last-child{justify-content:flex-start!important;}
+    .platform-manager-row .btn{flex:1 1 130px;}
+    .platform-add-row{flex-direction:column;}
+    .platform-add-row select,.platform-add-row .btn{width:100%;min-width:0!important;}
+    .platform-mobile-stats{grid-template-columns:1fr!important;}
+
+    .audit-filter-grid{grid-template-columns:1fr!important;}
+    .audit-pager{align-items:stretch!important;flex-direction:column;}
+    .audit-pager>div{display:grid!important;grid-template-columns:1fr 1fr;width:100%;}
+    .audit-pager .btn{width:100%;}
+
+    .tenant-row{min-width:0;}
+    .tenant-row>div:first-child{flex:1 1 auto;}
+    .tenant-row-amount{flex:0 0 auto;max-width:46%;overflow-wrap:anywhere;}
+  }
+
+  @media (max-width:380px){
+    .dashboard-mobile-stats{grid-template-columns:1fr;}
+    .topbar{padding:10px 12px;}
+    .topbar-brand{font-size:14px;min-width:0;}
+    .topbar-brand .wordmark{max-width:150px;height:auto;}
+    .topbar .settings-btn{padding:7px 9px;}
+    .tenant-row{flex-direction:column;}
+    .tenant-row-amount{max-width:100%;text-align:left;white-space:normal;}
+    .view-toggle{width:100%;}
+    .view-toggle button{flex:1;padding:7px 8px;}
+    .modal{padding:18px 14px;}
+  }
+
 </style>
 </head>
 <body>
@@ -2344,12 +2465,12 @@ function renderPlatformConsole(){
       const nextRole=a.accessRole==='owner'?'admin':'owner';
       const roleBtn=eligible ? '<button class="btn ghost small" data-platform-access-user="'+escapeAuthHtml(a.userId)+'" data-platform-access-property="'+escapeAuthHtml(p.id)+'" data-platform-access-role="'+nextRole+'">เปลี่ยนเป็น '+(nextRole==='owner'?'Owner':'Admin')+'</button>' : '';
       const removeBtn=eligible ? '<button class="btn ghost small" data-platform-remove-user="'+escapeAuthHtml(a.userId)+'" data-platform-remove-property="'+escapeAuthHtml(p.id)+'">ลบสิทธิ์</button>' : '';
-      return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:7px 0;border-bottom:1px dashed var(--line);"><div><b>'+escapeAuthHtml(a.displayName||a.username)+'</b><div class="user-sub">'+escapeAuthHtml(a.username)+' · '+(a.accessRole==='owner'?'Owner':'Admin')+'</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">'+roleBtn+removeBtn+'</div></div>';
+      return '<div class="platform-manager-row" style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:7px 0;border-bottom:1px dashed var(--line);"><div><b>'+escapeAuthHtml(a.displayName||a.username)+'</b><div class="user-sub">'+escapeAuthHtml(a.username)+' · '+(a.accessRole==='owner'?'Owner':'Admin')+'</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">'+roleBtn+removeBtn+'</div></div>';
     }).join('') : '<div class="muted" style="padding:7px 0;">ยังไม่มี mapping</div>';
 
     const addOptions=available.map(u=>'<option value="'+escapeAuthHtml(u.id)+'">'+escapeAuthHtml(u.displayName||u.username)+' ('+escapeAuthHtml(u.username)+')</option>').join('');
     const addRow=available.length
-      ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;"><select data-platform-add-user="'+escapeAuthHtml(p.id)+'" style="flex:1;min-width:150px;"><option value="">เลือก Admin</option>'+addOptions+'</select><select data-platform-add-role="'+escapeAuthHtml(p.id)+'"><option value="admin">Admin</option><option value="owner">Owner</option></select><button class="btn small" data-platform-add-property="'+escapeAuthHtml(p.id)+'">เพิ่มสิทธิ์</button></div>'
+      ? '<div class="platform-add-row" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;"><select data-platform-add-user="'+escapeAuthHtml(p.id)+'" style="flex:1;min-width:150px;"><option value="">เลือก Admin</option>'+addOptions+'</select><select data-platform-add-role="'+escapeAuthHtml(p.id)+'"><option value="admin">Admin</option><option value="owner">Owner</option></select><button class="btn small" data-platform-add-property="'+escapeAuthHtml(p.id)+'">เพิ่มสิทธิ์</button></div>'
       : '<div class="muted" style="font-size:12px;margin-top:9px;">ไม่มี ordinary admin ที่ยังไม่ได้ผูกกับ property นี้</div>';
 
     return '<div class="user-row" style="display:block;"><b>'+escapeAuthHtml(p.name)+'</b><div style="margin-top:8px;">'+managerRows+'</div>'+addRow+'</div>';
@@ -2383,7 +2504,7 @@ function renderPlatformConsole(){
       +'</div>'
     ).join('');
 
-    healthHtml='<div class="stat-row" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:10px;">'
+    healthHtml='<div class="stat-row platform-mobile-stats" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:10px;">'
       +'<div class="stat-card"><p class="label">Schema</p><p class="value '+(schema.ok?'teal':'rust')+'">'+(schema.ok?'OK':'WARN')+'</p><p class="foot">'+(Number(schema.found)||0)+' / '+(Number(schema.expected)||0)+' structures</p></div>'
       +'<div class="stat-card"><p class="label">Auth throttle</p><p class="value">'+(Number(auth.blockedNow)||0)+'</p><p class="foot">blocked now · '+(Number(auth.touched24h)||0)+' touched 24h</p></div>'
       +'<div class="stat-card"><p class="label">Integrity warnings</p><p class="value '+(warningCount?'rust':'teal')+'">'+warningCount+'</p><p class="foot">'+(warningCount?'ควรตรวจสอบ':'ไม่พบปัญหา')+'</p></div></div>'
@@ -2392,7 +2513,7 @@ function renderPlatformConsole(){
       +'<div class="user-list">'+(auditRows||'<div class="muted">ยังไม่มี Platform audit event</div>')+'</div>';
   }
 
-  body.innerHTML='<div class="stat-row" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px;">'
+  body.innerHTML='<div class="stat-row platform-mobile-stats" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px;">'
     +'<div class="stat-card"><p class="label">บัญชีทั้งหมด</p><p class="value">'+(Number(counts.users)||0)+'</p><p class="foot">'+(Number(counts.disabledUsers)||0)+' disabled</p></div>'
     +'<div class="stat-card"><p class="label">อพาร์ทเมนท์</p><p class="value">'+(Number(counts.properties)||0)+'</p><p class="foot">'+(Number(counts.propertyAccess)||0)+' mappings</p></div>'
     +'<div class="stat-card"><p class="label">บัญชีผู้เช่า</p><p class="value">'+(Number(counts.tenantAccounts)||0)+'</p><p class="foot">เฉพาะจำนวน ไม่เปิดข้อมูลผู้เช่า</p></div></div>'
@@ -2606,7 +2727,7 @@ async function openAuditViewer(mode){
 
 function auditViewerFilterHtml(){
   const s=auditViewerState||{};
-  return '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px;">'
+  return '<div class="audit-filter-grid" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px;">'
     +'<div class="field" style="margin:0;"><label>ผู้ทำรายการ</label><input id="auditActor" value="'+escapeAuthHtml(s.actor||'')+'" placeholder="username"></div>'
     +'<div class="field" style="margin:0;"><label>Action</label><input id="auditAction" value="'+escapeAuthHtml(s.auditAction||'')+'" placeholder="เช่น update, voidReceipt"></div>'
     +'<div class="field" style="margin:0;"><label>ตั้งแต่วันที่</label><input id="auditDateFrom" type="date" value="'+escapeAuthHtml(s.dateFrom||'')+'"></div>'
@@ -2668,7 +2789,7 @@ function renderAuditViewer(logs){
   const to=Math.min(s.offset+s.limit,s.total);
   body.style.color='';
   body.innerHTML=auditViewerFilterHtml()
-    +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;">'
+    +'<div class="audit-pager" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;">'
     +'<span class="muted" style="font-size:12px;">แสดง '+from+'–'+to+' จาก '+s.total+' รายการ</span>'
     +'<div style="display:flex;gap:6px;"><button class="btn ghost small" id="auditPrevBtn" '+(s.offset<=0?'disabled':'')+'>ก่อนหน้า</button>'
     +'<button class="btn ghost small" id="auditNextBtn" '+(s.offset+s.limit>=s.total?'disabled':'')+'>ถัดไป</button></div></div>'
@@ -2735,7 +2856,7 @@ function renderDashboard(){
         <p class="sub">สรุปสถานะห้องพักและค่าเช่าประจำเดือน ${monthLabel(thisM)}</p>
       </div>
     </div>
-    <div class="stat-row">
+    <div class="stat-row dashboard-mobile-stats">
       <div class="stat-card">
         <p class="label">ห้องทั้งหมด</p>
         <p class="value">${roomList.length}</p>
@@ -2761,7 +2882,7 @@ function renderDashboard(){
     <div class="card">
       <div class="card-head"><h3>บิลล่าสุด</h3></div>
       ${recentBills.length===0 ? `<div class="empty"><div class="big">🧾</div>ยังไม่มีบิล — ไปที่แท็บ “ค่าเช่า/บิล” เพื่อสร้างบิลเดือนแรก</div>` : `
-      <table>
+      <table class="mobile-card-table dashboard-mobile-table">
         <thead><tr><th>ห้อง</th><th>เดือน</th><th>ยอดรวม</th><th>สถานะ</th></tr></thead>
         <tbody>
           ${recentBills.map(b=>{
@@ -2820,7 +2941,7 @@ function renderRooms(){
         <h2>ห้องพัก</h2>
         <p class="sub">${roomList.length} ห้อง — คลิกที่ห้องเพื่อแก้ไขหรือลบ</p>
       </div>
-      <div style="display:flex;gap:8px;">
+      <div class="mobile-header-actions" style="display:flex;gap:8px;">
         <button class="btn ghost" id="bulkEditTypeDepositBtn">✎ ประเภทห้อง/มัดจำ (หลายห้อง)</button>
         <button class="btn ghost" id="addRoomsBulkBtn">+ เพิ่มหลายห้อง</button>
         <button class="btn" id="addRoomBtn">+ เพิ่มห้อง</button>
@@ -2845,7 +2966,7 @@ function renderRooms(){
       </div>
       ${roomList.length===0 ? `<div class="empty"><div class="big">🔑</div>ยังไม่มีห้องพัก เริ่มเพิ่มห้องแรกกันเลย</div>` :
         viewMode==='list' ? `
-        <table>
+        <table class="mobile-card-table rooms-mobile-table">
           <thead><tr><th>ห้อง</th><th>ชั้น</th><th>สถานะ</th><th>ผู้เช่า</th><th>ค่าเช่า/เดือน</th></tr></thead>
           <tbody>
             ${flatOrder.map(r=>{
@@ -3282,7 +3403,7 @@ function tenantTableHtml(list){
     return `<div class="empty"><div class="big">🧑‍🤝‍🧑</div>${currentRooms().length===0?'เพิ่มห้องพักก่อน แล้วค่อยเพิ่มผู้เช่า':'ไม่พบผู้เช่าที่ตรงกับคำค้นหา'}</div>`;
   }
   return `
-    <table>
+    <table class="mobile-card-table tenants-mobile-table">
       <thead><tr><th>ชื่อ</th><th>ห้อง</th><th>เบอร์โทร</th><th>วันเข้าพัก</th><th>บัญชี</th><th></th></tr></thead>
       <tbody>
         ${list.map(t=>{
@@ -3478,7 +3599,7 @@ function renderTenants(){
     <div class="card">
       <div class="card-head">
         <h3>รายชื่อผู้เช่า</h3>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <div class="tenant-toolbar" style="display:flex;gap:8px;align-items:center;">
           <input id="tenantSearch" class="toolbar-input" style="width:220px;" placeholder="ค้นหาชื่อหรือเลขห้อง…" value="${escapeAuthHtml(query)}">
           <button class="btn ghost small" id="printDepositPickerBtn">🖨 พิมพ์ใบรับมัดจำ</button>
         </div>
