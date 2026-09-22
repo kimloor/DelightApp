@@ -82,7 +82,7 @@ jobs:
           PAYLOAD_B64: ${{ steps.fixture.outputs.payload_b64 }}
         shell: bash
         run: |
-          cat > /tmp/s5-xss-smoke.mjs <<'NODE'
+          cat > s5-xss-smoke.mjs <<'NODE'
           import { chromium } from 'playwright';
 
           const base=process.env.PROD_URL;
@@ -134,7 +134,7 @@ jobs:
           await browser.close();
           console.log('s5_xss_e2e=PASS');
           NODE
-          node /tmp/s5-xss-smoke.mjs
+          node s5-xss-smoke.mjs
 
       - name: Cleanup isolated fixture
         if: always()
