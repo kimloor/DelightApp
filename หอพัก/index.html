@@ -2234,10 +2234,23 @@ function renderPlatformConsole(){
     const action=isSelf ? '<span class="muted">บัญชีปัจจุบัน</span>' : '<button class="btn ghost small" data-platform-user="'+escapeAuthHtml(u.id)+'" data-platform-status="'+(disabled?'active':'disabled')+'">'+(disabled?'เปิดใช้งาน':'ระงับบัญชี')+'</button>';
     return '<div class="user-row" style="align-items:flex-start;"><div style="min-width:0;flex:1;"><b>'+escapeAuthHtml(u.displayName||u.username)+'</b> '+platform+'<div class="user-sub">'+escapeAuthHtml(u.username)+' · '+(u.role==='tenant'?'Tenant':'Admin')+' · '+(disabled?'Disabled':'Active')+'</div></div>'+action+'</div>';
   }).join('');
+  const eligibleAdmins=users.filter(u=>u.role==='admin' && u.platformRole==='normal');
   const propertyRows=props.map(p=>{
     const managers=access.filter(a=>String(a.propertyId)===String(p.id));
-    const labels=managers.length ? managers.map(a=>escapeAuthHtml(a.displayName||a.username)+' · '+(a.accessRole==='owner'?'Owner':'Admin')).join('<br>') : '<span class="muted">ยังไม่มี mapping</span>';
-    return '<div class="user-row" style="align-items:flex-start;"><div style="min-width:0;flex:1;"><b>'+escapeAuthHtml(p.name)+'</b><div class="user-sub">'+labels+'</div></div></div>';
+    const managerIds=new Set(managers.map(a=>String(a.userId)));
+    const labels=managers.length ? managers.map(a=>{
+      const nextRole=a.accessRole==='owner'?'admin':'owner';
+      return '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:5px 0;">'
+        +'<span style="flex:1;min-width:140px;">'+escapeAuthHtml(a.displayName||a.username)+' · <b>'+(a.accessRole==='owner'?'Owner':'Admin')+'</b></span>'
+        +'<button class="btn ghost small" data-platform-access-role="'+escapeAuthHtml(nextRole)+'" data-platform-access-user="'+escapeAuthHtml(a.userId)+'" data-platform-access-property="'+escapeAuthHtml(p.id)+'">'+(nextRole==='owner'?'เลื่อนเป็น Owner':'เปลี่ยนเป็น Admin')+'</button>'
+        +'<button class="btn ghost small" data-platform-access-remove="1" data-platform-access-user="'+escapeAuthHtml(a.userId)+'" data-platform-access-property="'+escapeAuthHtml(p.id)+'">เอาออก</button>'
+        +'</div>';
+    }).join('') : '<div class="muted" style="margin:6px 0;">ยังไม่มี mapping</div>';
+    const available=eligibleAdmins.filter(u=>!managerIds.has(String(u.id)));
+    const addHtml=available.length
+      ? '<div style="display:flex;gap:6px;margin-top:8px;"><select class="toolbar-select platform-access-add-user" data-property="'+escapeAuthHtml(p.id)+'" style="flex:1;"><option value="">+ เลือก Admin…</option>'+available.map(u=>'<option value="'+escapeAuthHtml(u.id)+'">'+escapeAuthHtml(u.displayName||u.username)+' ('+escapeAuthHtml(u.username)+')</option>').join('')+'</select><select class="toolbar-select platform-access-add-role" data-property="'+escapeAuthHtml(p.id)+'"><option value="admin">Admin</option><option value="owner">Owner</option></select><button class="btn small" data-platform-access-add="'+escapeAuthHtml(p.id)+'">เพิ่ม</button></div>'
+      : '<div class="muted" style="font-size:12px;margin-top:8px;">ไม่มี Admin ที่ยังไม่ได้ถูกกำหนดสิทธิ์</div>';
+    return '<div class="user-row" style="align-items:flex-start;"><div style="min-width:0;flex:1;width:100%;"><b>'+escapeAuthHtml(p.name)+'</b><div class="user-sub" style="margin-top:6px;">'+labels+'</div>'+addHtml+'</div></div>';
   }).join('');
   body.innerHTML='<div class="stat-row" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px;">'
     +'<div class="stat-card"><p class="label">บัญชีทั้งหมด</p><p class="value">'+(Number(counts.users)||0)+'</p><p class="foot">'+(Number(counts.disabledUsers)||0)+' disabled</p></div>'
@@ -2247,6 +2260,21 @@ function renderPlatformConsole(){
     +'<h4 style="margin:14px 0 8px;">บัญชีระบบ</h4><div class="user-list">'+(accountRows||'<div class="empty">ไม่มีบัญชี</div>')+'</div>'
     +'<h4 style="margin:18px 0 8px;">Property Access</h4><div class="user-list">'+(propertyRows||'<div class="empty">ไม่มีอพาร์ทเมนท์</div>')+'</div>';
   body.querySelectorAll('[data-platform-user]').forEach(btn=>{btn.onclick=()=>onPlatformSetAccountStatus(btn.dataset.platformUser,btn.dataset.platformStatus);});
+  body.querySelectorAll('[data-platform-access-role]').forEach(btn=>{
+    btn.onclick=()=>onPlatformSetPropertyAccess(btn.dataset.platformAccessProperty,btn.dataset.platformAccessUser,btn.dataset.platformAccessRole);
+  });
+  body.querySelectorAll('[data-platform-access-remove]').forEach(btn=>{
+    btn.onclick=()=>onPlatformRemovePropertyAccess(btn.dataset.platformAccessProperty,btn.dataset.platformAccessUser);
+  });
+  body.querySelectorAll('[data-platform-access-add]').forEach(btn=>{
+    btn.onclick=()=>{
+      const propertyId=btn.dataset.platformAccessAdd;
+      const userEl=body.querySelector('.platform-access-add-user[data-property="'+CSS.escape(propertyId)+'"]');
+      const roleEl=body.querySelector('.platform-access-add-role[data-property="'+CSS.escape(propertyId)+'"]');
+      if(!userEl || !userEl.value){ showToast('เลือก Admin ก่อน'); return; }
+      onPlatformSetPropertyAccess(propertyId,userEl.value,roleEl?roleEl.value:'admin');
+    };
+  });
 }
 
 async function onPlatformSetAccountStatus(userId,status){
@@ -2265,6 +2293,47 @@ async function onPlatformSetAccountStatus(userId,status){
     showToast(m==='cannot_change_self_status' ? 'ไม่สามารถระงับบัญชี Superadmin ที่กำลังใช้งานอยู่' : 'เปลี่ยนสถานะบัญชีไม่สำเร็จ');
   }
 }
+async function reloadPlatformConsole(){
+  platformConsoleData=await remoteAuthPost({action:'platformOverview'});
+  renderPlatformConsole();
+}
+
+async function onPlatformSetPropertyAccess(propertyId,userId,accessRole){
+  const user=(platformConsoleData?.users||[]).find(u=>String(u.id)===String(userId));
+  const property=(platformConsoleData?.properties||[]).find(p=>String(p.id)===String(propertyId));
+  if(!user || !property) return;
+  const label=accessRole==='owner'?'Owner':'Admin';
+  if(!confirm('กำหนด '+(user.displayName||user.username)+' เป็น '+label+' ของ "'+property.name+'" ?')) return;
+  try{
+    await remoteAuthPost({action:'platformSetPropertyAccess',propertyId,userId,accessRole});
+    await reloadPlatformConsole();
+    showToast('อัปเดต Property Access แล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    const m=String(e.message||e);
+    showToast(m==='last_owner_required'?'Property ต้องมี Owner อย่างน้อย 1 คน'
+      :m==='target_not_admin'?'กำหนดสิทธิ์ได้เฉพาะบัญชี Admin'
+      :m==='target_must_be_normal_admin'?'ไม่สามารถกำหนด Property Access ให้ Superadmin ผ่านหน้านี้'
+      :'อัปเดต Property Access ไม่สำเร็จ');
+  }
+}
+
+async function onPlatformRemovePropertyAccess(propertyId,userId){
+  const user=(platformConsoleData?.users||[]).find(u=>String(u.id)===String(userId));
+  const property=(platformConsoleData?.properties||[]).find(p=>String(p.id)===String(propertyId));
+  if(!user || !property) return;
+  if(!confirm('เอา '+(user.displayName||user.username)+' ออกจาก "'+property.name+'" ?')) return;
+  try{
+    await remoteAuthPost({action:'platformRemovePropertyAccess',propertyId,userId});
+    await reloadPlatformConsole();
+    showToast('นำสิทธิ์ออกแล้ว');
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    const m=String(e.message||e);
+    showToast(m==='last_owner_required'?'ลบไม่ได้: Property ต้องมี Owner อย่างน้อย 1 คน':'นำสิทธิ์ออกไม่สำเร็จ');
+  }
+}
+
 function settingsFormHtml(){
   const userName = currentUser ? (currentUser.displayName || currentUser.username || '') : '';
   const adminButton = (currentUser && currentUser.isAdmin)
