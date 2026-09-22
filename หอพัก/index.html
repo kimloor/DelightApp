@@ -3044,6 +3044,7 @@ function renderRooms(){
                 <div class="num">${escapeAuthHtml(r.number)}</div>
                 <div class="floor">ชั้น ${escapeAuthHtml(r.floor||'-')}${tenant?` · <span class="tenant-name">${escapeAuthHtml(truncateText(tenantDisplayName(tenant),12))}</span>`:''}</div>
                 <span class="status-pill ${r.status==='occupied'?'occupied':'vacant'}">${r.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span>
+                <div class="room-type-line">${escapeAuthHtml(r.roomType||'ไม่ระบุประเภท')}</div>
                 <div class="rent">${THB(r.rent)} บ./เดือน</div>
               </div>`;
             }).join('')}
@@ -3060,6 +3061,7 @@ function renderRooms(){
                   <div class="num">${escapeAuthHtml(r.number)}</div>
                   <div class="floor">ชั้น ${escapeAuthHtml(r.floor||'-')}${tenant?` · <span class="tenant-name">${escapeAuthHtml(truncateText(tenantDisplayName(tenant),14))}</span>`:''}</div>
                   <span class="status-pill ${r.status==='occupied'?'occupied':'vacant'}">${r.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span>
+                  <div class="room-type-line">${escapeAuthHtml(r.roomType||'ยังไม่ระบุประเภท')}</div>
                   <div class="rent">${THB(r.rent)} บ./เดือน</div>
                 </div>`;
               }).join('')}
@@ -3219,15 +3221,20 @@ function bulkRoomFormHtml(){
     <p class="sub" style="font-size:12px;margin-top:-10px;">ห้องที่มีเลขซ้ำกับที่มีอยู่แล้วในอพาร์ทเมนท์นี้ จะถูกข้ามไปให้อัตโนมัติ</p>
     <div class="field-row">
       <div class="field"><label>ชั้น</label><input id="f-bulk-floor" placeholder="เช่น 1 (ใช้กับทุกห้องที่เพิ่ม)"></div>
+      <div class="field">
+        <label>ประเภทห้อง</label>
+        <select id="f-bulk-roomType">
+          <option value="">— ยังไม่ระบุ —</option>
+          <option value="ห้องพัดลม">ห้องพัดลม</option>
+          <option value="ห้องแอร์">ห้องแอร์</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-row">
       <div class="field"><label>ค่าเช่าต่อเดือน (บาท)</label><input id="f-bulk-rent" type="number" placeholder="เช่น 3500"></div>
+      <div class="field"><label>ค่ามัดจำ (บาท)</label><input id="f-bulk-deposit" type="number" placeholder="เช่น 7000"></div>
     </div>
-    <div class="field">
-      <label>สถานะ</label>
-      <select id="f-bulk-status">
-        <option value="vacant" selected>ว่าง</option>
-        <option value="occupied">มีผู้เช่า</option>
-      </select>
-    </div>
+    <p class="sub" style="font-size:12px;margin-top:-4px;">ห้องใหม่จะเริ่มต้นเป็น “ว่าง” เสมอ และจะเปลี่ยนเป็นมีผู้เช่าเมื่อเพิ่มผู้เช่าให้ห้องนั้น</p>
     <div class="modal-actions">
       <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
       <button class="btn" id="saveBulkRoomsBtn">เพิ่มห้องทั้งหมด</button>
@@ -3239,11 +3246,12 @@ async function onSaveBulkRooms(){
   const numbers = parseRoomNumbersInput(document.getElementById('f-bulk-numbers').value);
   const floor = document.getElementById('f-bulk-floor').value.trim();
   const rent = Number(document.getElementById('f-bulk-rent').value) || 0;
-  const status = document.getElementById('f-bulk-status').value;
+  const deposit = Number(document.getElementById('f-bulk-deposit').value) || 0;
+  const roomType = document.getElementById('f-bulk-roomType').value;
 
   if(numbers.length===0){ showToast('กรุณากรอกเลขห้องอย่างน้อย 1 ห้อง'); return; }
 
-  const drafts=numbers.map(number=>({propertyId:currentPropertyId,number,floor,rent,status}));
+  const drafts=numbers.map(number=>({propertyId:currentPropertyId,number,floor,rent,deposit,roomType,status:'vacant'}));
   try{
     const data=await remoteAuthPost({action:'createRooms',items:drafts});
     const created=data.rooms||[];
