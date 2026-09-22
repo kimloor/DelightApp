@@ -61,7 +61,7 @@ Goals:
 - avoid manual D1 edits for routine tenant onboarding
 
 ### S5 — Frontend Security / XSS Audit
-Status: NEXT
+Status: DONE
 
 Goals:
 - escape all user-controlled/business-data output before innerHTML use
@@ -70,7 +70,7 @@ Goals:
 - review QR/image/file rendering surfaces
 
 ### S6 — Superadmin Console V1
-Status: PLANNED
+Status: NEXT
 
 Goals:
 - manage platform/account structure without automatically exposing tenant/business data
@@ -131,7 +131,9 @@ S2 — Financial / Database Integrity is production-verified.
 S3 — Paid Bill Lock + Receipt Void is production-verified.
 S4 — Tenant Account Lifecycle is production-verified.
 
-Next: S5 — Frontend Security / XSS Audit.
+S5 — Frontend Security / XSS Audit is production-verified.
+
+Next: S6 — Superadmin Console V1.
 
 Detailed contracts:
 - `AUTH-SESSION-HARDENING-V2.md`
