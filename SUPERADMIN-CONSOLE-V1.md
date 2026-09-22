@@ -98,7 +98,7 @@ Every mutation requires:
 
 ### Phase C — Platform Audit / Health
 
-**Status: NEXT**
+**Status: IN PROGRESS**
 
 Planned:
 - recent platform-level audit events
@@ -107,6 +107,19 @@ Planned:
 - account/access integrity warnings
 
 Do not expose tenant financial content.
+
+### `platformHealth`
+
+Requires Superadmin and returns read-only platform health only:
+- critical schema presence summary
+- auth throttle counts only (no IP/key hashes)
+- properties with no Owner
+- properties with no active Owner
+- invalid admin mapping count
+- invalid tenant binding count
+- recent `platform*` audit events only
+
+Must not return rooms, tenant names/phones, bills, receipts, deposits, meter readings, QR/payment data, password/hash/salt, auth throttle keys or IP addresses.
 
 ## 3. Backend API
 
@@ -228,3 +241,18 @@ Completed 2026-09-22:
 - temporary test users/property/workflow were cleaned up
 
 Next: Phase C — Platform Audit / Health.
+
+
+## 10. Phase C acceptance tests
+
+Required before release:
+- normal admin and tenant calling platformHealth -> forbidden
+- superadmin can read schema/auth/access health
+- response contains no room/tenant/bill/receipt/deposit/meter payload
+- auth health exposes counts only, never key hashes/IP addresses
+- property with zero Owner is surfaced
+- property whose Owners are all disabled is surfaced
+- invalid mapping/binding counts are structural only
+- recent audit list contains only platform-prefixed actions
+- Platform Console renders health without calling getAdminScoped
+- existing property isolation remains unchanged
