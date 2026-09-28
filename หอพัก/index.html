@@ -2619,12 +2619,6 @@ function attachModalEvents(){
       if(dep) printDepositReceipt(dep);
     };
   });
-  document.querySelectorAll('.export-deposit-pdf').forEach(el=>{
-    el.onclick = ()=>{
-      const dep = deposits.find(d=>d.id===el.dataset.id);
-      if(dep) exportDepositPdf(dep);
-    };
-  });
   document.querySelectorAll('.delete-deposit').forEach(el=>{
     el.onclick = ()=>{
       const dep = deposits.find(d=>d.id===el.dataset.id);
@@ -2645,12 +2639,6 @@ function attachModalEvents(){
     el.onclick = ()=>{
       const rc = receipts.find(r=>r.id===el.dataset.id);
       if(rc) printReceipt(rc);
-    };
-  });
-  document.querySelectorAll('.export-receipt-pdf').forEach(el=>{
-    el.onclick = ()=>{
-      const rc = receipts.find(r=>r.id===el.dataset.id);
-      if(rc) exportReceiptPdf(rc);
     };
   });
 
@@ -5905,7 +5893,7 @@ function depositPickerModalHtml(query){
               <td class="mono">${escapeAuthHtml(d.receiptNo)}</td>
               <td class="muted">${formatThaiDate(d.date)}</td>
               <td class="mono" style="font-weight:600;">${THB(d.amount)} บ.</td>
-              <td style="white-space:nowrap;"><button class="btn ghost small print-deposit" data-id="${d.id}">🖨 พิมพ์</button> <button class="btn ghost small export-deposit-pdf" data-id="${d.id}">📄 PDF</button></td>
+              <td style="white-space:nowrap;"><button class="btn ghost small print-deposit" data-id="${d.id}">🖨 พิมพ์</button></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -5937,7 +5925,7 @@ function depositModalHtml(tenant){
             <td class="mono" style="font-weight:600;">${THB(d.amount)} บ.</td>
             <td style="white-space:nowrap;">
               <button class="btn ghost small print-deposit" data-id="${d.id}">🖨 พิมพ์ซ้ำ</button>
-              <button class="btn ghost small export-deposit-pdf" data-id="${d.id}">📄 PDF</button>
+             
               <button class="btn ghost small delete-deposit" data-id="${d.id}">ลบ</button>
             </td>
           </tr>`).join('')}
@@ -6079,7 +6067,6 @@ function receiptModalHtml(bill){
             <td class="mono" style="font-weight:600;">${THB(r.amount)} บ.</td>
             <td style="white-space:nowrap;">
               <button class="btn ghost small print-receipt" data-id="${r.id}">🖨 พิมพ์</button>
-              <button class="btn ghost small export-receipt-pdf" data-id="${r.id}">📄 PDF</button>
               ${(r.status||'active')==='active'? `<button class="btn danger small void-receipt" data-id="${r.id}">Void</button>` : ''}
             </td>
           </tr>`).join('')}
