@@ -213,7 +213,7 @@ jobs:
           grep -q "Import / Export" /tmp/staging-index.html
           grep -q "import-export.js" /tmp/staging-index.html
           grep -q "commitBillImport" /tmp/import-export.js
-          grep -q "source_snapshot" /tmp/import-export.js
+          grep -q "source_snapshot" /tmp/staging-index.html
 
           echo "frontend_smoke=PASS"
 
