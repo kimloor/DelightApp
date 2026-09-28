@@ -943,6 +943,10 @@
     .room-bulk-card-fields{grid-template-columns:1fr;}
   }
 
+
+  /* ---------- Room Status Editor ---------- */
+  .room-status-help{margin-top:6px;color:var(--ink-soft);font-size:11.5px;line-height:1.45;}
+
 </style>
 </head>
 <body>
@@ -3541,6 +3545,7 @@ function roomDetailHtml(room){
 
 function roomFormHtml(room){
   const isEdit = !!room;
+  const linkedTenant = room ? tenants.find(t=>String(t.roomId)===String(room.id)) : null;
   let navHtml = '';
   if(isEdit){
     const order = roomNavOrder();
@@ -3575,11 +3580,15 @@ function roomFormHtml(room){
         </select>
       </div>
       <div class="field">
-        <label>สถานะ</label>
-        <input type="hidden" id="f-status" value="${room?room.status:'vacant'}">
-        <div class="room-status-readonly">
-          <span class="status-pill ${room&&room.status==='occupied'?'occupied':'vacant'}">${room&&room.status==='occupied'?'มีผู้เช่า':'ว่าง'}</span>
-          <span class="muted">สถานะเปลี่ยนตามข้อมูลผู้เช่า</span>
+        <label>สถานะห้อง</label>
+        <select id="f-status">
+          <option value="vacant" ${room&&room.status==='vacant'?'selected':''} ${linkedTenant?'disabled':''}>ว่าง</option>
+          <option value="occupied" ${room&&room.status==='occupied'?'selected':''}>มีผู้เช่า</option>
+        </select>
+        <div class="room-status-help">
+          ${linkedTenant
+            ? 'ห้องนี้มีข้อมูลผู้เช่าผูกอยู่ หากต้องการเปลี่ยนเป็น “ว่าง” ให้ลบหรือย้ายผู้เช่าก่อน'
+            : 'สามารถตั้งเป็น “มีผู้เช่า” ได้แม้ยังไม่มีชื่อหรือเบอร์โทร และค่อยเพิ่มรายละเอียดภายหลัง'}
         </div>
       </div>
     </div>
@@ -5398,6 +5407,11 @@ async function onSaveRoom(){
   if(!number){ showToast('กรุณากรอกเลขห้อง'); return; }
 
   const editId = onSaveRoom._editId;
+  const linkedTenant = editId ? tenants.find(t=>String(t.roomId)===String(editId)) : null;
+  if(status==='vacant' && linkedTenant){
+    showToast('ห้องนี้มีผู้เช่าผูกอยู่ กรุณาลบหรือย้ายผู้เช่าก่อนเปลี่ยนเป็นห้องว่าง');
+    return;
+  }
   // เลขห้องต้องไม่ซ้ำ "ภายในอพาร์ทเมนท์เดียวกัน" เท่านั้น — ต่างอพาร์ทเมนท์ใช้เลขห้องซ้ำกันได้
   const dup = rooms.find(r => r.propertyId===currentPropertyId && r.number === number && r.id !== editId);
   if(dup){ showToast('มีเลขห้องนี้อยู่แล้วในอพาร์ทเมนท์นี้ กรุณาใช้เลขห้องอื่น'); return; }
