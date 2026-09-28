@@ -1349,15 +1349,20 @@ async function remoteAuthPost(payload){
     restoreOfflineSnapshot();
     throw new Error('offline_read_only');
   }
-  const res = await fetch(sheetUrl, {
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify(Object.assign({token: authToken}, payload))
-  });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const data = await res.json();
-  if(data && data.error) throw new Error(data.error);
-  return data;
+  try{
+    const res = await fetch(sheetUrl, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify(Object.assign({token: authToken}, payload))
+    });
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    if(data && data.error) throw new Error(data.error);
+    return data;
+  }catch(e){
+    reportAppError(e, action ? ('API: '+action) : 'API');
+    throw e;
+  }
 }
 
 /* ต้องล็อกอินก็ต่อเมื่อมีการซิงก์กับ backend ส่วนกลางอยู่ (มี sheetUrl) —
@@ -1839,6 +1844,75 @@ function showToast(msg, duration=2200){
   clearTimeout(showToast._t);
   showToast._t = setTimeout(()=>t.classList.remove('show'), duration);
 }
+
+function appErrorText(err, context){
+  const message=String((err && err.message) || err || 'unknown_error');
+  const parts=[
+    'เกิดข้อผิดพลาดในระบบ',
+    context ? ('จุดที่เกิด: '+context) : '',
+    'สาเหตุ: '+message,
+    'เวลา: '+new Date().toISOString(),
+    'หน้า: '+String(location.pathname || '/')
+  ].filter(Boolean);
+  return parts.join('\n');
+}
+
+function shouldSuppressErrorPopup(err){
+  const m=String((err && err.message) || err || '');
+  return new Set([
+    'invalid_credentials','wrong_old_password','password_too_short','too_many_attempts',
+    'username_exists','unauthorized','offline_read_only'
+  ]).has(m);
+}
+
+function showAppError(err, context){
+  const detail=appErrorText(err,context);
+  let overlay=document.getElementById('appErrorOverlay');
+  if(!overlay){
+    overlay=document.createElement('div');
+    overlay.id='appErrorOverlay';
+    overlay.className='app-error-overlay';
+    overlay.innerHTML=
+      '<div class="app-error-card" role="alertdialog" aria-modal="true">'
+      +'<h3>เกิดข้อผิดพลาด</h3>'
+      +'<p>ระบบพบข้อผิดพลาด กรุณาส่งข้อความด้านล่างนี้ให้ admin ได้เลย</p>'
+      +'<pre id="appErrorDetail"></pre>'
+      +'<div class="app-error-actions">'
+      +'<button type="button" class="btn ghost" id="copyAppErrorBtn">คัดลอกข้อความ</button>'
+      +'<button type="button" class="btn" id="closeAppErrorBtn">ปิด</button>'
+      +'</div></div>';
+    document.body.appendChild(overlay);
+  }
+  const pre=overlay.querySelector('#appErrorDetail');
+  if(pre) pre.textContent=detail;
+  overlay.classList.add('open');
+  const close=overlay.querySelector('#closeAppErrorBtn');
+  if(close) close.onclick=()=>overlay.classList.remove('open');
+  const copy=overlay.querySelector('#copyAppErrorBtn');
+  if(copy) copy.onclick=async ()=>{
+    try{
+      await navigator.clipboard.writeText(detail);
+      copy.textContent='คัดลอกแล้ว';
+    }catch(copyErr){
+      const ta=document.createElement('textarea');
+      ta.value=detail; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); copy.textContent='คัดลอกแล้ว'; }catch(ignore){}
+      ta.remove();
+    }
+  };
+}
+
+function reportAppError(err, context){
+  if(shouldSuppressErrorPopup(err)) return;
+  showAppError(err,context);
+}
+
+window.addEventListener('error', (event)=>{
+  reportAppError(event.error || new Error(event.message || 'javascript_error'),'JavaScript');
+});
+window.addEventListener('unhandledrejection', (event)=>{
+  reportAppError(event.reason || new Error('unhandled_promise_rejection'),'Promise');
+});
 
 function showBillSelectionToast(){
   const count=renderBills._selected ? renderBills._selected.size : 0;
