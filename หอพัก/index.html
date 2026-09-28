@@ -5968,6 +5968,56 @@ async function onDeleteDeposit(depositId, tenantId){
 }
 
 /* ============ ใบเสร็จรับเงิน (ออกตอนบิลชำระแล้ว) ============ */
+function bulkReceiveModalHtml(){
+  const selected = currentBills().filter(b=>renderBills._selected && renderBills._selected.has(b.id));
+  const total = selected.reduce((sum,b)=>sum+(Number(b.total)||0),0);
+  const todayIso = new Date().toISOString().slice(0,10);
+  return `
+    <h3>รับชำระบิลที่เลือก</h3>
+    <p class="sub" style="font-size:13px;line-height:1.6;margin-top:-6px;">
+      เลือกอยู่ <strong>${selected.length}</strong> ห้อง · รวม <strong>${THB(total)} บาท</strong><br>
+      ระบบจะเปลี่ยนทุกบิลเป็น “ชำระแล้ว” และออกใบเสร็จให้แต่ละห้อง
+    </p>
+    <div class="field"><label>วันที่รับเงิน</label><input id="f-bulk-rcpt-date" type="date" value="${todayIso}"></div>
+    <div class="field"><label>หมายเหตุ (ถ้ามี)</label><input id="f-bulk-rcpt-note" placeholder="เช่น โอนผ่านธนาคาร"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+      <button class="btn" id="confirmBulkReceiveBtn">ยืนยันรับชำระ ${selected.length} ห้อง</button>
+    </div>
+  `;
+}
+
+async function onBulkReceiveSelected(){
+  const selected = currentBills().filter(b=>renderBills._selected && renderBills._selected.has(b.id));
+  if(!selected.length){ showToast('ยังไม่ได้เลือกบิล'); return; }
+  const invalid = selected.find(b=>b.status!=='unpaid' || billLockedByReceipt(b.id));
+  if(invalid){ showToast('รับชำระพร้อมกันได้เฉพาะบิลค้างชำระที่ยังไม่มีใบเสร็จ'); return; }
+  const date=document.getElementById('f-bulk-rcpt-date')?.value || '';
+  const note=document.getElementById('f-bulk-rcpt-note')?.value.trim() || '';
+  if(!date){ showToast('กรุณาเลือกวันที่รับเงิน'); return; }
+  const btn=document.getElementById('confirmBulkReceiveBtn');
+  if(btn){ btn.disabled=true; btn.textContent='กำลังรับชำระ…'; }
+  try{
+    const data=await remoteAuthPost({action:'batchCreateReceipts',billIds:selected.map(b=>b.id),date,note});
+    (data.bills||[]).forEach(saved=>{
+      const i=bills.findIndex(b=>String(b.id)===String(saved.id));
+      if(i>=0) bills[i]=saved;
+    });
+    receipts.push(...(data.receipts||[]));
+    renderBills._selected=new Set();
+    cacheLocally();
+    closeModal();
+    render();
+    showToast(`รับชำระแล้ว ${data.receipts?.length||0} ห้อง และออกใบเสร็จเรียบร้อย`);
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    const m=String(e.message||e);
+    showToast(m==='bulk_receipt_requires_unpaid' ? 'มีบิลที่ไม่ใช่สถานะค้างชำระ' : m==='receipt_already_exists' ? 'มีบางบิลออกใบเสร็จแล้ว' : 'รับชำระหลายห้องไม่สำเร็จ');
+  }finally{
+    const next=document.getElementById('confirmBulkReceiveBtn');
+    if(next){ next.disabled=false; next.textContent='ยืนยันรับชำระ'; }
+  }
+}
 function receiptModalHtml(bill){
   const room = rooms.find(r=>r.id===bill.roomId);
   const todayIso = new Date().toISOString().slice(0,10);
