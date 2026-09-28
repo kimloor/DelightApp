@@ -4416,7 +4416,7 @@ function bulkMeterFormHtml(month){
   const prop = currentProperty() || {};
   const waterRate = Number(prop.waterRate)||0;
   const electricRate = Number(prop.electricRate)||0;
-  const monthBills = currentBills().filter(b=>b.month===month).slice().sort((a,b)=>{
+  const monthBills = currentBills().filter(b=>b.month===month && !billImportedSnapshot(b)).slice().sort((a,b)=>{
     const ra = (rooms.find(r=>r.id===a.roomId)||{}).number || '';
     const rb = (rooms.find(r=>r.id===b.roomId)||{}).number || '';
     return ra.localeCompare(rb, 'th', {numeric:true});
@@ -4862,6 +4862,10 @@ function billLockedByReceipt(billId){
   return !!activeReceiptForBillLocal(billId);
 }
 
+function billImportedSnapshot(bill){
+  return !!bill && bill.calculationMode==='source_snapshot';
+}
+
 function renderBills(){
   const scopedBills = currentBills();
   const months = Array.from(new Set(scopedBills.map(b=>b.month).filter(m=>/^\d{4}-\d{2}$/.test(m)))).sort().reverse();
@@ -4887,7 +4891,7 @@ function renderBills(){
   const selectedBills = monthBills.filter(b=>renderBills._selected.has(b.id));
   const selectedCount = selectedBills.length;
   const allSelected = monthBillIds.length>0 && selectedCount===monthBillIds.length;
-  const selectedHasLocked = selectedBills.some(b=>billLockedByReceipt(b.id));
+  const selectedHasLocked = selectedBills.some(b=>billLockedByReceipt(b.id) || billImportedSnapshot(b));
   const canMoveSelected = selectedCount>0 && !selectedHasLocked;
   const canReceiveSelected = selectedCount>0 && selectedBills.every(b=>b.status==='unpaid' && !billLockedByReceipt(b.id));
   const canPrintSelected = selectedCount>0;
@@ -4942,7 +4946,9 @@ function renderBills(){
             const isSel = renderBills._selected.has(b.id);
             const billReceipts = receipts.filter(rc=>rc.billId===b.id).sort((x,y)=> (y.date||'').localeCompare(x.date||''));
             const activeReceipt = billReceipts.find(rc=>(rc.status||'active')==='active') || null;
-            const locked = !!activeReceipt;
+            const receiptLocked = !!activeReceipt;
+            const snapshotLocked = billImportedSnapshot(b);
+            const locked = receiptLocked || snapshotLocked;
             const receiptBtnHtml = activeReceipt
               ? `<button class="btn ghost small bill-primary-action receipt-details" data-id="${b.id}" title="ดูใบเสร็จ ${escapeAuthHtml(activeReceipt.receiptNo)}">🧾 ใบเสร็จ</button>`
               : b.status==='paid'
@@ -4965,7 +4971,7 @@ function renderBills(){
               <td class="edit-water" data-id="${b.id}" data-label="ค่าน้ำ" style="cursor:${locked?'not-allowed':'pointer'};">${meterCellHtml(b,'water')}</td>
               <td class="edit-electric" data-id="${b.id}" data-label="ค่าไฟ" style="cursor:${locked?'not-allowed':'pointer'};">${meterCellHtml(b,'electric')}</td>
               <td class="mono" data-label="รวม" style="font-weight:600;">${THB(b.total)} บ.${prop.vatEnabled?`<br><span class="muted" style="font-weight:400;font-size:11px;">รวม VAT ${THB(b.vatAmount||0)}</span>`:''}</td>
-              <td data-label="สถานะ"><span class="bill-status-text ${b.status==='paid'?'paid':'unpaid'}">${b.status==='paid'?'ชำระแล้ว':'ค้างชำระ'}</span></td>
+              <td data-label="สถานะ"><span class="bill-status-text ${b.status==='paid'?'paid':'unpaid'}">${b.status==='paid'?'ชำระแล้ว':'ค้างชำระ'}</span>${snapshotLocked?'<br><span class="muted" style="font-size:10.5px;">นำเข้าย้อนหลัง</span>':''}</td>
               <td class="actions-cell">${receiptBtnHtml}${moreActions}</td>
             </tr>`;
           }).join('')}
@@ -5614,6 +5620,7 @@ function attachPageEvents(){
   document.querySelectorAll('.edit-water').forEach(el=>{
     el.onclick = ()=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
+      if(billImportedSnapshot(bill)){ showToast('บิลนำเข้าย้อนหลังถูกล็อกเพื่อรักษายอดตามเอกสารต้นฉบับ'); return; }
       if(billLockedByReceipt(bill.id)){ showToast('บิลถูกล็อกหลังออกใบเสร็จ — Void ใบเสร็จก่อนแก้'); return; }
       onSaveMeter._billId = bill.id;
       onSaveMeter._type = 'water';
@@ -5623,6 +5630,7 @@ function attachPageEvents(){
   document.querySelectorAll('.edit-electric').forEach(el=>{
     el.onclick = ()=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
+      if(billImportedSnapshot(bill)){ showToast('บิลนำเข้าย้อนหลังถูกล็อกเพื่อรักษายอดตามเอกสารต้นฉบับ'); return; }
       if(billLockedByReceipt(bill.id)){ showToast('บิลถูกล็อกหลังออกใบเสร็จ — Void ใบเสร็จก่อนแก้'); return; }
       onSaveMeter._billId = bill.id;
       onSaveMeter._type = 'electric';
@@ -6258,6 +6266,7 @@ function lastBillForRoom(roomId, beforeMonth){
    การเชื่อมต่อ/หมดอายุการล็อกอินพอดีตอนนั้น) ทำให้บิลค้างค่าจากการบันทึกครั้งก่อนหน้าที่ผิดอยู่
    แม้ "จดมิเตอร์" จะถูกต้องแล้วก็ตาม — เทียบจาก "เวลาบันทึก" ล่าสุดของรายการที่ผูกกับบิลนั้น */
 function reconcileBillFromMeterLog(bill){
+  if(billImportedSnapshot(bill)) return 0;
   let fixed = 0;
   ['water','electric'].forEach(type=>{
     const entries = meterReadings.filter(m=>m.billId===bill.id && m.type===type);
@@ -6286,6 +6295,7 @@ function recheckRoomMeterChain(roomId){
     for(let i=1;i<roomBills.length;i++){
       const priorBill = roomBills[i-1];
       const bill = roomBills[i];
+      if(billImportedSnapshot(bill)) continue;
       const expectedPrev = Number(priorBill[currKey])||0;
       if((Number(bill[prevKey])||0) === expectedPrev) continue; // ต่อเนื่องดีอยู่แล้ว ข้ามไป
 
@@ -6308,12 +6318,13 @@ function recheckRoomMeterChain(roomId){
    ได้ 2 แบบ: (1) บิลไม่ตรงกับรายการล่าสุดใน "จดมิเตอร์" ของตัวเอง (เช่น sync ล้มเหลวตอนบันทึก)
    (2) เลขมิเตอร์ระหว่างบิลเดือนต่อเดือนไม่ต่อเนื่องกัน (เช่น ย้อนไปแก้เดือนเก่าแล้วเดือนถัดไปไม่อัปเดต) */
 async function recheckAllMeters(){
+  const editableBills=currentBills().filter(b=>!billImportedSnapshot(b));
   let totalFixed = 0;
-  currentBills().forEach(bill=>{ totalFixed += reconcileBillFromMeterLog(bill); });
+  editableBills.forEach(bill=>{ totalFixed += reconcileBillFromMeterLog(bill); });
   currentRooms().forEach(room=>{ totalFixed += recheckRoomMeterChain(room.id); });
   if(totalFixed>0){
     try{
-      const data=await remoteAuthPost({action:'batchUpdateBills',items:currentBills()});
+      const data=await remoteAuthPost({action:'batchUpdateBills',items:editableBills});
       (data.bills||[]).forEach(saved=>{
         const i=bills.findIndex(b=>b.id===saved.id);
         if(i>=0) bills[i]=saved;
