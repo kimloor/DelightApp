@@ -73,7 +73,7 @@ function parseLegacyBillPage(items,pageNo){
     if(Math.abs(ieNum(electricUnits*electricRate)-electricCharge)>.05)q.push('ยอดไฟ');
     const expectedVat=ieNum(furnitureVat+ieNum(waterCharge*vatRate/100)+ieNum(electricCharge*vatRate/100));
     if(Math.abs(expectedVat-sourceVatAmount)>.05)q.push('VAT');
-    if(Math.floor(calculatedTotal+1e-9)!==Math.round(sourceTotal)&&Math.abs(calculatedTotal-sourceTotal)>.01)q.push('ยอดรวม');
+    if(Math.round(calculatedTotal)!==Math.round(sourceTotal)&&Math.abs(calculatedTotal-sourceTotal)>.01)q.push('ยอดรวม');
     if(q.length){validationStatus='review';validationMessage='ตรวจสอบ: '+q.join(', ');}
   }
   return {sourcePage:pageNo,roomNumber,matchedRoomId:room?room.id:'',sourceDocumentNo,sourceBillDate,sourcePrintedAt,billingMonth,
