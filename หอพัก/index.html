@@ -4284,11 +4284,26 @@ function bulkMeterFormHtml(month){
     return ra.localeCompare(rb, 'th', {numeric:true});
   });
   return `
-    <h3>จดมิเตอร์น้ำ-ไฟทั้งหมด — ${monthLabel(month)}</h3>
-    <p class="sub" style="font-size:13px;line-height:1.6;margin:0 0 14px;">
-      กรอกเลขมิเตอร์ปัจจุบันของแต่ละห้อง แล้วกด “บันทึกทั้งหมด” ครั้งเดียว ·
-      อัตรา น้ำ ${THB(waterRate)} / ไฟ ${THB(electricRate)} บาทต่อหน่วย (แก้ได้ที่ตั้งค่าอพาร์ทเมนท์)
-    </p>
+    <div class="bulk-meter-head">
+      <div>
+        <h3 style="margin-bottom:5px;">จดมิเตอร์น้ำ-ไฟทั้งหมด — ${monthLabel(month)}</h3>
+        <p class="sub" style="font-size:13px;line-height:1.6;margin:0;">
+          กรอกเลขมิเตอร์ปัจจุบันของแต่ละห้อง แล้วกด “บันทึกทั้งหมด” ครั้งเดียว ·
+          อัตรา น้ำ ${THB(waterRate)} / ไฟ ${THB(electricRate)} บาทต่อหน่วย
+        </p>
+      </div>
+      ${monthBills.length?'<button class="btn ghost small" type="button" id="editOldMeterBtn">✎ แก้มิเตอร์เก่า</button>':''}
+    </div>
+    ${monthBills.length?`<div id="oldMeterEditPanel" class="old-meter-edit-panel" style="display:none;">
+      <div>
+        <strong>โหมดแก้ไขมิเตอร์เก่า</strong>
+        <div class="muted" style="font-size:12px;margin-top:2px;">เลข “เดิม” จะเปิดให้แก้ และระบบจะบันทึกค่าเดิม → ค่าใหม่ไว้ใน Audit Log</div>
+      </div>
+      <div class="field" style="margin:0;min-width:180px;">
+        <label>วันที่แก้ไขย้อนหลัง</label>
+        <input type="date" id="oldMeterCorrectionDate" value="${new Date().toISOString().slice(0,10)}">
+      </div>
+    </div>`:''}
     ${monthBills.length===0 ? `<div class="empty"><div class="big">🧾</div>เดือนนี้ยังไม่มีบิล</div>` : `
     <div style="max-height:52vh;overflow-y:auto;border:1px solid var(--line);border-radius:8px;">
     <table class="bulk-meter-table">
@@ -4305,15 +4320,17 @@ function bulkMeterFormHtml(month){
           return `<tr data-bill="${b.id}">
             <td style="font-weight:600;">${room?escapeAuthHtml(room.number):'—'}</td>
             <td>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span class="muted mono" style="font-size:12px;white-space:nowrap;">${wPrev} →</span>
-                <input type="number" class="toolbar-input bm-water" data-prev="${wPrev}" value="${wCurr}" min="0" style="width:76px;" onfocus="this.select()">
+              <div class="meter-pair">
+                <input type="number" class="toolbar-input bm-water-prev old-meter-input" data-original="${wPrev}" value="${wPrev}" min="0" disabled onfocus="this.select()">
+                <span class="muted">→</span>
+                <input type="number" class="toolbar-input bm-water" value="${wCurr}" min="0" onfocus="this.select()">
               </div>
             </td>
             <td>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span class="muted mono" style="font-size:12px;white-space:nowrap;">${ePrev} →</span>
-                <input type="number" class="toolbar-input bm-electric" data-prev="${ePrev}" value="${eCurr}" min="0" style="width:76px;" onfocus="this.select()">
+              <div class="meter-pair">
+                <input type="number" class="toolbar-input bm-electric-prev old-meter-input" data-original="${ePrev}" value="${ePrev}" min="0" disabled onfocus="this.select()">
+                <span class="muted">→</span>
+                <input type="number" class="toolbar-input bm-electric" value="${eCurr}" min="0" onfocus="this.select()">
               </div>
             </td>
             <td class="mono bm-cost" style="font-weight:600;">${THB(wCost+eCost)} บ.</td>
