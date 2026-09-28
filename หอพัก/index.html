@@ -947,6 +947,36 @@
   /* ---------- Room Status Editor ---------- */
   .room-status-help{margin-top:6px;color:var(--ink-soft);font-size:11.5px;line-height:1.45;}
 
+
+  /* ---------- Meter Baseline Correction ---------- */
+  .bulk-meter-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:12px;}
+  .old-meter-edit-panel{display:flex;align-items:end;justify-content:space-between;gap:14px;margin:0 0 12px;padding:11px 12px;border:1px solid var(--gold);border-radius:9px;background:var(--gold-soft);}
+  .meter-pair{display:flex;align-items:center;gap:6px;min-width:0;}
+  .meter-pair .toolbar-input{width:82px!important;min-width:0;}
+  .old-meter-input:disabled{background:transparent;border-color:transparent;color:var(--ink-soft);padding-left:2px;padding-right:2px;opacity:1;}
+  .meter-invalid{background:var(--rust-soft)!important;}
+  @media(max-width:760px){
+    .bulk-meter-head{flex-direction:column;align-items:stretch;}
+    .bulk-meter-head .btn{width:100%;}
+    .old-meter-edit-panel{flex-direction:column;align-items:stretch;}
+    .old-meter-edit-panel .field{width:100%;min-width:0!important;}
+    .meter-pair{justify-content:flex-end;flex-wrap:nowrap;}
+    .meter-pair .toolbar-input{width:min(96px,34vw)!important;}
+  }
+
+  /* ---------- Global Error Popup ---------- */
+  .app-error-overlay{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(20,16,12,.58);}
+  .app-error-overlay.open{display:flex;}
+  .app-error-card{width:min(560px,100%);max-height:calc(100dvh - 36px);overflow:auto;padding:22px;border-radius:12px;background:var(--surface);border:1px solid var(--line);box-shadow:0 20px 60px rgba(0,0,0,.24);}
+  .app-error-card h3{margin:0 0 7px;}
+  .app-error-card p{margin:0 0 12px;color:var(--ink-soft);font-size:13px;line-height:1.55;}
+  .app-error-card pre{margin:0;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--mono,monospace);font-size:12px;line-height:1.5;user-select:text;}
+  .app-error-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
+  @media(max-width:520px){
+    .app-error-actions{flex-direction:column-reverse;}
+    .app-error-actions .btn{width:100%;}
+  }
+
 </style>
 </head>
 <body>
