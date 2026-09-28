@@ -28,6 +28,28 @@ jobs:
           npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS rooms FROM rooms;"
           npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS bills FROM bills;"
 
+      - name: Export pre-deploy D1 backup
+        run: |
+          npx --yes wrangler@4 d1 export delightapp-db --remote --output=/tmp/delightapp-predeploy.sql
+
+      - name: Upload pre-deploy backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: delightapp-predeploy-d1-${{ github.sha }}
+          path: /tmp/delightapp-predeploy.sql
+          retention-days: 14
+
+      - name: Apply production D1 migrations
+        run: |
+          npx --yes wrangler@4 d1 migrations apply delightapp-db --remote
+
+      - name: Validate Import Export V1 schema
+        run: |
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "PRAGMA table_info(bills);" | grep -q "source_document_no"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS import_batches FROM import_batches;"
+          npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS import_rows FROM bill_import_rows;"
+          echo "import_export_schema=PASS"
+
       - name: Upload production candidate
         id: upload
         shell: bash
@@ -58,5 +80,8 @@ jobs:
           done
           curl -fsS "$PROD_URL/api?action=ping" | grep -q '"backend":"d1"'
           curl -fsS "$PROD_URL/" -o /tmp/index.html
+          curl -fsS "$PROD_URL/import-export.js" -o /tmp/import-export.js
           grep -q "Cloudflare D1" /tmp/index.html
+          grep -q "Import / Export" /tmp/index.html
+          grep -q "commitBillImport" /tmp/import-export.js
           echo "production_smoke=PASS"
