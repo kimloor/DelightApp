@@ -2569,18 +2569,11 @@ function attachModalEvents(){
     };
   }
   const meterHistorySearch = document.getElementById('meterHistorySearch');
-  if(meterHistorySearch){
-    meterHistorySearch.oninput = (e)=>{
-      const val = e.target.value;
-      const wrap = document.getElementById('modalBody');
-      if(wrap){
-        wrap.innerHTML = meterHistoryModalHtml(val);
-        attachModalEvents();
-        const input = document.getElementById('meterHistorySearch');
-        if(input){ input.focus(); input.setSelectionRange(val.length, val.length); }
-      }
-    };
-  }
+  if(meterHistorySearch) meterHistorySearch.oninput = ()=>refreshMeterHistoryModal(true);
+  const meterHistoryType = document.getElementById('meterHistoryType');
+  if(meterHistoryType) meterHistoryType.onchange = ()=>refreshMeterHistoryModal(false);
+  const meterHistorySort = document.getElementById('meterHistorySort');
+  if(meterHistorySort) meterHistorySort.onchange = ()=>refreshMeterHistoryModal(false);
   document.querySelectorAll('.print-deposit').forEach(el=>{
     el.onclick = ()=>{
       const dep = deposits.find(d=>d.id===el.dataset.id);
@@ -5763,29 +5756,45 @@ function formatDateTimeThai(iso){
   return `${day} ${month} ${year} ${hh}:${mm} น.`;
 }
 
-function meterHistoryModalHtml(query){
+function meterHistoryModalHtml(query, typeFilter='all', sortMode='latest'){
   const q = (query||'').trim().toLowerCase();
   const roomIds = new Set(currentRooms().map(r=>r.id));
-  /* เรียงล่าสุด→เก่าสุดตาม recordedAt
-     รายการเก่าที่บันทึกไว้ก่อนจะมีฟิลด์ recordedAt (ไม่มี timestamp เลย) ให้ถือว่า
-     "เก่าที่สุด" เสมอ จึงใช้ '' แทนค่าว่าง เพราะ '' เรียงมาก่อนสตริงวันที่ ISO ทุกตัว
-     ทำให้รายการเหล่านี้ตกไปอยู่ล่างสุดของประวัติอย่างสม่ำเสมอ ไม่ปนขึ้นมาบนสุด */
-  let list = meterReadings.filter(m=>roomIds.has(m.roomId)).slice()
-    .sort((a,b)=> (b.recordedAt||'').localeCompare(a.recordedAt||''));
+  let list = meterReadings.filter(m=>roomIds.has(m.roomId)).slice();
+  if(typeFilter==='water' || typeFilter==='electric') list=list.filter(m=>m.type===typeFilter);
   if(q){
     list = list.filter(m=>{
       const room = rooms.find(r=>r.id===m.roomId);
-      const roomNum = room ? room.number.toLowerCase() : '';
+      const roomNum = room ? String(room.number||'').toLowerCase() : '';
       return roomNum.includes(q) || (m.month||'').includes(q);
     });
   }
-  list = list.slice(0, 300); // กันรายการยาวเกินไปจนหน้าอืด แสดง 300 รายการล่าสุดพอ
+  if(sortMode==='units_desc'){
+    list.sort((a,b)=>(Number(b.units)||0)-(Number(a.units)||0) || (b.recordedAt||'').localeCompare(a.recordedAt||''));
+  }else if(sortMode==='units_asc'){
+    list.sort((a,b)=>(Number(a.units)||0)-(Number(b.units)||0) || (b.recordedAt||'').localeCompare(a.recordedAt||''));
+  }else{
+    list.sort((a,b)=>(b.recordedAt||'').localeCompare(a.recordedAt||''));
+  }
+  list = list.slice(0,300);
   return `
     <h3>ประวัติการจดมิเตอร์</h3>
-    <input id="meterHistorySearch" class="toolbar-input" style="width:100%;margin-bottom:14px;" placeholder="ค้นหาเลขห้อง หรือเดือน (เช่น 2569-07)…" value="${escapeAuthHtml(query||'')}">
-    ${list.length===0 ? `<div class="empty" style="padding:24px 10px;"><div class="big">📜</div>ยังไม่มีประวัติการจดมิเตอร์</div>` : `
-    <div style="max-height:56vh;overflow-y:auto;border:1px solid var(--line);border-radius:8px;">
-      <table>
+    <div class="meter-history-controls">
+      <input id="meterHistorySearch" class="toolbar-input" placeholder="ค้นหาเลขห้อง หรือเดือน (เช่น 2569-07)…" value="${escapeAuthHtml(query||'')}">
+      <select id="meterHistoryType" class="toolbar-select">
+        <option value="all" ${typeFilter==='all'?'selected':''}>น้ำ + ไฟ</option>
+        <option value="water" ${typeFilter==='water'?'selected':''}>💧 น้ำเท่านั้น</option>
+        <option value="electric" ${typeFilter==='electric'?'selected':''}>⚡ ไฟเท่านั้น</option>
+      </select>
+      <select id="meterHistorySort" class="toolbar-select">
+        <option value="latest" ${sortMode==='latest'?'selected':''}>วันที่ล่าสุด</option>
+        <option value="units_desc" ${sortMode==='units_desc'?'selected':''}>หน่วยใช้มาก → น้อย</option>
+        <option value="units_asc" ${sortMode==='units_asc'?'selected':''}>หน่วยใช้น้อย → มาก</option>
+      </select>
+    </div>
+    <div class="meter-history-summary muted">แสดง ${list.length} รายการ${typeFilter==='water'?' · น้ำ':typeFilter==='electric'?' · ไฟ':' · น้ำและไฟ'}</div>
+    ${list.length===0 ? `<div class="empty" style="padding:24px 10px;"><div class="big">📜</div>ไม่พบประวัติมิเตอร์ที่ตรงกับตัวกรอง</div>` : `
+    <div class="meter-history-table-wrap">
+      <table class="meter-history-table">
         <thead><tr><th>ห้อง</th><th>ประเภท</th><th>เลขมิเตอร์ (เดิม→ปัจจุบัน)</th><th>หน่วยที่ใช้</th><th>ยอดเงิน</th><th>บันทึกเมื่อ</th></tr></thead>
         <tbody>
           ${list.map(m=>{
@@ -5795,7 +5804,7 @@ function meterHistoryModalHtml(query){
               <td style="font-weight:600;">${room?escapeAuthHtml(room.number):'—'}</td>
               <td>${typeLabel}</td>
               <td class="mono muted">${m.prev} → ${m.curr}</td>
-              <td class="mono">${m.units}</td>
+              <td class="mono" style="font-weight:600;">${m.units}</td>
               <td class="mono" style="font-weight:600;">${THB(m.cost)} บ.</td>
               <td class="muted" style="white-space:nowrap;font-size:12.5px;">${formatDateTimeThai(m.recordedAt)}</td>
             </tr>`;
@@ -5803,10 +5812,22 @@ function meterHistoryModalHtml(query){
         </tbody>
       </table>
     </div>`}
-    <div class="modal-actions">
-      <button class="btn ghost" id="cancelBtn">ปิด</button>
-    </div>
+    <div class="modal-actions"><button class="btn ghost" id="cancelBtn">ปิด</button></div>
   `;
+}
+
+function refreshMeterHistoryModal(focusSearch=false){
+  const query=document.getElementById('meterHistorySearch')?.value || '';
+  const type=document.getElementById('meterHistoryType')?.value || 'all';
+  const sort=document.getElementById('meterHistorySort')?.value || 'latest';
+  const wrap=document.getElementById('modalBody');
+  if(!wrap) return;
+  wrap.innerHTML=meterHistoryModalHtml(query,type,sort);
+  attachModalEvents();
+  if(focusSearch){
+    const input=document.getElementById('meterHistorySearch');
+    if(input){ input.focus(); input.setSelectionRange(query.length,query.length); }
+  }
 }
 
 function depositPickerModalHtml(query){
