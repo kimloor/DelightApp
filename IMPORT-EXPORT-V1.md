@@ -150,3 +150,39 @@ Static syntax validation passed for:
 Parser calculations were checked against representative source pages including rooms 101, 102, 307 and 506.
 
 No production migration or production deployment is part of this branch yet.
+
+
+## Isolated staging smoke
+
+Automated Import smoke testing is isolated from production.
+
+Workflow:
+- `.github/workflows/import-staging-smoke.yml`
+
+Cloudflare targets:
+- D1: `delightapp-db-staging`
+- Worker: `delightapp-staging`
+- URL: `https://delightapp-staging.ekqtjl.workers.dev`
+
+The workflow has an explicit production-target guard and refuses:
+- D1 `delightapp-db`
+- Worker `delightapp`
+
+Each run:
+1. runs the parser smoke locally
+2. ensures the isolated staging D1 exists
+3. applies migrations to staging only
+4. resets only the synthetic smoke fixture
+5. generates a temporary masked smoke password and auth secret
+6. deploys the staging Worker
+7. checks frontend assets and health
+8. logs in with the synthetic admin
+9. commits sample imports for rooms 101 and 102
+10. verifies bill/meter values and duplicate protection
+11. asserts the final D1 rows directly
+
+The staging fixture contains no production tenant data.
+
+First full passing staging smoke:
+- GitHub Actions run `36396760799`
+- result: PASS
