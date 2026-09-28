@@ -1,6 +1,7 @@
-const CACHE_NAME = 'somud-hopak-v3-d1';
+const CACHE_NAME = 'somud-hopak-v4-import-export';
 const ASSETS = [
   './index.html',
+  './import-export.js',
   './manifest.json',
   './icon.svg'
 ];
