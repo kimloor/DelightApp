@@ -15,8 +15,12 @@ const TABLES = {
     fromClient: t => [s(t.id),s(t.roomId),s(t.name),s(t.phone),s(t.moveIn != null ? t.moveIn : t.moveInDate)],
   },
   bills: {
-    columns: ['id','room_id','month','invoice_no','rent','water_prev','water_curr','water_charge','electric_prev','electric_curr','electric_charge','total','status','vat_subtotal','vat_amount','tax_invoice_no'],
-    fromClient: b => [s(b.id),s(b.roomId),s(b.month),s(b.invoiceNo),n(b.rent),n(b.waterPrev),n(b.waterCurr),n(b.water),n(b.electricPrev),n(b.electricCurr),n(b.electric),n(b.total),statusBill(b.status),n(b.vatSubtotal),n(b.vatAmount),s(b.taxInvoiceNo)],
+    columns: ['id','room_id','month','invoice_no','rent','water_prev','water_curr','water_charge','electric_prev','electric_curr','electric_charge','total','status','vat_subtotal','vat_amount','tax_invoice_no','bill_date','source_document_no','calculation_mode'],
+    fromClient: b => [
+      s(b.id),s(b.roomId),s(b.month),s(b.invoiceNo),n(b.rent),n(b.waterPrev),n(b.waterCurr),n(b.water),
+      n(b.electricPrev),n(b.electricCurr),n(b.electric),n(b.total),statusBill(b.status),n(b.vatSubtotal),n(b.vatAmount),
+      s(b.taxInvoiceNo),s(b.billDate),s(b.sourceDocumentNo),b.calculationMode==='source_snapshot'?'source_snapshot':'standard'
+    ],
   },
   deposits: {
     columns: ['id','room_id','receipt_no','amount','received_date','note'],
@@ -380,7 +384,17 @@ function rowProperty(r) {
 }
 function rowRoom(r) { return {id:String(r.id),propertyId:String(r.property_id),number:r.room_number||'',floor:r.floor||'',rent:n(r.rent),status:r.status==='occupied'?'occupied':'vacant',roomType:r.room_type||'',deposit:n(r.deposit)}; }
 function rowTenant(r) { return {id:String(r.id),roomId:String(r.room_id),name:r.name||'',phone:r.phone||'',moveIn:r.move_in_date||''}; }
-function rowBill(r) { return {id:String(r.id),roomId:String(r.room_id),month:r.month||'',invoiceNo:r.invoice_no||'',rent:n(r.rent),waterPrev:n(r.water_prev),waterCurr:n(r.water_curr),water:n(r.water_charge),electricPrev:n(r.electric_prev),electricCurr:n(r.electric_curr),electric:n(r.electric_charge),total:n(r.total),status:r.status==='paid'?'paid':'unpaid',vatSubtotal:n(r.vat_subtotal),vatAmount:n(r.vat_amount),taxInvoiceNo:r.tax_invoice_no||''}; }
+function rowBill(r) {
+  return {
+    id:String(r.id),roomId:String(r.room_id),month:r.month||'',invoiceNo:r.invoice_no||'',
+    rent:n(r.rent),waterPrev:n(r.water_prev),waterCurr:n(r.water_curr),water:n(r.water_charge),
+    electricPrev:n(r.electric_prev),electricCurr:n(r.electric_curr),electric:n(r.electric_charge),
+    total:n(r.total),status:r.status==='paid'?'paid':'unpaid',
+    vatSubtotal:n(r.vat_subtotal),vatAmount:n(r.vat_amount),taxInvoiceNo:r.tax_invoice_no||'',
+    billDate:r.bill_date||'',sourceDocumentNo:r.source_document_no||'',
+    calculationMode:r.calculation_mode==='source_snapshot'?'source_snapshot':'standard'
+  };
+}
 function rowDeposit(r) { return {id:String(r.id),roomId:String(r.room_id),receiptNo:r.receipt_no||'',amount:n(r.amount),date:r.received_date||'',note:r.note||''}; }
 function rowMeter(r) { return {id:String(r.id),roomId:String(r.room_id),billId:String(r.bill_id||''),month:r.month||'',type:r.type||'',prev:n(r.previous_reading),curr:n(r.current_reading),units:n(r.units_used),rate:n(r.rate),cost:n(r.cost),recordedAt:r.recorded_at||''}; }
 function rowReceipt(r) {
@@ -894,6 +908,225 @@ async function createBillsRows(env, user, items) {
     await appendLog(env,user,'create','bills',[id],1,'room '+roomId+' month '+month);
   }
   return out;
+}
+
+
+function money2(v) {
+  return Math.round((Number(v)||0) * 100) / 100;
+}
+
+function importRowStatement(env, batchId, row, status, message, billId='', matchedRoomId='') {
+  const sql = `INSERT INTO bill_import_rows (
+    id,import_batch_id,source_page,room_number,matched_room_id,source_document_no,source_bill_date,source_printed_at,billing_month,
+    room_rent_net,furniture_net,furniture_vat,furniture_gross,transformed_rent,
+    water_prev,water_curr,water_units,water_rate,water_charge,water_recorded_at,
+    electric_prev,electric_curr,electric_units,electric_rate,electric_charge,electric_recorded_at,
+    source_vat_subtotal,source_vat_amount,calculated_total,source_total,rounding_adjustment,
+    validation_status,validation_message,bill_id,raw_text
+  ) VALUES (${Array(35).fill('?').join(',')})`;
+  return env.DB.prepare(sql).bind(
+    crypto.randomUUID(),String(batchId),Number(row?.sourcePage)||0,s(row?.roomNumber),s(matchedRoomId),
+    s(row?.sourceDocumentNo),s(row?.sourceBillDate),s(row?.sourcePrintedAt),s(row?.billingMonth),
+    n(row?.roomRentNet),n(row?.furnitureNet),n(row?.furnitureVat),n(row?.furnitureGross),n(row?.transformedRent),
+    n(row?.waterPrev),n(row?.waterCurr),n(row?.waterUnits),n(row?.waterRate),n(row?.waterCharge),s(row?.waterRecordedAt),
+    n(row?.electricPrev),n(row?.electricCurr),n(row?.electricUnits),n(row?.electricRate),n(row?.electricCharge),s(row?.electricRecordedAt),
+    n(row?.sourceVatSubtotal),n(row?.sourceVatAmount),n(row?.calculatedTotal),n(row?.sourceTotal),n(row?.roundingAdjustment),
+    status,s(message).slice(0,500),s(billId),s(row?.rawText).slice(0,12000)
+  );
+}
+
+async function listImportBatches(env, user, propertyId) {
+  const pid=s(propertyId);
+  await requireAdminProperty(env,user,pid);
+  const q=await env.DB.prepare(
+    `SELECT id,property_id,source_filename,source_file_hash,source_format,status,total_rows,imported_rows,skipped_rows,error_rows,created_by,created_at,confirmed_at
+     FROM import_batches WHERE property_id=? ORDER BY created_at DESC LIMIT 20`
+  ).bind(pid).all();
+  return (q.results||[]).map(r=>({
+    id:String(r.id),propertyId:String(r.property_id),sourceFilename:r.source_filename||'',sourceFileHash:r.source_file_hash||'',
+    sourceFormat:r.source_format||'',status:r.status||'',totalRows:Number(r.total_rows)||0,importedRows:Number(r.imported_rows)||0,
+    skippedRows:Number(r.skipped_rows)||0,errorRows:Number(r.error_rows)||0,createdBy:String(r.created_by||''),
+    createdAt:r.created_at||'',confirmedAt:r.confirmed_at||''
+  }));
+}
+
+async function commitBillImport(env, user, body) {
+  if (!user || user.role!=='admin') throw new Error('forbidden');
+  const propertyId=s(body?.propertyId);
+  if(!propertyId) throw new Error('property_id_required');
+  await requireAdminProperty(env,user,propertyId);
+
+  const rows=Array.isArray(body?.rows)?body.rows:[];
+  if(!rows.length) throw new Error('import_rows_required');
+  if(rows.length>500) throw new Error('import_too_many_rows');
+
+  const sourceFilename=s(body?.sourceFilename).slice(0,300);
+  const sourceFileHash=s(body?.sourceFileHash).slice(0,128);
+  const sourceFormat=s(body?.sourceFormat || 'legacy_pdf_v1').slice(0,60);
+
+  if(sourceFileHash){
+    const prior=await env.DB.prepare(
+      "SELECT id FROM import_batches WHERE property_id=? AND source_file_hash=? AND status IN ('confirmed','partial') LIMIT 1"
+    ).bind(propertyId,sourceFileHash).first();
+    if(prior) throw new Error('import_file_already_confirmed');
+  }
+
+  const batchId=crypto.randomUUID();
+  const now=new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO import_batches
+      (id,property_id,source_filename,source_file_hash,source_format,status,total_rows,imported_rows,skipped_rows,error_rows,created_by,created_at,confirmed_at)
+     VALUES (?,?,?,?,?,'processing',?,0,0,0,?,?, '')`
+  ).bind(batchId,propertyId,sourceFilename,sourceFileHash,sourceFormat,rows.length,String(user.id),now).run();
+
+  const importedBills=[];
+  const importedMeters=[];
+  let imported=0, skipped=0, errors=0;
+
+  for(const raw of rows){
+    const row=raw||{};
+    const roomNumber=s(row.roomNumber).trim();
+    const month=s(row.billingMonth).trim();
+    const sourceDoc=s(row.sourceDocumentNo).trim();
+
+    if(row.validationStatus && !['ready','review'].includes(s(row.validationStatus))){
+      errors++;
+      await importRowStatement(env,batchId,row,'error','preview_not_confirmable').run();
+      continue;
+    }
+    if(!roomNumber || !/^\d{4}-\d{2}$/.test(month)){
+      errors++;
+      await importRowStatement(env,batchId,row,'error','missing_room_or_month').run();
+      continue;
+    }
+
+    const room=await env.DB.prepare(
+      'SELECT * FROM rooms WHERE property_id=? AND room_number=? LIMIT 1'
+    ).bind(propertyId,roomNumber).first();
+    if(!room){
+      errors++;
+      await importRowStatement(env,batchId,row,'error','room_not_found').run();
+      continue;
+    }
+
+    const existingMonth=await env.DB.prepare(
+      'SELECT id FROM bills WHERE room_id=? AND month=? LIMIT 1'
+    ).bind(String(room.id),month).first();
+    if(existingMonth){
+      skipped++;
+      await importRowStatement(env,batchId,row,'duplicate','bill_room_month_exists',String(existingMonth.id),String(room.id)).run();
+      continue;
+    }
+
+    if(sourceDoc){
+      const existingDoc=await env.DB.prepare(
+        `SELECT b.id FROM bills b JOIN rooms r ON r.id=b.room_id
+         WHERE r.property_id=? AND b.source_document_no=? LIMIT 1`
+      ).bind(propertyId,sourceDoc).first();
+      if(existingDoc){
+        skipped++;
+        await importRowStatement(env,batchId,row,'duplicate','source_document_exists',String(existingDoc.id),String(room.id)).run();
+        continue;
+      }
+    }
+
+    const rent=money2(row.transformedRent);
+    const water=money2(row.waterCharge);
+    const electric=money2(row.electricCharge);
+    const vatSubtotal=money2(row.sourceVatSubtotal);
+    const vatAmount=money2(row.sourceVatAmount);
+    const total=money2(row.sourceTotal);
+    if(rent<0 || water<0 || electric<0 || total<0){
+      errors++;
+      await importRowStatement(env,batchId,row,'error','negative_amount', '', String(room.id)).run();
+      continue;
+    }
+
+    try{
+      const billId=await nextNumericId(env,'bills');
+      const seq=await nextDocumentSequence(env,'invoice');
+      const invoiceNo=`INV-${month.replace('-','')}-${String(seq).padStart(4,'0')}`;
+      const bill={
+        id:billId,roomId:String(room.id),month,invoiceNo,
+        rent,waterPrev:n(row.waterPrev),waterCurr:n(row.waterCurr),water,
+        electricPrev:n(row.electricPrev),electricCurr:n(row.electricCurr),electric,
+        total,status:'unpaid',vatSubtotal,vatAmount,
+        taxInvoiceNo:sourceDoc,billDate:s(row.sourceBillDate),sourceDocumentNo:sourceDoc,
+        calculationMode:'source_snapshot'
+      };
+
+      const billCfg=TABLES.bills;
+      const billValues=billCfg.fromClient(bill);
+      const billStmt=env.DB.prepare(
+        `INSERT INTO bills (${billCfg.columns.join(',')}) VALUES (${billCfg.columns.map(()=>'?').join(',')})`
+      ).bind(...billValues);
+
+      const statements=[billStmt];
+      const meterDrafts=[];
+
+      if(Number(row.waterCurr)||Number(row.waterPrev)||Number(row.waterCharge)){
+        const meterId=await nextNumericId(env,'meter_readings');
+        const meter={
+          id:meterId,roomId:String(room.id),billId,month,type:'water',
+          prev:n(row.waterPrev),curr:n(row.waterCurr),units:n(row.waterUnits),
+          rate:n(row.waterRate),cost:water,recordedAt:s(row.waterRecordedAt || row.sourceBillDate)
+        };
+        const cfg=TABLES.meterReadings, vals=cfg.fromClient(meter);
+        statements.push(env.DB.prepare(
+          `INSERT INTO meter_readings (${cfg.columns.join(',')}) VALUES (${cfg.columns.map(()=>'?').join(',')})`
+        ).bind(...vals));
+        meterDrafts.push(meter);
+      }
+
+      if(Number(row.electricCurr)||Number(row.electricPrev)||Number(row.electricCharge)){
+        const meterId=await nextNumericId(env,'meter_readings');
+        const meter={
+          id:meterId,roomId:String(room.id),billId,month,type:'electric',
+          prev:n(row.electricPrev),curr:n(row.electricCurr),units:n(row.electricUnits),
+          rate:n(row.electricRate),cost:electric,recordedAt:s(row.electricRecordedAt || row.sourceBillDate)
+        };
+        const cfg=TABLES.meterReadings, vals=cfg.fromClient(meter);
+        statements.push(env.DB.prepare(
+          `INSERT INTO meter_readings (${cfg.columns.join(',')}) VALUES (${cfg.columns.map(()=>'?').join(',')})`
+        ).bind(...vals));
+        meterDrafts.push(meter);
+      }
+
+      statements.push(importRowStatement(env,batchId,row,'imported','',billId,String(room.id)));
+      await env.DB.batch(statements);
+
+      const saved=await dbBill(env,billId);
+      importedBills.push(rowBill(saved));
+      for(const m of meterDrafts){
+        const savedMeter=await env.DB.prepare('SELECT * FROM meter_readings WHERE id=?').bind(String(m.id)).first();
+        if(savedMeter) importedMeters.push(rowMeter(savedMeter));
+      }
+      imported++;
+    }catch(e){
+      errors++;
+      await importRowStatement(env,batchId,row,'error',businessErrorMessage(e),'',String(room.id)).run();
+    }
+  }
+
+  const finalStatus=errors>0 ? (imported>0?'partial':'failed') : 'confirmed';
+  const confirmedAt=new Date().toISOString();
+  await env.DB.prepare(
+    `UPDATE import_batches
+     SET status=?,imported_rows=?,skipped_rows=?,error_rows=?,confirmed_at=?
+     WHERE id=?`
+  ).bind(finalStatus,imported,skipped,errors,confirmedAt,batchId).run();
+
+  await appendLog(
+    env,user,'import_bills','bills',importedBills.map(b=>b.id),imported,
+    `batch ${batchId}; file ${sourceFilename}; skipped ${skipped}; errors ${errors}`,
+    propertyId
+  );
+
+  return {
+    batchId,status:finalStatus,
+    summary:{total:rows.length,imported,skipped,errors},
+    bills:importedBills,meterReadings:importedMeters
+  };
 }
 
 async function updateBillRow(env, user, item) {
@@ -1903,6 +2136,16 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'createBills') {
     try { return {success:true,bills:await createBillsRows(env,x.user,body.items)}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'commitBillImport') {
+    try { return {success:true,...await commitBillImport(env,x.user,body)}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'listImportBatches') {
+    try { return {success:true,batches:await listImportBatches(env,x.user,body.propertyId)}; }
     catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
