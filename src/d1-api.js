@@ -1181,6 +1181,60 @@ async function deleteDepositRow(env, user, depositId) {
   return {success:true,id};
 }
 
+async function batchCreateReceipts(env, user, billIds, date, note) {
+  if (user.role !== 'admin') throw new Error('forbidden');
+  const ids=[...new Set((Array.isArray(billIds)?billIds:[]).map(s).filter(Boolean))];
+  if (!ids.length) throw new Error('no_bills_selected');
+  const receivedDate=s(date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(receivedDate)) throw new Error('invalid_receipt_date');
+
+  const prepared=[];
+  for (const billId of ids) {
+    const bill=await dbBill(env,billId);
+    if (!bill) throw new Error('bill_not_found');
+    await requireRoomAdminAccess(env,user,bill.room_id);
+    if (bill.status==='paid') throw new Error('bulk_receipt_requires_unpaid');
+    if (await activeReceiptForBill(env,billId)) throw new Error('receipt_already_exists');
+
+    const id=await nextNumericId(env,'receipts');
+    const receiptNo=await nextDocumentNo(env,'receipt','RCP',receivedDate);
+    prepared.push({
+      id,
+      billId,
+      roomId:String(bill.room_id),
+      receiptNo,
+      amount:n(bill.total),
+      date:receivedDate,
+      note:s(note),
+      vatSubtotal:n(bill.vat_subtotal),
+      vatAmount:n(bill.vat_amount),
+    });
+  }
+
+  const stmts=[];
+  for (const r of prepared) {
+    stmts.push(
+      env.DB.prepare(
+        "INSERT INTO receipts (id,room_id,bill_id,receipt_no,amount,received_date,note,vat_subtotal,vat_amount,status,voided_at,voided_by_user_id,void_reason) VALUES (?,?,?,?,?,?,?,?,?,'active','','','')"
+      ).bind(r.id,r.roomId,r.billId,r.receiptNo,r.amount,r.date,r.note,r.vatSubtotal,r.vatAmount),
+      env.DB.prepare("UPDATE bills SET status='paid' WHERE id=?").bind(r.billId)
+    );
+  }
+  await env.DB.batch(stmts);
+
+  for (const r of prepared) {
+    await appendLog(env,user,'create','receipts',[String(r.id)],1,'bill '+r.billId);
+  }
+  const receiptRows=[];
+  const billRows=[];
+  for (const r of prepared) {
+    receiptRows.push(rowReceipt(await env.DB.prepare('SELECT * FROM receipts WHERE id=?').bind(r.id).first()));
+    billRows.push(rowBill(await dbBill(env,r.billId)));
+  }
+  return {receipts:receiptRows,bills:billRows};
+}
+
+
 async function createReceiptRow(env, user, item) {
   const billId=s(item?.billId);
   const bill=await dbBill(env,billId);
@@ -1899,6 +1953,11 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'deleteDeposit') {
     try { return await deleteDepositRow(env,x.user,body.id); }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'batchCreateReceipts') {
+    try { return {success:true,...await batchCreateReceipts(env,x.user,body.billIds,body.date,body.note)}; }
     catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
