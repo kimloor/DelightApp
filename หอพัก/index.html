@@ -5232,7 +5232,8 @@ function exportInvoicesPdf(billList){
     const ra = rooms.find(r=>r.id===a.roomId), rb = rooms.find(r=>r.id===b.roomId);
     return (ra?ra.number:'').localeCompare(rb?rb.number:'', 'th', {numeric:true});
   });
-  const label = sorted.length===1 ? (sorted[0].invoiceNo||'บิล') : ('บิลรวม-'+sorted.length+'ใบ-'+(renderBills._month||defaultBillingMonth()));
+  const inferredMonth = sorted.length && sorted.every(b=>b.month===sorted[0].month) ? sorted[0].month : (renderBills._month||defaultBillingMonth());
+  const label = sorted.length===1 ? (sorted[0].invoiceNo||'บิล') : ('บิลรวม-'+sorted.length+'ใบ-'+inferredMonth);
   return exportDocsAsPdf(sorted, invoiceHtml, label);
 }
 
