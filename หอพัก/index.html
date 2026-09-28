@@ -996,11 +996,29 @@
     .meter-history-table-wrap{max-width:100%;overflow:auto;}
   }
 
+  /* ---------- Import / Export ---------- */
+  .io-tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+  .io-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(270px,.85fr);gap:16px;align-items:start;}
+  .io-table{overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:12px;}
+  .io-table table{min-width:850px;}
+  .io-table th,.io-table td{font-size:12.5px;}
+  .io-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0;}
+  .io-summary span{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:12px;}
+  .io-summary b{font-size:17px;margin-left:4px;}
+  .io-pill{display:inline-block;padding:3px 8px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap;}
+  .io-ready{background:var(--teal-soft);color:var(--teal);}
+  .io-review{background:var(--gold-soft);color:#7A571B;}
+  .io-dup{background:#ECE8E1;color:var(--ink-soft);}
+  .io-error{background:var(--rust-soft);color:var(--rust);}
+  @media(max-width:900px){.io-grid{grid-template-columns:1fr;}.io-summary{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
 </style>
 </head>
 <body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="import-export.js"></script>
 
 <div class="login-screen" id="loginScreen" style="display:none;">
   <div class="login-card">
@@ -1124,6 +1142,7 @@
       <button class="nav-btn" data-page="tenants"><span class="icon">☰</span> ผู้เช่า</button>
       <button class="nav-btn" data-page="bills"><span class="icon">฿</span> ค่าเช่า/บิล</button>
       <button class="nav-btn" data-page="reports"><span class="icon">📊</span> รายงานสรุป</button>
+      <button class="nav-btn" data-page="importExport"><span class="icon">⇄</span> Import / Export</button>
     </nav>
   </aside>
 
@@ -2420,6 +2439,7 @@ document.getElementById('propertySelect').addEventListener('change', async (e)=>
     return;
   }
   currentPropertyId = val;
+  importState.propertyId = null;
   try{ localStorage.setItem('dorm:currentProperty', currentPropertyId); }catch(err){}
   render();
 });
@@ -3125,6 +3145,7 @@ function render(){
   else if(currentPage === 'tenants') main.innerHTML = renderTenants();
   else if(currentPage === 'bills') main.innerHTML = renderBills();
   else if(currentPage === 'reports') main.innerHTML = renderReports();
+  else if(currentPage === 'importExport') main.innerHTML = renderImportExport();
   attachPageEvents();
 }
 
@@ -4719,7 +4740,6 @@ function renderReports(){
       <button class="btn ${tab==='monthly'?'':'ghost'} small" data-report-tab="monthly">สรุปยอดรายเดือน</button>
       <button class="btn ${tab==='water'?'':'ghost'} small" data-report-tab="water">สรุปค่าน้ำ</button>
       <button class="btn ${tab==='electric'?'':'ghost'} small" data-report-tab="electric">สรุปค่าไฟ</button>
-      <button class="btn ghost small" id="exportReportPdfBtn" style="margin-left:auto;">📄 บันทึกเป็น PDF</button>
     </div>
     <div id="reportPrintArea">
       ${tab==='monthly' ? renderMonthlyReport(monthsDesc) : ''}
@@ -4913,10 +4933,9 @@ function renderBills(){
       </div>
       <div class="toolbar-actions">
         <details class="action-menu">
-          <summary>🖨 พิมพ์ / Export</summary>
+          <summary>🖨 พิมพ์</summary>
           <div class="action-menu-pop" style="left:0;right:auto;">
             <button type="button" id="printSelectedBtn" ${selectedCount===0?'disabled':''}>🖨 พิมพ์บิลที่เลือก (${selectedCount})</button>
-            <button type="button" id="exportSelectedPdfBtn" ${selectedCount===0?'disabled':''}>📄 PDF บิลที่เลือก (${selectedCount})</button>
             <button type="button" id="printReportBtn" ${monthBills.length===0?'disabled':''}>📊 พิมพ์รายงานเดือนนี้</button>
           </div>
         </details>
@@ -4946,7 +4965,6 @@ function renderBills(){
                 <summary aria-label="เมนูเพิ่มเติม">⋯</summary>
                 <div class="action-menu-pop">
                   <button type="button" class="print-bill" data-id="${b.id}">🖨 พิมพ์ใบแจ้งหนี้</button>
-                  <button type="button" class="export-bill-pdf" data-id="${b.id}">📄 บันทึก PDF</button>
                   ${locked?'':`
                     <button type="button" class="edit-bill" data-id="${b.id}">✎ แก้ไขบิล</button>
                     <button type="button" class="delete-bill danger" data-id="${b.id}">🗑 ลบบิล</button>`}
@@ -4989,6 +5007,7 @@ function invoiceHtml(bill){
   const property = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId)) || {};
   const invoiceNo = bill.invoiceNo || '—';
   const vatOn = !!property.vatEnabled;
+  const invoiceDateObj = bill.billDate ? new Date(bill.billDate+'T00:00:00') : new Date();
 
   const waterUnits = Math.max((Number(bill.waterCurr)||0)-(Number(bill.waterPrev)||0),0);
   const electricUnits = Math.max((Number(bill.electricCurr)||0)-(Number(bill.electricPrev)||0),0);
@@ -5065,7 +5084,7 @@ function invoiceHtml(bill){
           </tr>
           <tr>
             <td class="k">ห้องพัก<br>Room</td><td class="v">${room?escapeAuthHtml('ห้อง '+room.number+(room.floor?' ชั้น '+room.floor:'')):'-'}</td>
-            <td class="k">วันที่<br>Date</td><td class="v" colspan="2">${thaiBuddhistDate()}</td>
+            <td class="k">วันที่<br>Date</td><td class="v" colspan="2">${thaiBuddhistDate(invoiceDateObj)}</td>
           </tr>
         </table>
         <table class="inv-items">
@@ -5523,6 +5542,9 @@ function attachPageEvents(){
   const reportElectricTo = document.getElementById('reportElectricTo');
   if(reportElectricTo) reportElectricTo.onchange = (e)=>{ renderReports._electricTo = e.target.value; render(); };
 
+  // Import / Export
+  attachImportExportEvents();
+
   // Bills
   const genBillBtn = document.getElementById('genBillBtn');
   if(genBillBtn) genBillBtn.onclick = ()=> openModal(createBillsMonthModalHtml());
@@ -5536,11 +5558,6 @@ function attachPageEvents(){
   if(printSelectedBtn) printSelectedBtn.onclick = ()=>{
     const selected = bills.filter(b=>renderBills._selected.has(b.id));
     printInvoices(selected);
-  };
-  const exportSelectedPdfBtn = document.getElementById('exportSelectedPdfBtn');
-  if(exportSelectedPdfBtn) exportSelectedPdfBtn.onclick = ()=>{
-    const selected = bills.filter(b=>renderBills._selected.has(b.id));
-    exportInvoicesPdf(selected);
   };
   const wireSelectAllBills = (el)=>{
     if(!el) return;
@@ -5588,12 +5605,6 @@ function attachPageEvents(){
     el.onclick = ()=>{
       const bill = bills.find(b=>b.id===el.dataset.id);
       if(bill) printInvoice(bill);
-    };
-  });
-  document.querySelectorAll('.export-bill-pdf').forEach(el=>{
-    el.onclick = ()=>{
-      const bill = bills.find(b=>b.id===el.dataset.id);
-      if(bill) exportInvoicePdf(bill);
     };
   });
   document.querySelectorAll('.edit-bill').forEach(el=>{
@@ -6358,6 +6369,7 @@ function computeVatForAmount(amount, vatType, ratePercent){
    แก้บิลมือ, รีเช็คเลขมิเตอร์ ฯลฯ) ถ้าอพาร์ทเมนท์ไม่เปิดใช้ VAT พฤติกรรมเหมือนเดิมทุกประการ
    (total = รวมเช่า+น้ำ+ไฟ ตรงๆ) — เรียกแทนบรรทัด "bill.total = rent+water+electric" เดิมทุกจุด */
 function applyBillVat(bill){
+  if(bill && bill.calculationMode==='source_snapshot') return;
   const room = rooms.find(r=>r.id===bill.roomId);
   const prop = properties.find(p=>p.id===(room?room.propertyId:currentPropertyId));
   if(!prop || !prop.vatEnabled){
