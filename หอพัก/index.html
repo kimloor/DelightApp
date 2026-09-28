@@ -2321,9 +2321,16 @@ function attachModalEvents(){
   const saveRoomBtn = document.getElementById('saveRoomBtn');
   if(saveRoomBtn) saveRoomBtn.onclick = onSaveRoom;
   const confirmCreateBillsBtn = document.getElementById('confirmCreateBillsBtn');
-  if(confirmCreateBillsBtn) confirmCreateBillsBtn.onclick = ()=>{
+  if(confirmCreateBillsBtn) confirmCreateBillsBtn.onclick = async ()=>{
     const month=document.getElementById('f-create-bill-month')?.value || '';
-    generateBills(month);
+    confirmCreateBillsBtn.disabled=true;
+    confirmCreateBillsBtn.textContent='กำลังสร้าง…';
+    try{
+      await generateBills(month);
+    }finally{
+      const btn=document.getElementById('confirmCreateBillsBtn');
+      if(btn){ btn.disabled=false; btn.textContent='สร้างบิล'; }
+    }
   };
   const deleteRoomBtn = document.getElementById('deleteRoomBtn');
   if(deleteRoomBtn) deleteRoomBtn.onclick = onDeleteRoom;
@@ -6103,7 +6110,7 @@ async function onSaveTaxInvoiceRange(){
   }
 }
 
-async function createBillsMonthModalHtml(){
+function createBillsMonthModalHtml(){
   const month = renderBills._month || defaultBillingMonth();
   return `
     <h3>สร้างบิล</h3>
