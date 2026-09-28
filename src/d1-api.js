@@ -870,6 +870,8 @@ async function activeReceiptForBill(env, billId) {
 }
 
 async function requireBillUnlocked(env, billId) {
+  const bill=await dbBill(env,billId);
+  if (bill && bill.calculation_mode==='source_snapshot') throw new Error('imported_bill_snapshot_locked');
   if (await activeReceiptForBill(env,billId)) throw new Error('bill_locked_by_receipt');
 }
 
@@ -1196,7 +1198,7 @@ async function moveBillsRows(env, user, ids, targetMonth) {
     const existing=await dbBill(env,id);
     if (!existing) continue;
     await requireRoomAdminAccess(env,user,existing.room_id);
-    if (await activeReceiptForBill(env,id)) { skipped++; continue; }
+    if (existing.calculation_mode==='source_snapshot' || await activeReceiptForBill(env,id)) { skipped++; continue; }
     if (existing.month===targetMonth) continue;
 
     const dup=await env.DB.prepare('SELECT id FROM bills WHERE room_id=? AND month=? AND id<>? LIMIT 1')
