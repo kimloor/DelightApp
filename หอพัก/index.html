@@ -2520,6 +2520,17 @@ function attachModalEvents(){
   if(saveMeterBtn) saveMeterBtn.onclick = onSaveMeter;
   const saveBulkMeterBtn = document.getElementById('saveBulkMeterBtn');
   if(saveBulkMeterBtn) saveBulkMeterBtn.onclick = onSaveBulkMeter;
+  const editOldMeterBtn = document.getElementById('editOldMeterBtn');
+  if(editOldMeterBtn) editOldMeterBtn.onclick = ()=>{
+    const panel=document.getElementById('oldMeterEditPanel');
+    const inputs=document.querySelectorAll('#modalBody .old-meter-input');
+    const editing=editOldMeterBtn.dataset.editing==='1';
+    editOldMeterBtn.dataset.editing=editing?'0':'1';
+    editOldMeterBtn.textContent=editing?'✎ แก้มิเตอร์เก่า':'✓ กำลังแก้มิเตอร์เก่า';
+    editOldMeterBtn.classList.toggle('soft',!editing);
+    if(panel) panel.style.display=editing?'none':'flex';
+    inputs.forEach(input=>{ input.disabled=editing; });
+  };
   wireBulkMeterLiveCalc();
   const saveBillEditBtn = document.getElementById('saveBillEditBtn');
   if(saveBillEditBtn) saveBillEditBtn.onclick = ()=> onSaveBillEdit(saveBillEditBtn.dataset.id);
@@ -4351,15 +4362,22 @@ function wireBulkMeterLiveCalc(){
   const waterRate = Number(prop.waterRate)||0;
   const electricRate = Number(prop.electricRate)||0;
   document.querySelectorAll('#modalBody tr[data-bill]').forEach(tr=>{
+    const wPrevInput = tr.querySelector('.bm-water-prev');
+    const ePrevInput = tr.querySelector('.bm-electric-prev');
     const wInput = tr.querySelector('.bm-water');
     const eInput = tr.querySelector('.bm-electric');
     const costCell = tr.querySelector('.bm-cost');
-    if(!wInput || !eInput || !costCell) return;
+    if(!wPrevInput || !ePrevInput || !wInput || !eInput || !costCell) return;
     const recalc = ()=>{
-      const wUnits = Math.max((Number(wInput.value)||0) - (Number(wInput.dataset.prev)||0), 0);
-      const eUnits = Math.max((Number(eInput.value)||0) - (Number(eInput.dataset.prev)||0), 0);
+      const wPrev=Number(wPrevInput.value)||0;
+      const ePrev=Number(ePrevInput.value)||0;
+      const wUnits = Math.max((Number(wInput.value)||0) - wPrev, 0);
+      const eUnits = Math.max((Number(eInput.value)||0) - ePrev, 0);
       costCell.textContent = THB(wUnits*waterRate + eUnits*electricRate) + ' บ.';
+      tr.classList.toggle('meter-invalid', (Number(wInput.value)||0)<wPrev || (Number(eInput.value)||0)<ePrev);
     };
+    wPrevInput.oninput = recalc;
+    ePrevInput.oninput = recalc;
     wInput.oninput = recalc;
     eInput.oninput = recalc;
   });
