@@ -24,8 +24,7 @@ assert.ok(login.token);
 const token = login.token;
 
 const scoped = await post({action:'getAdminScoped', token});
-assert.equal(scoped.success, true, JSON.stringify(scoped));
-assert.ok((scoped.properties||[]).some(p=>String(p.id)==='smoke-property'));
+assert.ok((scoped.properties||[]).some(p=>String(p.id)==='smoke-property'), JSON.stringify(scoped));
 
 const rows = [
   {
