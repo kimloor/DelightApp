@@ -968,7 +968,7 @@ async function commitBillImport(env, user, body) {
 
   if(sourceFileHash){
     const prior=await env.DB.prepare(
-      "SELECT id FROM import_batches WHERE property_id=? AND source_file_hash=? AND status IN ('confirmed','partial') LIMIT 1"
+      "SELECT id FROM import_batches WHERE property_id=? AND source_file_hash=? AND status='confirmed' LIMIT 1"
     ).bind(propertyId,sourceFileHash).first();
     if(prior) throw new Error('import_file_already_confirmed');
   }
