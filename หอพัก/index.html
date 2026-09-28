@@ -6098,17 +6098,60 @@ async function onSaveTaxInvoiceRange(){
   }
 }
 
-async function generateBills(){
+async function createBillsMonthModalHtml(){
   const month = renderBills._month || defaultBillingMonth();
+  return `
+    <h3>สร้างบิล</h3>
+    <p class="sub" style="font-size:12.5px;margin-top:-6px;">เลือกเดือนที่ต้องการสร้างบิล ระบบจะสร้างให้ทุกห้องที่มีผู้เช่า</p>
+    <div class="field">
+      <label>เดือนที่จะสร้างบิล</label>
+      <input id="f-create-bill-month" type="month" value="${escapeAuthHtml(month)}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+      <button class="btn" id="confirmCreateBillsBtn">สร้างบิล</button>
+    </div>
+  `;
+}
+
+function existingBillsWarningHtml(month, count){
+  return `
+    <h3>มีข้อมูลบิลอยู่แล้ว</h3>
+    <p class="sub" style="font-size:13px;line-height:1.6;">
+      เดือน <strong>${escapeAuthHtml(monthLabel(month))}</strong> มีข้อมูลบิลอยู่แล้ว ${count} รายการ
+      ระบบจะไม่สร้างบิลซ้ำในเดือนนี้
+    </p>
+    <div class="modal-actions">
+      <button class="btn" id="cancelBtn">ตกลง</button>
+    </div>
+  `;
+}
+async function generateBills(month){
+  const targetMonth = month || renderBills._month || defaultBillingMonth();
+  if(!/^\d{4}-\d{2}$/.test(targetMonth)){
+    showToast('กรุณาเลือกเดือนที่จะสร้างบิล');
+    return;
+  }
+
+  const existing = currentBills().filter(b=>b.month===targetMonth);
+  if(existing.length){
+    openModal(existingBillsWarningHtml(targetMonth, existing.length));
+    return;
+  }
+
   const occupiedRooms = currentRooms().filter(r=>r.status==='occupied');
+  if(!occupiedRooms.length){
+    showToast('ยังไม่มีห้องที่มีผู้เช่า');
+    return;
+  }
+
   const drafts=[];
   occupiedRooms.forEach(room=>{
-    if(bills.find(b=>b.roomId===room.id && b.month===month)) return;
-    const prev = lastBillForRoom(room.id, month);
+    const prev = lastBillForRoom(room.id, targetMonth);
     const waterPrev = prev ? Number(prev.waterCurr||0) : 0;
     const electricPrev = prev ? Number(prev.electricCurr||0) : 0;
     const draft={
-      roomId:room.id, month,
+      roomId:room.id, month:targetMonth,
       rent:Number(room.rent)||0,
       waterPrev, waterCurr:waterPrev, water:0,
       electricPrev, electricCurr:electricPrev, electric:0,
@@ -6117,14 +6160,16 @@ async function generateBills(){
     applyBillVat(draft);
     drafts.push(draft);
   });
+
   try{
     const data=await remoteAuthPost({action:'createBills',items:drafts});
     const created=data.bills||[];
     bills.push(...created);
     cacheLocally();
-    renderBills._month = month;
+    renderBills._month = targetMonth;
+    closeModal();
     render();
-    showToast(created.length>0 ? `สร้างบิลใหม่ ${created.length} ห้อง — อย่าลืมจดเลขมิเตอร์น้ำ-ไฟปัจจุบัน` : 'มีบิลของเดือนนี้ครบทุกห้องแล้ว');
+    showToast(`สร้างบิล ${monthLabel(targetMonth)} แล้ว ${created.length} ห้อง — อย่าลืมจดเลขมิเตอร์น้ำ-ไฟปัจจุบัน`);
   }catch(e){
     if(handleUnauthorized(e)) return;
     showToast('สร้างบิลไม่สำเร็จ');
