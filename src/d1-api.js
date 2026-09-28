@@ -1035,16 +1035,18 @@ async function correctMeterBaselines(env, user, items, correctionDate) {
 
     const oldWater=n(p.existing.water_prev);
     const oldElectric=n(p.existing.electric_prev);
-    const note=[
-      'effective_date='+date,
-      'room='+String(p.existing.room_id),
-      'month='+String(p.existing.month||''),
-      'water_prev '+oldWater+'->'+n(p.next.waterPrev),
-      'electric_prev '+oldElectric+'->'+n(p.next.electricPrev),
-    ].join(' | ');
-    await appendLog(
-      env,user,'correctMeterBaseline','bills',[String(p.next.id)],1,note,String(p.room?.property_id||'')
-    );
+    if (oldWater!==n(p.next.waterPrev) || oldElectric!==n(p.next.electricPrev)) {
+      const note=[
+        'effective_date='+date,
+        'room='+String(p.existing.room_id),
+        'month='+String(p.existing.month||''),
+        'water_prev '+oldWater+'->'+n(p.next.waterPrev),
+        'electric_prev '+oldElectric+'->'+n(p.next.electricPrev),
+      ].join(' | ');
+      await appendLog(
+        env,user,'correctMeterBaseline','bills',[String(p.next.id)],1,note,String(p.room?.property_id||'')
+      );
+    }
     out.push(rowBill(await dbBill(env,p.next.id)));
   }
   return out;
