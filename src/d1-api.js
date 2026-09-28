@@ -980,6 +980,77 @@ async function moveBillsRows(env, user, ids, targetMonth) {
   return {bills:out,skipped};
 }
 
+async function correctMeterBaselines(env, user, items, correctionDate) {
+  if (user.role !== 'admin') throw new Error('forbidden');
+  const date=s(correctionDate).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('invalid_meter_correction_date');
+  const list=Array.isArray(items)?items:[];
+  if (!list.length) return [];
+
+  const prepared=[];
+  for (const raw of list) {
+    const id=s(raw?.id);
+    const existing=await dbBill(env,id);
+    if (!existing) throw new Error('bill_not_found');
+    await requireRoomAdminAccess(env,user,existing.room_id);
+    await requireBillUnlocked(env,id);
+
+    const waterPrev=n(raw?.waterPrev);
+    const electricPrev=n(raw?.electricPrev);
+    const waterCurr=n(raw?.waterCurr);
+    const electricCurr=n(raw?.electricCurr);
+    if (waterPrev < 0 || electricPrev < 0) throw new Error('invalid_meter_baseline');
+    if (waterCurr < waterPrev || electricCurr < electricPrev) throw new Error('meter_current_less_than_previous');
+
+    const next={
+      ...rowBill(existing),
+      waterPrev,
+      waterCurr,
+      water:n(raw?.water),
+      electricPrev,
+      electricCurr,
+      electric:n(raw?.electric),
+      total:n(raw?.total),
+      vatSubtotal:n(raw?.vatSubtotal),
+      vatAmount:n(raw?.vatAmount),
+    };
+    const room=await dbRoom(env,existing.room_id);
+    prepared.push({existing,next,room});
+  }
+
+  const out=[];
+  for (const p of prepared) {
+    await updateLogicalRow(env,'bills',p.next);
+
+    const waterUnits=Math.max(n(p.next.waterCurr)-n(p.next.waterPrev),0);
+    const electricUnits=Math.max(n(p.next.electricCurr)-n(p.next.electricPrev),0);
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE meter_readings SET previous_reading=?,units_used=?,cost=? WHERE bill_id=? AND type='water'"
+      ).bind(n(p.next.waterPrev),waterUnits,n(p.next.water),String(p.next.id)),
+      env.DB.prepare(
+        "UPDATE meter_readings SET previous_reading=?,units_used=?,cost=? WHERE bill_id=? AND type='electric'"
+      ).bind(n(p.next.electricPrev),electricUnits,n(p.next.electric),String(p.next.id)),
+    ]);
+
+    const oldWater=n(p.existing.water_prev);
+    const oldElectric=n(p.existing.electric_prev);
+    const note=[
+      'effective_date='+date,
+      'room='+String(p.existing.room_id),
+      'month='+String(p.existing.month||''),
+      'water_prev '+oldWater+'->'+n(p.next.waterPrev),
+      'electric_prev '+oldElectric+'->'+n(p.next.electricPrev),
+    ].join(' | ');
+    await appendLog(
+      env,user,'correctMeterBaseline','bills',[String(p.next.id)],1,note,String(p.room?.property_id||'')
+    );
+    out.push(rowBill(await dbBill(env,p.next.id)));
+  }
+  return out;
+}
+
+
 async function createMeterReadingRows(env, user, items) {
   if (user.role !== 'admin') throw new Error('forbidden');
   const list=Array.isArray(items)?items:[];
@@ -1796,6 +1867,11 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'moveBills') {
     try { return {success:true,...await moveBillsRows(env,x.user,body.ids,body.targetMonth)}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'correctMeterBaselines') {
+    try { return {success:true,bills:await correctMeterBaselines(env,x.user,body.items,body.correctionDate)}; }
     catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
