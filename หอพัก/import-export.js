@@ -125,18 +125,27 @@ function ieExportBills(){
   return currentBills().filter(b=>b.month===renderImportExport._month).sort((a,b)=>{const x=rooms.find(r=>r.id===a.roomId),y=rooms.find(r=>r.id===b.roomId);return (x?.number||'').localeCompare(y?.number||'','th',{numeric:true});});
 }
 function renderExportPane(){
-  const ms=[...availableMonths()].reverse(), list=ieExportBills();
+  const ms=[...availableMonths()].reverse(), asc=[...availableMonths()], list=ieExportBills();
   if(!(renderImportExport._selected instanceof Set)||renderImportExport._selMonth!==renderImportExport._month){
     renderImportExport._selected=new Set(list.map(b=>String(b.id)));renderImportExport._selMonth=renderImportExport._month;
   }
+  if(!renderImportExport._reportType)renderImportExport._reportType='monthly';
+  if(!renderImportExport._rangeFrom||!asc.includes(renderImportExport._rangeFrom))renderImportExport._rangeFrom=asc[0]||renderImportExport._month;
+  if(!renderImportExport._rangeTo||!asc.includes(renderImportExport._rangeTo))renderImportExport._rangeTo=asc[asc.length-1]||renderImportExport._month;
   const s=renderImportExport._selected, all=list.length&&list.every(b=>s.has(String(b.id)));
   const roomIds=new Set(currentRooms().map(r=>String(r.id)));
   const rcs=receipts.filter(r=>roomIds.has(String(r.roomId))).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
   const deps=deposits.filter(d=>roomIds.has(String(d.roomId))).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
   const roomLabel=id=>{const r=rooms.find(x=>String(x.id)===String(id));return r?r.number:'-';};
-  return `<div class="card"><div class="card-head"><div><h3>Export บิล / รายงาน</h3><p class="sub">รวมการบันทึก PDF ไว้จุดเดียว</p></div><select id="exportMonth" class="toolbar-select">${ms.map(m=>`<option value="${m}" ${m===renderImportExport._month?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div>
-  <div class="toolbar-actions"><button class="btn" id="exportBills" ${s.size?'':'disabled'}>📄 PDF บิลที่เลือก (${s.size})</button><button class="btn ghost" id="exportReport" ${list.length?'':'disabled'}>📊 PDF รายงานเดือนนี้</button></div>
+  return `<div class="card"><div class="card-head"><div><h3>Export บิล</h3><p class="sub">เลือกเดือนและบิลที่ต้องการบันทึก PDF</p></div><select id="exportMonth" class="toolbar-select">${ms.map(m=>`<option value="${m}" ${m===renderImportExport._month?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div>
+  <div class="toolbar-actions"><button class="btn" id="exportBills" ${s.size?'':'disabled'}>📄 PDF บิลที่เลือก (${s.size})</button></div>
   <div class="io-table"><table><thead><tr><th><input id="exportAll" type="checkbox" ${all?'checked':''}></th><th>ห้อง</th><th>เลขบิล</th><th>ค่าห้อง</th><th>น้ำ</th><th>ไฟ</th><th>รวม</th></tr></thead><tbody>${list.map(b=>{const r=rooms.find(x=>x.id===b.roomId);return `<tr><td><input class="exportSel" data-id="${b.id}" type="checkbox" ${s.has(String(b.id))?'checked':''}></td><td><b>${escapeAuthHtml(r?.number||'-')}</b></td><td>${escapeAuthHtml(b.invoiceNo||'-')}</td><td>${ieMoney(b.rent)}</td><td>${ieMoney(b.water)}</td><td>${ieMoney(b.electric)}</td><td><b>${ieMoney(b.total)}</b></td></tr>`}).join('')}</tbody></table></div></div>
+  <div class="card" style="margin-top:16px"><div class="card-head"><h3>Export รายงานสรุป</h3></div>
+    <div class="field-row"><div class="field"><label>ประเภทรายงาน</label><select id="exportReportType"><option value="monthly" ${renderImportExport._reportType==='monthly'?'selected':''}>สรุปยอดรายเดือน</option><option value="water" ${renderImportExport._reportType==='water'?'selected':''}>สรุปค่าน้ำ</option><option value="electric" ${renderImportExport._reportType==='electric'?'selected':''}>สรุปค่าไฟ</option></select></div>
+    <div class="field"><label>เดือน (รายงานรายเดือน)</label><select id="exportReportMonth">${ms.map(m=>`<option value="${m}" ${m===renderImportExport._month?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div></div>
+    <div class="field-row"><div class="field"><label>ช่วงเริ่มต้น (น้ำ/ไฟ)</label><select id="exportRangeFrom">${asc.map(m=>`<option value="${m}" ${m===renderImportExport._rangeFrom?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div><div class="field"><label>ถึงเดือน</label><select id="exportRangeTo">${asc.map(m=>`<option value="${m}" ${m===renderImportExport._rangeTo?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div></div>
+    <button class="btn ghost" id="exportReport">📊 PDF รายงาน</button>
+  </div>
   <div class="card" style="margin-top:16px"><div class="card-head"><h3>Export เอกสารรับเงิน</h3></div>
     <div class="field"><label>ใบเสร็จรับเงิน</label><div style="display:flex;gap:8px"><select id="exportReceiptSelect" style="flex:1"><option value="">${rcs.length?'เลือกใบเสร็จ…':'ยังไม่มีใบเสร็จ'}</option>${rcs.map(r=>`<option value="${r.id}">ห้อง ${escapeAuthHtml(roomLabel(r.roomId))} · ${escapeAuthHtml(r.receiptNo||'-')} · ${formatThaiDate(r.date)}</option>`).join('')}</select><button class="btn ghost" id="exportReceiptBtn" ${rcs.length?'':'disabled'}>📄 PDF</button></div></div>
     <div class="field"><label>ใบรับเงินมัดจำ</label><div style="display:flex;gap:8px"><select id="exportDepositSelect" style="flex:1"><option value="">${deps.length?'เลือกใบรับมัดจำ…':'ยังไม่มีใบรับมัดจำ'}</option>${deps.map(d=>`<option value="${d.id}">ห้อง ${escapeAuthHtml(roomLabel(d.roomId))} · ${escapeAuthHtml(d.receiptNo||'-')} · ${formatThaiDate(d.date)}</option>`).join('')}</select><button class="btn ghost" id="exportDepositBtn" ${deps.length?'':'disabled'}>📄 PDF</button></div></div>
@@ -159,10 +168,22 @@ async function confirmImportRows(){
   }catch(e){if(handleUnauthorized(e))return;showToast(String(e.message||e)==='import_file_already_confirmed'?'ไฟล์นี้เคยนำเข้าแล้ว':'นำเข้าไม่สำเร็จ');}
 }
 async function exportImportMonthlyReport(){
-  const old=renderReports._month;renderReports._month=renderImportExport._month;const html=renderMonthlyReport([...availableMonths()].reverse());renderReports._month=old;
-  if(!pdfLibsReady())return showToast('PDF library ยังไม่พร้อม');
-  const box=document.createElement('div');box.className='pdf-render-box';box.style.width='900px';box.innerHTML=html;document.body.appendChild(box);
-  try{await ensureFontsReady();const cv=await html2canvas(box,{scale:2,useCORS:true,backgroundColor:'#fff',windowWidth:900});const {jsPDF}=window.jspdf,doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});addCanvasToDoc(doc,cv,8,true);doc.save(('รายงานสรุป-'+monthLabel(renderImportExport._month)).replace(/[\\/:*?"<>|]/g,'-')+'.pdf');}finally{box.remove();}
+  if(!pdfLibsReady()){showToast('PDF library ยังไม่พร้อม');return;}
+  const asc=[...availableMonths()], desc=[...asc].reverse(), type=renderImportExport._reportType||'monthly';
+  const old={tab:renderReports._tab,month:renderReports._month,wf:renderReports._waterFrom,wt:renderReports._waterTo,ef:renderReports._electricFrom,et:renderReports._electricTo};
+  renderReports._tab=type;renderReports._month=renderImportExport._month;
+  if(type==='water'){renderReports._waterFrom=renderImportExport._rangeFrom;renderReports._waterTo=renderImportExport._rangeTo;}
+  if(type==='electric'){renderReports._electricFrom=renderImportExport._rangeFrom;renderReports._electricTo=renderImportExport._rangeTo;}
+  const html=type==='monthly'?renderMonthlyReport(desc):renderRangeReport(type,asc);
+  renderReports._tab=old.tab;renderReports._month=old.month;renderReports._waterFrom=old.wf;renderReports._waterTo=old.wt;renderReports._electricFrom=old.ef;renderReports._electricTo=old.et;
+  const box=document.createElement('div');box.className='pdf-render-box';box.style.width='900px';box.style.padding='4px';box.innerHTML=html;document.body.appendChild(box);
+  try{
+    await ensureFontsReady();await new Promise(r=>requestAnimationFrame(r));
+    const cv=await html2canvas(box,{scale:2,useCORS:true,backgroundColor:'#fff',windowWidth:900});
+    const {jsPDF}=window.jspdf,doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});addCanvasToDoc(doc,cv,8,true);
+    const label=type==='monthly'?'รายเดือน-'+renderImportExport._month:(type==='water'?'ค่าน้ำ':'ค่าไฟ')+'-'+renderImportExport._rangeFrom+'-'+renderImportExport._rangeTo;
+    doc.save(('รายงานสรุป-'+label).replace(/[\\/:*?"<>|]/g,'-')+'.pdf');showToast('บันทึก PDF รายงานแล้ว');
+  }catch(e){console.error(e);showToast('สร้าง PDF รายงานไม่สำเร็จ');}finally{box.remove();}
 }
 function attachImportExportEvents(){
   document.querySelectorAll('[data-io]').forEach(x=>x.onclick=()=>{renderImportExport._tab=x.dataset.io;render();});
@@ -176,6 +197,10 @@ function attachImportExportEvents(){
   const ea=document.getElementById('exportAll');if(ea)ea.onchange=e=>{ieExportBills().forEach(b=>e.target.checked?renderImportExport._selected.add(String(b.id)):renderImportExport._selected.delete(String(b.id)));render();};
   document.querySelectorAll('.exportSel').forEach(x=>x.onchange=e=>{e.target.checked?renderImportExport._selected.add(String(x.dataset.id)):renderImportExport._selected.delete(String(x.dataset.id));render();});
   const eb=document.getElementById('exportBills');if(eb)eb.onclick=()=>exportInvoicesPdf(ieExportBills().filter(b=>renderImportExport._selected.has(String(b.id))));
+  const rt=document.getElementById('exportReportType');if(rt)rt.onchange=e=>{renderImportExport._reportType=e.target.value;render();};
+  const rm=document.getElementById('exportReportMonth');if(rm)rm.onchange=e=>{renderImportExport._month=e.target.value;renderImportExport._selMonth=null;render();};
+  const rf=document.getElementById('exportRangeFrom');if(rf)rf.onchange=e=>{renderImportExport._rangeFrom=e.target.value;};
+  const rr=document.getElementById('exportRangeTo');if(rr)rr.onchange=e=>{renderImportExport._rangeTo=e.target.value;};
   const er=document.getElementById('exportReport');if(er)er.onclick=exportImportMonthlyReport;
   const rb=document.getElementById('exportReceiptBtn');if(rb)rb.onclick=()=>{const id=document.getElementById('exportReceiptSelect')?.value,rc=receipts.find(r=>String(r.id)===String(id));if(rc)exportReceiptPdf(rc);else showToast('เลือกใบเสร็จก่อน');};
   const db=document.getElementById('exportDepositBtn');if(db)db.onclick=()=>{const id=document.getElementById('exportDepositSelect')?.value,dep=deposits.find(d=>String(d.id)===String(id));if(dep)exportDepositPdf(dep);else showToast('เลือกใบรับมัดจำก่อน');};
