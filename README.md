@@ -14,6 +14,9 @@ Thai dormitory/apartment management web application.
 Start here:
 
 - [PROJECT.md](PROJECT.md) — current production architecture, behavior and technical state
+- [USER-MANUAL.md](USER-MANUAL.md) — คู่มือใช้งานระบบสำหรับผู้ดูแลหอพัก
+- [ADMIN-GUIDE.md](ADMIN-GUIDE.md) — คู่มือ Owner/Admin/Superadmin และการดูแลระบบ
+- [SYSTEM-FLOWS.md](SYSTEM-FLOWS.md) — workflow หลักและความสัมพันธ์ของระบบ
 - [D1-MIGRATION.md](D1-MIGRATION.md) — completed Google Sheets -> D1 migration record and rollback notes
 - [ROADMAP.md](ROADMAP.md) — future product features and planned capabilities
 - [STABILIZATION.md](STABILIZATION.md) — current hardening priorities before major new features
