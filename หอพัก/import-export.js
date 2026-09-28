@@ -55,7 +55,7 @@ function parseLegacyBillPage(items,pageNo){
   const sourceVatSubtotal=ieNum(tail[0]||0), sourceVatAmount=ieNum(tail[1]||0), sourceTotal=ieNum(tail[2]||0);
   const vm=/ภาษีมูลค่าเพิ่ม\s*(\d+(?:\.\d+)?)%/.exec(raw), vatRate=vm?Number(vm[1]):7;
   const furnitureVat=ieNum(furnitureNet*vatRate/100), furnitureGross=ieNum(furnitureNet+furnitureVat), transformedRent=ieNum(roomRentNet+furnitureGross);
-  const calculatedTotal=ieNum(transformedRent+waterCharge+electricCharge+ieNum(waterCharge*vatRate/100)+ieNum(electricCharge*vatRate/100));
+  const calculatedTotal=ieNum(sourceVatSubtotal+sourceVatAmount);
   const pm=/พิมพ์เมื่อ\s*(\d{1,2}\/\d{1,2}\/\d{4})\s+(\d{1,2}:\d{2}:\d{2})/.exec(raw), sourcePrintedAt=pm?ieDate(pm[1])+'T'+pm[2]:'';
   const room=currentRooms().find(x=>String(x.number).trim()===roomNumber), missing=[];
   if(!roomNumber)missing.push('เลขห้อง'); if(!sourceDocumentNo)missing.push('เลขเอกสาร'); if(!sourceBillDate)missing.push('วันที่');
@@ -71,7 +71,7 @@ function parseLegacyBillPage(items,pageNo){
     if(Math.abs((em.curr-em.prev)-electricUnits)>.02)q.push('หน่วยไฟ');
     if(Math.abs(ieNum(waterUnits*waterRate)-waterCharge)>.05)q.push('ยอดน้ำ');
     if(Math.abs(ieNum(electricUnits*electricRate)-electricCharge)>.05)q.push('ยอดไฟ');
-    const expectedVat=ieNum(furnitureVat+ieNum(waterCharge*vatRate/100)+ieNum(electricCharge*vatRate/100));
+    const expectedVat=ieNum((furnitureNet+waterCharge+electricCharge)*vatRate/100);
     if(Math.abs(expectedVat-sourceVatAmount)>.05)q.push('VAT');
     if(Math.round(calculatedTotal)!==Math.round(sourceTotal)&&Math.abs(calculatedTotal-sourceTotal)>.01)q.push('ยอดรวม');
     if(q.length){validationStatus='review';validationMessage='ตรวจสอบ: '+q.join(', ');}
