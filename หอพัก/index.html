@@ -2320,6 +2320,11 @@ function attachModalEvents(){
 
   const saveRoomBtn = document.getElementById('saveRoomBtn');
   if(saveRoomBtn) saveRoomBtn.onclick = onSaveRoom;
+  const confirmCreateBillsBtn = document.getElementById('confirmCreateBillsBtn');
+  if(confirmCreateBillsBtn) confirmCreateBillsBtn.onclick = ()=>{
+    const month=document.getElementById('f-create-bill-month')?.value || '';
+    generateBills(month);
+  };
   const deleteRoomBtn = document.getElementById('deleteRoomBtn');
   if(deleteRoomBtn) deleteRoomBtn.onclick = onDeleteRoom;
   const saveBulkRoomsBtn = document.getElementById('saveBulkRoomsBtn');
