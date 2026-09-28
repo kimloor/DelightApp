@@ -61,16 +61,14 @@ jobs:
 
           if [ -z "$DB_ID" ] || [ "$DB_ID" = "null" ]; then
             echo "Creating isolated staging D1: $STAGING_DB_NAME"
-            CREATE_OUT="$(npx --yes wrangler@4 d1 create "$STAGING_DB_NAME" --json 2>&1 || true)"
-            DB_ID="$(printf '%s' "$CREATE_OUT" | jq -r '(.uuid // .id // empty)' 2>/dev/null || true)"
+            npx --yes wrangler@4 d1 create "$STAGING_DB_NAME" --location apac
 
-            if [ -z "$DB_ID" ]; then
-              CREATE_OUT="$(npx --yes wrangler@4 d1 create "$STAGING_DB_NAME" 2>&1 || true)"
-              DB_ID="$(printf '%s' "$CREATE_OUT" | sed -n 's/.*database_id[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
-            fi
+            LIST_JSON="$(npx --yes wrangler@4 d1 list --json)"
+            DB_ID="$(printf '%s' "$LIST_JSON" | jq -r --arg name "$STAGING_DB_NAME" '.[] | select(.name==$name) | (.uuid // .id)' | head -1)"
           fi
 
           test -n "$DB_ID"
+          test "$DB_ID" != "null"
           echo "db_id=$DB_ID" >> "$GITHUB_OUTPUT"
           echo "staging_db_ready=PASS"
 
