@@ -46,7 +46,8 @@ function parseLegacyBillPage(items,pageNo){
   const billingMonth=ieMonth(ieAfter(a,'รอบ/ปี',/^(\d{1,2}\/\d{4})$/));
   const f=ieNums(a,'ค่าเช่าเฟอร์นิเจอร์',3), r=ieNums(a,'ค่าเช่าห้องพัก',3), e=ieNums(a,'ค่าไฟฟ้า',4), w=ieNums(a,'ค่าน้ำ',4);
   const furnitureNet=ieNum(f.length>=3?f[2]:(f.at(-1)||0)), roomRentNet=ieNum(r.length>=3?r[2]:(r.at(-1)||0));
-  const em=ieMeter(a.find(x=>x.startsWith('ค่าไฟฟ้า'))), wm=ieMeter(a.find(x=>x.startsWith('ค่าน้ำ')));
+  const meterChunk=label=>{const k=a.findIndex(x=>String(x).startsWith(label));return k>=0?a.slice(k,k+8).join(' '):'';};
+  const em=ieMeter(meterChunk('ค่าไฟฟ้า')), wm=ieMeter(meterChunk('ค่าน้ำ'));
   const electricUnits=ieNum(e[0]||Math.max(em.curr-em.prev,0)), electricRate=ieNum(e[1]||0), electricCharge=ieNum(e[2]||0);
   const waterUnits=ieNum(w[0]||Math.max(wm.curr-wm.prev,0)), waterRate=ieNum(w[1]||0), waterCharge=ieNum(w[2]||0);
   const t=a.findIndex(x=>x==='รวมมูลค่า'), tail=[];
