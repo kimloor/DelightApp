@@ -4659,7 +4659,7 @@ function renderBills(){
             <button type="button" id="meterHistoryBtn">📜 ประวัติมิเตอร์</button>
           </div>
         </details>
-        <button class="btn" id="genBillBtn" ${currentRooms().filter(r=>r.status==='occupied').length===0?'disabled':''}>+ สร้างบิลเดือนนี้</button>
+        <button class="btn" id="genBillBtn" ${currentRooms().filter(r=>r.status==='occupied').length===0?'disabled':''}>+ สร้างบิล</button>
       </div>
     </div>
 
@@ -4683,7 +4683,7 @@ function renderBills(){
         <button class="btn ghost small" id="moveBillsBtn" ${selectedCount===0?'disabled':''}>📅 ย้ายไปเดือนอื่น</button>
         ${prop.vatEnabled?`<button class="btn ghost small" id="taxInvoiceRangeBtn" ${selectedCount===0?'disabled':''}>📇 กำหนดเลขที่ใบกำกับภาษี</button>`:''}
       </div>
-      ${monthBills.length===0 ? `<div class="empty"><div class="big">🧾</div>ยังไม่มีบิลของเดือนนี้ กด “สร้างบิลเดือนนี้” เพื่อสร้างบิลให้ทุกห้องที่มีผู้เช่า</div>` : `
+      ${monthBills.length===0 ? `<div class="empty"><div class="big">🧾</div>ยังไม่มีบิลของเดือนนี้ กด “สร้างบิล” แล้วเลือกเดือนที่ต้องการสร้าง</div>` : `
       <label class="bill-select-all-mobile"><input type="checkbox" id="selectAllBillsMobile" ${allSelected?'checked':''}> <span>เลือกทั้งหมด</span></label>
       <table id="billsTable">
         <thead><tr><th style="width:34px;"><input type="checkbox" id="selectAllBills" ${allSelected?'checked':''}></th><th>ห้อง</th><th>ค่าเช่า</th><th>ค่าน้ำ (เลขมิเตอร์)</th><th>ค่าไฟ (เลขมิเตอร์)</th><th>รวม</th><th>สถานะ</th><th></th></tr></thead>
@@ -5283,7 +5283,7 @@ function attachPageEvents(){
 
   // Bills
   const genBillBtn = document.getElementById('genBillBtn');
-  if(genBillBtn) genBillBtn.onclick = generateBills;
+  if(genBillBtn) genBillBtn.onclick = ()=> openModal(createBillsMonthModalHtml());
   const monthSelect = document.getElementById('monthSelect');
   if(monthSelect) monthSelect.onchange = (e)=>{ renderBills._month = e.target.value; render(); };
   const clearBillRoomFilterBtn = document.getElementById('clearBillRoomFilterBtn');
