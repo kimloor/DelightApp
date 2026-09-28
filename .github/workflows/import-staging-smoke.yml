@@ -1,0 +1,274 @@
+name: Import Staging Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/import-staging-smoke.yml"
+      - "src/**"
+      - "migrations/**"
+      - "หอพัก/**"
+      - "tests/import-**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: delightapp-import-staging-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 72a2af0ff5c5e4a83d037953f8a35356
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      STAGING_DB_NAME: delightapp-db-staging
+      STAGING_WORKER_NAME: delightapp-staging
+      STAGING_URL: https://delightapp-staging.ekqtjl.workers.dev
+      SMOKE_USERNAME: smoke-admin
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Local parser smoke
+        run: node tests/import-export-parser-smoke.cjs
+
+      - name: Guard against production targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$STAGING_DB_NAME" = "delightapp-db-staging"
+          test "$STAGING_WORKER_NAME" = "delightapp-staging"
+          test "$STAGING_DB_NAME" != "delightapp-db"
+          test "$STAGING_WORKER_NAME" != "delightapp"
+          echo "production_target_guard=PASS"
+
+      - name: Validate Cloudflare authentication
+        run: npx --yes wrangler@4 whoami
+
+      - name: Ensure isolated staging D1
+        id: staging_db
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIST_JSON="$(npx --yes wrangler@4 d1 list --json)"
+          DB_ID="$(printf '%s' "$LIST_JSON" | jq -r --arg name "$STAGING_DB_NAME" '.[] | select(.name==$name) | (.uuid // .id)' | head -1)"
+
+          if [ -z "$DB_ID" ] || [ "$DB_ID" = "null" ]; then
+            echo "Creating isolated staging D1: $STAGING_DB_NAME"
+            CREATE_OUT="$(npx --yes wrangler@4 d1 create "$STAGING_DB_NAME" --json 2>&1 || true)"
+            DB_ID="$(printf '%s' "$CREATE_OUT" | jq -r '(.uuid // .id // empty)' 2>/dev/null || true)"
+
+            if [ -z "$DB_ID" ]; then
+              CREATE_OUT="$(npx --yes wrangler@4 d1 create "$STAGING_DB_NAME" 2>&1 || true)"
+              DB_ID="$(printf '%s' "$CREATE_OUT" | sed -n 's/.*database_id[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+            fi
+          fi
+
+          test -n "$DB_ID"
+          echo "db_id=$DB_ID" >> "$GITHUB_OUTPUT"
+          echo "staging_db_ready=PASS"
+
+      - name: Generate isolated staging config
+        shell: bash
+        env:
+          DB_ID: ${{ steps.staging_db.outputs.db_id }}
+        run: |
+          set -euo pipefail
+          AUTH_SECRET="$(openssl rand -hex 32)"
+          SMOKE_PASSWORD="$(openssl rand -hex 16)"
+          SMOKE_SALT="delightapp-smoke-salt"
+
+          echo "::add-mask::$AUTH_SECRET"
+          echo "::add-mask::$SMOKE_PASSWORD"
+          echo "SMOKE_PASSWORD=$SMOKE_PASSWORD" >> "$GITHUB_ENV"
+          echo "SMOKE_SALT=$SMOKE_SALT" >> "$GITHUB_ENV"
+
+          cat > wrangler.staging.generated.json <<EOF
+          {
+            "name": "$STAGING_WORKER_NAME",
+            "main": "src/d1-api.js",
+            "account_id": "$CLOUDFLARE_ACCOUNT_ID",
+            "compatibility_date": "2026-07-20",
+            "observability": {"enabled": true},
+            "assets": {
+              "directory": "หอพัก",
+              "binding": "ASSETS",
+              "run_worker_first": ["/api", "/api/*"]
+            },
+            "d1_databases": [
+              {
+                "binding": "DB",
+                "database_name": "$STAGING_DB_NAME",
+                "database_id": "$DB_ID",
+                "migrations_dir": "migrations"
+              }
+            ],
+            "vars": {
+              "ALLOWED_ORIGIN": "*",
+              "AUTH_SECRET": "$AUTH_SECRET"
+            },
+            "compatibility_flags": ["nodejs_compat"]
+          }
+          EOF
+
+          grep -q "\"name\": \"delightapp-staging\"" wrangler.staging.generated.json
+          grep -q "\"database_name\": \"delightapp-db-staging\"" wrangler.staging.generated.json
+          if grep -q "\"database_name\": \"delightapp-db\"" wrangler.staging.generated.json; then
+            echo "Refusing production D1 binding"
+            exit 1
+          fi
+
+      - name: Apply migrations to staging only
+        run: npx --yes wrangler@4 d1 migrations apply DB --remote --config wrangler.staging.generated.json
+
+      - name: Reset and seed synthetic staging data
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PASSWORD_HASH="$(node - <<'NODE'
+          const crypto=require('crypto');
+          process.stdout.write(
+            crypto.createHash('sha256')
+              .update(process.env.SMOKE_PASSWORD + ':' + process.env.SMOKE_SALT)
+              .digest('hex')
+          );
+          NODE
+          )"
+
+          cat > /tmp/staging-seed.sql <<EOF
+          PRAGMA foreign_keys = ON;
+
+          DELETE FROM bill_import_rows
+            WHERE import_batch_id IN (SELECT id FROM import_batches WHERE property_id='smoke-property');
+          DELETE FROM import_batches WHERE property_id='smoke-property';
+
+          DELETE FROM meter_readings WHERE room_id IN ('smoke-room-101','smoke-room-102');
+          DELETE FROM receipts WHERE room_id IN ('smoke-room-101','smoke-room-102');
+          DELETE FROM deposits WHERE room_id IN ('smoke-room-101','smoke-room-102');
+          DELETE FROM room_layouts WHERE room_id IN ('smoke-room-101','smoke-room-102');
+          DELETE FROM bills WHERE room_id IN ('smoke-room-101','smoke-room-102');
+
+          DELETE FROM tenant_accounts
+            WHERE tenant_id IN (SELECT id FROM tenants WHERE room_id IN ('smoke-room-101','smoke-room-102'));
+          DELETE FROM tenants WHERE room_id IN ('smoke-room-101','smoke-room-102');
+
+          DELETE FROM property_admins WHERE property_id='smoke-property' OR user_id='smoke-admin';
+          DELETE FROM rooms WHERE property_id='smoke-property';
+          DELETE FROM properties WHERE id='smoke-property';
+          DELETE FROM users WHERE id='smoke-admin' OR username='smoke-admin';
+          DELETE FROM auth_login_limits;
+          DELETE FROM audit_logs WHERE property_id='smoke-property' OR user_id='smoke-admin';
+
+          INSERT INTO users
+            (id,username,password_hash,salt,display_name,created_at,role,platform_role,password_algo,password_iterations,session_version,account_status)
+          VALUES
+            ('smoke-admin','smoke-admin','$PASSWORD_HASH','$SMOKE_SALT','Smoke Admin',datetime('now'),'admin','normal','legacy_sha256',0,1,'active');
+
+          INSERT INTO properties
+            (id,name,water_rate,electric_rate,address,bill_notes,qr_image,owner_id,vat_enabled,vat_rate,vat_type_rent,vat_type_water,vat_type_electric,tax_id,legal_name)
+          VALUES
+            ('smoke-property','DelightApp Staging Smoke',30,8,'Synthetic staging only','','','smoke-admin',1,7,'none','exclusive','exclusive','','Synthetic Staging');
+
+          INSERT INTO property_admins (property_id,user_id,access_role,created_at)
+          VALUES ('smoke-property','smoke-admin','owner',datetime('now'));
+
+          INSERT INTO rooms (id,property_id,room_number,floor,rent,status,room_type,deposit)
+          VALUES
+            ('smoke-room-101','smoke-property','101','1',3500,'occupied','smoke',0),
+            ('smoke-room-102','smoke-property','102','1',3000,'occupied','smoke',0);
+          EOF
+
+          npx --yes wrangler@4 d1 execute DB --remote --config wrangler.staging.generated.json --file /tmp/staging-seed.sql
+          echo "staging_seed=PASS"
+
+      - name: Deploy isolated staging Worker
+        run: npx --yes wrangler@4 deploy --config wrangler.staging.generated.json
+
+      - name: Wait for staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5 6 7 8; do
+            if curl -fsS "$STAGING_URL/api?action=ping" | grep -q '"backend":"d1"'; then
+              echo "staging_ping=PASS"
+              exit 0
+            fi
+            sleep 4
+          done
+          echo "Staging Worker did not become healthy"
+          exit 1
+
+      - name: Frontend smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$STAGING_URL/" -o /tmp/staging-index.html
+          curl -fsS "$STAGING_URL/import-export.js" -o /tmp/import-export.js
+
+          grep -q "Import / Export" /tmp/staging-index.html
+          grep -q "import-export.js" /tmp/staging-index.html
+          grep -q "commitBillImport" /tmp/import-export.js
+          grep -q "source_snapshot" /tmp/import-export.js
+
+          echo "frontend_smoke=PASS"
+
+      - name: API import integration smoke
+        run: node tests/import-api-smoke.mjs
+
+      - name: Assert staging database results
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RESULT="$(npx --yes wrangler@4 d1 execute DB --remote --config wrangler.staging.generated.json --json --command "
+            SELECT
+              (SELECT COUNT(*) FROM bills WHERE room_id IN ('smoke-room-101','smoke-room-102')) AS bill_count,
+              (SELECT COUNT(*) FROM meter_readings WHERE room_id IN ('smoke-room-101','smoke-room-102')) AS meter_count,
+              (SELECT COUNT(*) FROM import_batches WHERE property_id='smoke-property' AND status='confirmed') AS confirmed_batches,
+              (SELECT COUNT(*) FROM bill_import_rows WHERE validation_status='imported') AS imported_rows;
+          ")"
+
+          printf '%s' "$RESULT" | jq -e '
+            .[0].results[0].bill_count == 2 and
+            .[0].results[0].meter_count == 4 and
+            .[0].results[0].confirmed_batches == 1 and
+            .[0].results[0].imported_rows >= 2
+          ' >/dev/null
+
+          DETAIL="$(npx --yes wrangler@4 d1 execute DB --remote --config wrangler.staging.generated.json --json --command "
+            SELECT room_id,rent,vat_amount,total,source_document_no,calculation_mode
+            FROM bills
+            WHERE room_id IN ('smoke-room-101','smoke-room-102')
+            ORDER BY room_id;
+          ")"
+
+          printf '%s' "$DETAIL" | jq -e '
+            (.[0].results | length) == 2 and
+            .[0].results[0].room_id == "smoke-room-101" and
+            .[0].results[0].rent == 3500 and
+            .[0].results[0].vat_amount == 78.84 and
+            .[0].results[0].total == 3905 and
+            .[0].results[0].calculation_mode == "source_snapshot" and
+            .[0].results[1].room_id == "smoke-room-102" and
+            .[0].results[1].rent == 3000 and
+            .[0].results[1].vat_amount == 107.26 and
+            .[0].results[1].total == 3839 and
+            .[0].results[1].calculation_mode == "source_snapshot"
+          ' >/dev/null
+
+          echo "database_assertions=PASS"
+
+      - name: Safety summary
+        run: |
+          echo "SMOKE_TARGET_DB=$STAGING_DB_NAME"
+          echo "SMOKE_TARGET_WORKER=$STAGING_WORKER_NAME"
+          echo "SMOKE_TARGET_URL=$STAGING_URL"
+          echo "PRODUCTION_DB_TOUCHED=NO"
+          echo "PRODUCTION_DEPLOYED=NO"
