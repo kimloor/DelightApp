@@ -977,6 +977,25 @@
     .app-error-actions .btn{width:100%;}
   }
 
+
+  /* ---------- Meter History Filters + Bulk Billing Actions ---------- */
+  .meter-history-controls{
+    display:grid;
+    grid-template-columns:minmax(220px,1fr) 160px 190px;
+    gap:8px;
+    margin-bottom:8px;
+  }
+  .meter-history-controls .toolbar-input,
+  .meter-history-controls .toolbar-select{width:100%;min-width:0;}
+  .meter-history-summary{font-size:12px;margin:0 0 10px;}
+  .meter-history-table-wrap{max-height:56vh;overflow:auto;border:1px solid var(--line);border-radius:8px;}
+  .toolbar-actions #bulkReceiveBtn:disabled,
+  .toolbar-actions #bulkPrintInvoicesBtn:disabled{opacity:.45;cursor:not-allowed;}
+  @media(max-width:760px){
+    .meter-history-controls{grid-template-columns:1fr;}
+    .meter-history-table-wrap{max-width:100%;overflow:auto;}
+  }
+
 </style>
 </head>
 <body>
