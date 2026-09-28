@@ -4461,45 +4461,115 @@ async function onSaveBulkMeter(){
   const rows = document.querySelectorAll('#modalBody tr[data-bill]');
   const updates=[], readingDrafts=[];
   let skipped = 0;
+  let hasBaselineCorrection = false;
+
   rows.forEach(tr=>{
-    const bill = bills.find(b=>b.id===tr.dataset.bill);
+    const bill = bills.find(b=>String(b.id)===String(tr.dataset.bill));
     if(!bill) return;
+    const wPrevInput = tr.querySelector('.bm-water-prev');
+    const ePrevInput = tr.querySelector('.bm-electric-prev');
     const wInput = tr.querySelector('.bm-water');
     const eInput = tr.querySelector('.bm-electric');
-    const wPrev = Number(wInput.dataset.prev)||0;
-    const ePrev = Number(eInput.dataset.prev)||0;
+    if(!wPrevInput || !ePrevInput || !wInput || !eInput) return;
+
+    const originalWPrev = Number(wPrevInput.dataset.original)||0;
+    const originalEPrev = Number(ePrevInput.dataset.original)||0;
+    const wPrev = Number(wPrevInput.value)||0;
+    const ePrev = Number(ePrevInput.value)||0;
     const wCurr = Number(wInput.value)||0;
     const eCurr = Number(eInput.value)||0;
-    if(wCurr < wPrev || eCurr < ePrev){ skipped++; return; }
+    if(wPrev<0 || ePrev<0 || wCurr < wPrev || eCurr < ePrev){ skipped++; return; }
+
     const draft={...bill};
-    draft.waterCurr = wCurr; draft.water = Math.max(wCurr-wPrev,0)*waterRate;
-    draft.electricCurr = eCurr; draft.electric = Math.max(eCurr-ePrev,0)*electricRate;
+    draft.waterPrev = wPrev;
+    draft.waterCurr = wCurr;
+    draft.water = Math.max(wCurr-wPrev,0)*waterRate;
+    draft.electricPrev = ePrev;
+    draft.electricCurr = eCurr;
+    draft.electric = Math.max(eCurr-ePrev,0)*electricRate;
     applyBillVat(draft);
-    updates.push(draft);
-    readingDrafts.push(logMeterReading({roomId: draft.roomId, billId: draft.id, month: draft.month, type:'water', prev:wPrev, curr:wCurr, rate:waterRate}));
-    readingDrafts.push(logMeterReading({roomId: draft.roomId, billId: draft.id, month: draft.month, type:'electric', prev:ePrev, curr:eCurr, rate:electricRate}));
+
+    const baselineChanged = wPrev!==originalWPrev || ePrev!==originalEPrev;
+    const anyChanged = baselineChanged
+      || Number(bill.waterCurr||0)!==wCurr
+      || Number(bill.electricCurr||0)!==eCurr
+      || Number(bill.water||0)!==Number(draft.water||0)
+      || Number(bill.electric||0)!==Number(draft.electric||0)
+      || Number(bill.total||0)!==Number(draft.total||0);
+    if(anyChanged) updates.push(draft);
+    if(baselineChanged) hasBaselineCorrection = true;
+
+    const hasWaterReading = meterReadings.some(m=>String(m.billId)===String(draft.id) && m.type==='water');
+    const hasElectricReading = meterReadings.some(m=>String(m.billId)===String(draft.id) && m.type==='electric');
+    if(Number(bill.waterCurr||0)!==wCurr || !hasWaterReading){
+      readingDrafts.push(logMeterReading({roomId:draft.roomId,billId:draft.id,month:draft.month,type:'water',prev:wPrev,curr:wCurr,rate:waterRate}));
+    }
+    if(Number(bill.electricCurr||0)!==eCurr || !hasElectricReading){
+      readingDrafts.push(logMeterReading({roomId:draft.roomId,billId:draft.id,month:draft.month,type:'electric',prev:ePrev,curr:eCurr,rate:electricRate}));
+    }
   });
+
+  if(skipped>0){
+    showToast(`มี ${skipped} ห้องที่เลขปัจจุบันน้อยกว่าเลขเดิม กรุณาตรวจสอบก่อนบันทึก`);
+    return;
+  }
+
+  const correctionDate = document.getElementById('oldMeterCorrectionDate')?.value || '';
+  if(hasBaselineCorrection && !/^\d{4}-\d{2}-\d{2}$/.test(correctionDate)){
+    showToast('กรุณาระบุวันที่แก้ไขมิเตอร์เก่า');
+    return;
+  }
+
+  const saveBtn=document.getElementById('saveBulkMeterBtn');
+  if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent='กำลังบันทึก…'; }
   try{
+    let savedBills=[];
     if(updates.length){
-      const bd=await remoteAuthPost({action:'batchUpdateBills',items:updates});
-      (bd.bills||[]).forEach(saved=>{
-        const i=bills.findIndex(b=>b.id===saved.id);
+      const bd = hasBaselineCorrection
+        ? await remoteAuthPost({action:'correctMeterBaselines',items:updates,correctionDate})
+        : await remoteAuthPost({action:'batchUpdateBills',items:updates});
+      savedBills=bd.bills||[];
+      savedBills.forEach(saved=>{
+        const i=bills.findIndex(b=>String(b.id)===String(saved.id));
         if(i>=0) bills[i]=saved;
       });
+
+      if(hasBaselineCorrection){
+        updates.forEach(draft=>{
+          meterReadings.forEach(m=>{
+            if(String(m.billId)!==String(draft.id)) return;
+            if(m.type==='water'){
+              m.prev=Number(draft.waterPrev)||0;
+              m.units=Math.max((Number(m.curr)||0)-m.prev,0);
+              m.cost=m.units*(Number(m.rate)||waterRate);
+            } else if(m.type==='electric'){
+              m.prev=Number(draft.electricPrev)||0;
+              m.units=Math.max((Number(m.curr)||0)-m.prev,0);
+              m.cost=m.units*(Number(m.rate)||electricRate);
+            }
+          });
+        });
+      }
+    }
+
+    if(readingDrafts.length){
       const md=await remoteAuthPost({action:'createMeterReadings',items:readingDrafts});
       meterReadings.push(...(md.meterReadings||[]));
-      cacheLocally();
     }
+    cacheLocally();
+    closeModal();
     render();
-    if(skipped>0){
-      showToast(`บันทึกแล้ว ${updates.length} ห้อง (ข้าม ${skipped} ห้อง — เลขปัจจุบันน้อยกว่าเลขเดิม)`);
+    if(hasBaselineCorrection){
+      showToast(`บันทึกมิเตอร์แล้ว ${updates.length} ห้อง · การแก้มิเตอร์เก่าถูกบันทึกใน Audit Log`);
     } else {
-      closeModal();
       showToast(`บันทึกมิเตอร์ ${updates.length} ห้องเรียบร้อย`);
     }
   }catch(e){
     if(handleUnauthorized(e)) return;
     showToast('บันทึกมิเตอร์ไม่สำเร็จ');
+  }finally{
+    const btn=document.getElementById('saveBulkMeterBtn');
+    if(btn){ btn.disabled=false; btn.textContent='บันทึกทั้งหมด'; }
   }
 }
 
