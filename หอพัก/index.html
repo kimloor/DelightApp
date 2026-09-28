@@ -5390,7 +5390,7 @@ function attachPageEvents(){
     const month = renderBills._month || defaultBillingMonth();
     const hasBillsThisMonth = currentBills().some(b=>b.month===month);
     if(!hasBillsThisMonth){
-      showToast(`ยังไม่มีบิลของเดือน ${monthLabel(month)} — กด "สร้างบิลเดือนนี้" ก่อน แล้วค่อยจดมิเตอร์`);
+      showToast(`ยังไม่มีบิลของเดือน ${monthLabel(month)} — กด "สร้างบิล" แล้วเลือกเดือนนี้ก่อน จากนั้นค่อยจดมิเตอร์`);
       return;
     }
     openModal(bulkMeterFormHtml(month), {wide:true});
