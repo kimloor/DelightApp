@@ -4,6 +4,8 @@ const assert = require('assert');
 
 const helpSource = fs.readFileSync('หอพัก/help.js','utf8');
 const manual = fs.readFileSync('USER-MANUAL.md','utf8');
+const staticManual = fs.readFileSync('หอพัก/docs/USER-MANUAL.md','utf8');
+assert.equal(staticManual,manual,'static USER-MANUAL mirror is out of sync');
 
 const sandbox = {window:null,console};
 sandbox.window = sandbox;

@@ -1,8 +1,9 @@
-const CACHE_NAME = 'somud-hopak-v6-context-help';
+const CACHE_NAME = 'somud-hopak-v7-context-help-manual';
 const ASSETS = [
   './index.html',
   './import-export.js',
   './help.js',
+  './docs/USER-MANUAL.md',
   './manifest.json',
   './icon.svg'
 ];

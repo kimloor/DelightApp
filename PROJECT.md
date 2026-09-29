@@ -355,4 +355,4 @@ For every new user-visible feature or meaningful change to an existing workflow:
 
 Do not consider a user-visible feature complete until its usage documentation is current.
 
-The in-app `?` Context Help reads from the canonical `USER-MANUAL.md`. Deployment workflows copy that canonical file into the static assets at deploy time; do not maintain a second manual by hand.
+The in-app `?` Context Help uses `USER-MANUAL.md` as the canonical source. `หอพัก/docs/USER-MANUAL.md` is a tracked static mirror required for reliable Worker asset deployment; it must remain byte-for-byte synchronized with the canonical file. CI checks this automatically.

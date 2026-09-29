@@ -85,9 +85,13 @@ jobs:
             sleep 5
           done
           curl -fsS "$PROD_URL/api?action=ping" | grep -q '"backend":"d1"'
+          echo "check_asset=/"
           curl -fsS "$PROD_URL/" -o /tmp/index.html
+          echo "check_asset=/import-export.js"
           curl -fsS "$PROD_URL/import-export.js" -o /tmp/import-export.js
+          echo "check_asset=/help.js"
           curl -fsS "$PROD_URL/help.js" -o /tmp/help.js
+          echo "check_asset=/docs/USER-MANUAL.md"
           curl -fsS "$PROD_URL/docs/USER-MANUAL.md" -o /tmp/user-manual.md
           grep -q "Cloudflare D1" /tmp/index.html
           grep -q "Import / Export" /tmp/index.html
