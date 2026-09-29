@@ -70,6 +70,34 @@ if none -> occupied rooms -> create one bill per room
 
 bill room/month ต้อง unique
 
+### Bill Regeneration / Safe Delete
+
+```text
+User selected wrong bills
+  -> previewBatchDeleteBills
+  -> validate all selected bills:
+       unpaid
+       no receipt history
+       no meter history
+       no tax invoice
+       not imported snapshot
+       same property/month
+       contiguous invoice sequence
+  -> compare selected tail with invoice counter
+
+if selected range is latest tail
+  -> DELETE selected bills
+  -> rewind invoice counter in same guarded batch
+  -> next create reuses released sequence
+
+if newer invoice sequence already exists/reserved
+  -> delete may proceed after warning
+  -> counter is not rewound
+  -> deleted invoice numbers are never reused
+```
+
+การสร้างบิลปกติจะจองช่วง invoice number ของทั้ง batch ก่อน แล้ว insert ชุดบิลด้วย D1 batch หาก insert ล้มเหลว ระบบพยายามคืนช่วงเลขที่เพิ่งจองเฉพาะเมื่อช่วงนั้นยังเป็นช่วงล่าสุด เพื่อป้องกันชนกับ request อื่น
+
 ## 7. Meter Reading
 
 ### Normal
