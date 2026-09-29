@@ -2512,17 +2512,21 @@ function attachModalEvents(){
   const saveRoomBtn = document.getElementById('saveRoomBtn');
   if(saveRoomBtn) saveRoomBtn.onclick = onSaveRoom;
   const confirmCreateBillsBtn = document.getElementById('confirmCreateBillsBtn');
-  if(confirmCreateBillsBtn) confirmCreateBillsBtn.onclick = async ()=>{
+  if(confirmCreateBillsBtn) confirmCreateBillsBtn.onclick = ()=>{
     const month=document.getElementById('f-create-bill-month')?.value || '';
-    confirmCreateBillsBtn.disabled=true;
-    confirmCreateBillsBtn.textContent='กำลังสร้าง…';
-    try{
-      await generateBills(month);
-    }finally{
-      const btn=document.getElementById('confirmCreateBillsBtn');
-      if(btn){ btn.disabled=false; btn.textContent='สร้างบิล'; }
-    }
+    beginBillCreation(month);
   };
+  const createBillsWithMeterBtn = document.getElementById('createBillsWithMeterBtn');
+  if(createBillsWithMeterBtn) createBillsWithMeterBtn.onclick = ()=>{
+    const month=createBillsWithMeterBtn.dataset.month || beginBillCreation._month || '';
+    openModal(preCreateMeterFormHtml(month),{wide:true});
+  };
+  const createBillsNoMeterBtn = document.getElementById('createBillsNoMeterBtn');
+  if(createBillsNoMeterBtn) createBillsNoMeterBtn.onclick = ()=>{
+    generateBills(createBillsNoMeterBtn.dataset.month || beginBillCreation._month || '');
+  };
+  const savePreCreateMetersBtn = document.getElementById('savePreCreateMetersBtn');
+  if(savePreCreateMetersBtn) savePreCreateMetersBtn.onclick = ()=>onSavePreCreateMeters(savePreCreateMetersBtn.dataset.month);
   const deleteRoomBtn = document.getElementById('deleteRoomBtn');
   if(deleteRoomBtn) deleteRoomBtn.onclick = onDeleteRoom;
   const saveBulkRoomsBtn = document.getElementById('saveBulkRoomsBtn');
@@ -2708,6 +2712,7 @@ function attachModalEvents(){
     inputs.forEach(input=>{ input.disabled=editing; });
   };
   wireBulkMeterLiveCalc();
+  wirePreCreateMeterCalc();
   const saveBillEditBtn = document.getElementById('saveBillEditBtn');
   if(saveBillEditBtn) saveBillEditBtn.onclick = ()=> onSaveBillEdit(saveBillEditBtn.dataset.id);
   const deleteBillBtn = document.getElementById('deleteBillBtn');
@@ -6601,11 +6606,11 @@ function createBillMeterChoiceHtml(month){
       ต้องการกรอกเลขมิเตอร์น้ำ-ไฟก่อนสร้างบิลหรือไม่?
     </p>
     <div class="create-bill-choice">
-      <button class="create-bill-choice-card" id="createBillsWithMeterBtn" type="button">
+      <button class="create-bill-choice-card" id="createBillsWithMeterBtn" data-month="${escapeAuthHtml(month)}" type="button">
         <strong>💧⚡ จดมิเตอร์ก่อน</strong>
         <span>กรอกเลขมิเตอร์ทุกห้อง แล้วระบบจะสร้างบิลพร้อมค่าน้ำ-ไฟให้ทันที</span>
       </button>
-      <button class="create-bill-choice-card" id="createBillsNoMeterBtn" type="button">
+      <button class="create-bill-choice-card" id="createBillsNoMeterBtn" data-month="${escapeAuthHtml(month)}" type="button">
         <strong>🧾 สร้างบิลก่อน</strong>
         <span>สร้างบิลด้วยเลขมิเตอร์เดิม แล้วค่อยกลับมาจดมิเตอร์ภายหลัง</span>
       </button>
@@ -6769,6 +6774,7 @@ async function beginBillCreation(month){
     showToast('ยังไม่มีห้องที่มีผู้เช่า');
     return;
   }
+  beginBillCreation._month=targetMonth;
   openModal(createBillMeterChoiceHtml(targetMonth));
 }
 
