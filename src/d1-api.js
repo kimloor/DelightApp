@@ -1111,12 +1111,10 @@ async function buildBatchDeleteBillsPlan(env, user, ids) {
     if (bill.status!=='unpaid') throw new Error('batch_delete_requires_unpaid');
     if (s(bill.tax_invoice_no)) throw new Error('bill_has_tax_invoice');
 
-    const [receiptCount,meterCount]=await Promise.all([
-      env.DB.prepare('SELECT COUNT(*) AS c FROM receipts WHERE bill_id=?').bind(id).first(),
-      env.DB.prepare('SELECT COUNT(*) AS c FROM meter_readings WHERE bill_id=?').bind(id).first(),
-    ]);
+    const receiptCount=await env.DB.prepare(
+      'SELECT COUNT(*) AS c FROM receipts WHERE bill_id=?'
+    ).bind(id).first();
     if (Number(receiptCount?.c)||0) throw new Error('bill_has_receipt_history');
-    if (Number(meterCount?.c)||0) throw new Error('bill_has_meter_history');
 
     const seq=invoiceSequence(bill.invoice_no);
     if (!seq) throw new Error('bill_invoice_sequence_invalid');
@@ -1171,7 +1169,6 @@ async function batchDeleteBillsRows(env,user,ids) {
     AND COALESCE(tax_invoice_no,'')=''
     AND COALESCE(source_document_no,'')=''
     AND NOT EXISTS (SELECT 1 FROM receipts r WHERE r.bill_id=bills.id)
-    AND NOT EXISTS (SELECT 1 FROM meter_readings m WHERE m.bill_id=bills.id)
   `;
   const guardSql=`
     DELETE FROM bills
@@ -1183,13 +1180,30 @@ async function batchDeleteBillsRows(env,user,ids) {
              AND COALESCE(b2.tax_invoice_no,'')=''
              AND COALESCE(b2.source_document_no,'')=''
              AND NOT EXISTS (SELECT 1 FROM receipts r2 WHERE r2.bill_id=b2.id)
-             AND NOT EXISTS (SELECT 1 FROM meter_readings m2 WHERE m2.bill_id=b2.id)
           )=?
       AND ${eligibility}
   `;
+  const eligibilityCountSql=`
+    SELECT COUNT(*) AS c FROM bills b2
+    WHERE b2.id IN (${qs})
+      AND b2.status='unpaid'
+      AND COALESCE(b2.calculation_mode,'standard')<>'source_snapshot'
+      AND COALESCE(b2.tax_invoice_no,'')=''
+      AND COALESCE(b2.source_document_no,'')=''
+      AND NOT EXISTS (SELECT 1 FROM receipts r2 WHERE r2.bill_id=b2.id)
+  `;
+  const meterDeleteBase=`
+    DELETE FROM meter_readings
+    WHERE bill_id IN (${qs})
+      AND (${eligibilityCountSql})=?
+  `;
+
   if(plan.canRewind){
     const guardedDeleteSql=guardSql + " AND (SELECT next_seq FROM document_counters WHERE kind='invoice')=?";
     const deleteStmt=env.DB.prepare(guardedDeleteSql)
+      .bind(...plan.ids,...plan.ids,plan.ids.length,plan.expectedNextSeq);
+    const meterDeleteSql=meterDeleteBase + " AND (SELECT next_seq FROM document_counters WHERE kind='invoice')=?";
+    const meterDeleteStmt=env.DB.prepare(meterDeleteSql)
       .bind(...plan.ids,...plan.ids,plan.ids.length,plan.expectedNextSeq);
     const rewindSql=`
       UPDATE document_counters
@@ -1199,11 +1213,16 @@ async function batchDeleteBillsRows(env,user,ids) {
         AND NOT EXISTS (SELECT 1 FROM bills WHERE id IN (${qs}))
     `;
     await env.DB.batch([
+      meterDeleteStmt,
       deleteStmt,
       env.DB.prepare(rewindSql).bind(plan.rewindTo,plan.expectedNextSeq,...plan.ids),
     ]);
   }else{
-    await env.DB.prepare(guardSql).bind(...plan.ids,...plan.ids,plan.ids.length).run();
+    const meterDeleteStmt=env.DB.prepare(meterDeleteBase)
+      .bind(...plan.ids,...plan.ids,plan.ids.length);
+    const deleteStmt=env.DB.prepare(guardSql)
+      .bind(...plan.ids,...plan.ids,plan.ids.length);
+    await env.DB.batch([meterDeleteStmt,deleteStmt]);
   }
 
   const remaining=await env.DB.prepare(
@@ -1222,7 +1241,7 @@ async function batchDeleteBillsRows(env,user,ids) {
 
   await appendLog(
     env,user,'batchDeleteBills','bills',plan.ids,plan.ids.length,
-    'month '+plan.month+' invoices '+plan.invoiceNos.join(',')+' counter_rewound='+(counterRewound?'yes':'no'),
+    'month '+plan.month+' invoices '+plan.invoiceNos.join(',')+' meter_history_deleted=yes counter_rewound='+(counterRewound?'yes':'no'),
     plan.propertyId
   );
   return {
