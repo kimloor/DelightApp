@@ -988,7 +988,7 @@ async function buildBatchDeleteBillsPlan(env, user, ids) {
     if (String(room.property_id)!==propertyId) throw new Error('batch_delete_property_mismatch');
     if (!month) month=String(bill.month||'');
     if (String(bill.month||'')!==month) throw new Error('batch_delete_month_mismatch');
-    if (bill.calculation_mode==='source_snapshot') throw new Error('imported_bill_snapshot_locked');
+    if (bill.calculation_mode==='source_snapshot' || s(bill.source_document_no)) throw new Error('imported_bill_snapshot_locked');
     if (bill.status!=='unpaid') throw new Error('batch_delete_requires_unpaid');
     if (s(bill.tax_invoice_no)) throw new Error('bill_has_tax_invoice');
 
@@ -1046,35 +1046,70 @@ async function previewBatchDeleteBills(env,user,ids) {
 async function batchDeleteBillsRows(env,user,ids) {
   const plan=await buildBatchDeleteBillsPlan(env,user,ids);
   const qs=plan.ids.map(()=>'?').join(',');
+  const eligibility=`
+    status='unpaid'
+    AND calculation_mode<>'source_snapshot'
+    AND COALESCE(tax_invoice_no,'')=''
+    AND COALESCE(source_document_no,'')=''
+    AND NOT EXISTS (SELECT 1 FROM receipts r WHERE r.bill_id=bills.id)
+    AND NOT EXISTS (SELECT 1 FROM meter_readings m WHERE m.bill_id=bills.id)
+  `;
+  const guardSql=`
+    DELETE FROM bills
+    WHERE id IN (${qs})
+      AND (SELECT COUNT(*) FROM bills b2
+           WHERE b2.id IN (${qs})
+             AND b2.status='unpaid'
+             AND b2.calculation_mode<>'source_snapshot'
+             AND COALESCE(b2.tax_invoice_no,'')=''
+             AND COALESCE(b2.source_document_no,'')=''
+             AND NOT EXISTS (SELECT 1 FROM receipts r2 WHERE r2.bill_id=b2.id)
+             AND NOT EXISTS (SELECT 1 FROM meter_readings m2 WHERE m2.bill_id=b2.id)
+          )=?
+      AND ${eligibility}
+  `;
+  const deleteStmt=env.DB.prepare(guardSql).bind(...plan.ids,...plan.ids,plan.ids.length);
 
   if(plan.canRewind){
+    const rewindSql=`
+      UPDATE document_counters
+      SET next_seq=?
+      WHERE kind='invoice'
+        AND next_seq=?
+        AND NOT EXISTS (SELECT 1 FROM bills WHERE id IN (${qs}))
+    `;
     await env.DB.batch([
-      env.DB.prepare(
-        `DELETE FROM bills WHERE id IN (${qs}) AND (SELECT next_seq FROM document_counters WHERE kind='invoice')=?`
-      ).bind(...plan.ids,plan.expectedNextSeq),
-      env.DB.prepare(
-        'UPDATE document_counters SET next_seq=? WHERE kind=? AND next_seq=?'
-      ).bind(plan.rewindTo,'invoice',plan.expectedNextSeq),
+      deleteStmt,
+      env.DB.prepare(rewindSql).bind(plan.rewindTo,plan.expectedNextSeq,...plan.ids),
     ]);
-
-    const remaining=await env.DB.prepare(
-      `SELECT COUNT(*) AS c FROM bills WHERE id IN (${qs})`
-    ).bind(...plan.ids).first();
-    if(Number(remaining?.c)||0) throw new Error('bill_delete_concurrent_change');
   }else{
-    await env.DB.prepare(`DELETE FROM bills WHERE id IN (${qs})`).bind(...plan.ids).run();
+    await deleteStmt.run();
+  }
+
+  const remaining=await env.DB.prepare(
+    `SELECT COUNT(*) AS c FROM bills WHERE id IN (${qs})`
+  ).bind(...plan.ids).first();
+  if(Number(remaining?.c)||0) throw new Error('bill_delete_concurrent_change');
+
+  let counterRewound=false;
+  if(plan.canRewind){
+    const counter=await env.DB.prepare(
+      'SELECT next_seq FROM document_counters WHERE kind=?'
+    ).bind('invoice').first();
+    counterRewound=Number(counter?.next_seq)===Number(plan.rewindTo);
+    if(!counterRewound) throw new Error('bill_counter_rewind_failed');
   }
 
   await appendLog(
     env,user,'batchDeleteBills','bills',plan.ids,plan.ids.length,
-    'month '+plan.month+' invoices '+plan.invoiceNos.join(',')+' counter_rewound='+(plan.canRewind?'yes':'no'),
+    'month '+plan.month+' invoices '+plan.invoiceNos.join(',')+' counter_rewound='+(counterRewound?'yes':'no'),
     plan.propertyId
   );
   return {
     ids:plan.ids,
     count:plan.ids.length,
-    counterRewound:plan.canRewind,
-    reusableFrom:plan.canRewind ? plan.firstSeq : null,
+    counterRewound,
+    reusableFrom:counterRewound ? plan.firstSeq : null,
     invoiceNos:plan.invoiceNos,
   };
 }
