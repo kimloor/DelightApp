@@ -4267,7 +4267,7 @@ function deleteBillsConfirmHtml(preview){
     </div>
     ${rewindHtml}
     <p class="sub" style="font-size:12px;line-height:1.55;margin-top:12px;">
-      ลบได้เฉพาะบิลที่ยังไม่เคยมีใบเสร็จ ประวัติมิเตอร์ ใบกำกับภาษี หรือข้อมูลนำเข้าผูกอยู่ การลบจะถูกบันทึกใน Audit Log
+      ลบได้เฉพาะบิลที่ยังไม่เคยมีใบเสร็จ ใบกำกับภาษี หรือข้อมูลนำเข้าผูกอยู่ หากมีประวัติมิเตอร์ของบิลชุดนี้ ระบบจะลบประวัติมิเตอร์นั้นไปพร้อมกัน และบันทึกการลบไว้ใน Audit Log
     </p>
     <div class="modal-actions">
       <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
@@ -5026,7 +5026,6 @@ function renderBills(){
     && !String(b.taxInvoiceNo||'').trim()
     && !String(b.sourceDocumentNo||'').trim()
     && !receipts.some(rc=>String(rc.billId)===String(b.id))
-    && !meterReadings.some(m=>String(m.billId)===String(b.id))
   );
 
   return `
@@ -5087,8 +5086,7 @@ function renderBills(){
               && !locked
               && !String(b.taxInvoiceNo||'').trim()
               && !String(b.sourceDocumentNo||'').trim()
-              && !billReceipts.length
-              && !meterReadings.some(m=>String(m.billId)===String(b.id));
+              && !billReceipts.length;
             const receiptBtnHtml = activeReceipt
               ? `<button class="btn ghost small bill-primary-action receipt-details" data-id="${b.id}" title="ดูใบเสร็จ ${escapeAuthHtml(activeReceipt.receiptNo)}">🧾 ใบเสร็จ</button>`
               : b.status==='paid'
