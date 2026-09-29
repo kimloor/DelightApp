@@ -882,34 +882,201 @@ async function nextInvoiceNo(env, month) {
   return `INV-${ym}-${String(seq).padStart(4,'0')}`;
 }
 
+function invoiceSequence(invoiceNo) {
+  const m=/^INV-\d{6}-(\d+)$/.exec(s(invoiceNo));
+  return m ? Number(m[1]) : 0;
+}
+
+async function reserveInvoiceRange(env, count) {
+  const c=Math.max(0,Number(count)||0);
+  if (!c) throw new Error('invoice_reservation_empty');
+  const row=await env.DB.prepare(
+    'UPDATE document_counters SET next_seq=next_seq+? WHERE kind=? RETURNING next_seq-? AS start_seq,next_seq AS next_seq'
+  ).bind(c,'invoice',c).first();
+  if (!row?.start_seq) throw new Error('document_counter_missing');
+  return {start:Number(row.start_seq),next:Number(row.next_seq),count:c};
+}
+
+async function rollbackInvoiceRangeIfLatest(env, reservation) {
+  if (!reservation?.count) return false;
+  const row=await env.DB.prepare(
+    'UPDATE document_counters SET next_seq=? WHERE kind=? AND next_seq=? RETURNING next_seq'
+  ).bind(Number(reservation.start),'invoice',Number(reservation.next)).first();
+  return Number(row?.next_seq)===Number(reservation.start);
+}
+
 async function createBillsRows(env, user, items) {
   if (user.role !== 'admin') throw new Error('forbidden');
   const drafts=Array.isArray(items)?items:[];
-  const out=[];
+  if (!drafts.length) return [];
+
+  const prepared=[];
+  const seen=new Set();
+  let month='';
   for (const raw of drafts) {
     const roomId=s(raw?.roomId);
     await requireRoomAdminAccess(env,user,roomId);
-    const month=s(raw?.month);
-    if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('invalid_bill_month');
+    const itemMonth=s(raw?.month);
+    if (!/^\d{4}-\d{2}$/.test(itemMonth)) throw new Error('invalid_bill_month');
+    if (!month) month=itemMonth;
+    if (itemMonth!==month) throw new Error('batch_bill_month_mismatch');
+    const key=roomId+'|'+itemMonth;
+    if (seen.has(key)) throw new Error('duplicate_bill_draft');
+    seen.add(key);
 
     const exists=await env.DB.prepare('SELECT id FROM bills WHERE room_id=? AND month=? LIMIT 1')
-      .bind(roomId,month).first();
-    if (exists) continue;
+      .bind(roomId,itemMonth).first();
+    if (exists) throw new Error('bill_month_already_has_data');
 
     const id=await nextNumericId(env,'bills');
-    const invoiceNo=await nextInvoiceNo(env,month);
-    const next={...(raw||{}),id,roomId,month,invoiceNo};
-    try{
-      await insertLogicalRow(env,'bills',next);
-    }catch(e){
-      if(businessErrorMessage(e)==='bill_room_month_exists') continue;
-      throw e;
-    }
-    const saved=await dbBill(env,id);
+    prepared.push({raw,roomId,month:itemMonth,id});
+  }
+
+  const reservation=await reserveInvoiceRange(env,prepared.length);
+  const ym=month.replace('-','');
+  const rows=prepared.map((p,index)=>({
+    ...(p.raw||{}),
+    id:p.id,
+    roomId:p.roomId,
+    month:p.month,
+    invoiceNo:`INV-${ym}-${String(reservation.start+index).padStart(4,'0')}`
+  }));
+
+  try{
+    const stmts=rows.map(item=>{
+      const cfg=TABLES.bills;
+      const values=cfg.fromClient(item);
+      return env.DB.prepare(
+        `INSERT INTO bills (${cfg.columns.join(',')}) VALUES (${cfg.columns.map(()=>'?').join(',')})`
+      ).bind(...values);
+    });
+    await env.DB.batch(stmts);
+  }catch(e){
+    await rollbackInvoiceRangeIfLatest(env,reservation);
+    throw e;
+  }
+
+  const out=[];
+  for (const item of rows) {
+    const saved=await dbBill(env,item.id);
     out.push(rowBill(saved));
-    await appendLog(env,user,'create','bills',[id],1,'room '+roomId+' month '+month);
+  }
+  if(out.length){
+    const room=await dbRoom(env,out[0].roomId);
+    await appendLog(
+      env,user,'batchCreateBills','bills',out.map(x=>x.id),out.length,
+      'month '+month+' invoices '+out[0].invoiceNo+'..'+out[out.length-1].invoiceNo,
+      String(room?.property_id||'')
+    );
   }
   return out;
+}
+
+async function buildBatchDeleteBillsPlan(env, user, ids) {
+  if (!user || user.role!=='admin') throw new Error('forbidden');
+  const billIds=[...new Set((Array.isArray(ids)?ids:[]).map(s).filter(Boolean))];
+  if (!billIds.length) throw new Error('no_bills_selected');
+
+  const billsToDelete=[];
+  let propertyId='';
+  let month='';
+  for (const id of billIds) {
+    const bill=await dbBill(env,id);
+    if (!bill) throw new Error('bill_not_found');
+    const room=await requireRoomAdminAccess(env,user,bill.room_id);
+    if (!propertyId) propertyId=String(room.property_id);
+    if (String(room.property_id)!==propertyId) throw new Error('batch_delete_property_mismatch');
+    if (!month) month=String(bill.month||'');
+    if (String(bill.month||'')!==month) throw new Error('batch_delete_month_mismatch');
+    if (bill.calculation_mode==='source_snapshot') throw new Error('imported_bill_snapshot_locked');
+    if (bill.status!=='unpaid') throw new Error('batch_delete_requires_unpaid');
+    if (s(bill.tax_invoice_no)) throw new Error('bill_has_tax_invoice');
+
+    const [receiptCount,meterCount]=await Promise.all([
+      env.DB.prepare('SELECT COUNT(*) AS c FROM receipts WHERE bill_id=?').bind(id).first(),
+      env.DB.prepare('SELECT COUNT(*) AS c FROM meter_readings WHERE bill_id=?').bind(id).first(),
+    ]);
+    if (Number(receiptCount?.c)||0) throw new Error('bill_has_receipt_history');
+    if (Number(meterCount?.c)||0) throw new Error('bill_has_meter_history');
+
+    const seq=invoiceSequence(bill.invoice_no);
+    if (!seq) throw new Error('bill_invoice_sequence_invalid');
+    billsToDelete.push({bill,seq});
+  }
+
+  billsToDelete.sort((a,b)=>a.seq-b.seq);
+  for(let i=1;i<billsToDelete.length;i++){
+    if(billsToDelete[i].seq!==billsToDelete[i-1].seq+1) throw new Error('selected_invoice_range_not_contiguous');
+  }
+
+  const counter=await env.DB.prepare(
+    'SELECT next_seq FROM document_counters WHERE kind=?'
+  ).bind('invoice').first();
+  if(!counter?.next_seq) throw new Error('document_counter_missing');
+  const nextSeq=Number(counter.next_seq);
+  const firstSeq=billsToDelete[0].seq;
+  const lastSeq=billsToDelete[billsToDelete.length-1].seq;
+  const canRewind=lastSeq===nextSeq-1;
+
+  return {
+    ids:billsToDelete.map(x=>String(x.bill.id)),
+    invoiceNos:billsToDelete.map(x=>String(x.bill.invoice_no)),
+    month,
+    propertyId,
+    firstSeq,
+    lastSeq,
+    expectedNextSeq:nextSeq,
+    rewindTo:firstSeq,
+    canRewind,
+  };
+}
+
+async function previewBatchDeleteBills(env,user,ids) {
+  const plan=await buildBatchDeleteBillsPlan(env,user,ids);
+  return {
+    count:plan.ids.length,
+    month:plan.month,
+    invoiceNos:plan.invoiceNos,
+    canRewind:plan.canRewind,
+    firstInvoice:plan.invoiceNos[0]||'',
+    lastInvoice:plan.invoiceNos[plan.invoiceNos.length-1]||'',
+  };
+}
+
+async function batchDeleteBillsRows(env,user,ids) {
+  const plan=await buildBatchDeleteBillsPlan(env,user,ids);
+  const qs=plan.ids.map(()=>'?').join(',');
+
+  if(plan.canRewind){
+    await env.DB.batch([
+      env.DB.prepare(
+        `DELETE FROM bills WHERE id IN (${qs}) AND (SELECT next_seq FROM document_counters WHERE kind='invoice')=?`
+      ).bind(...plan.ids,plan.expectedNextSeq),
+      env.DB.prepare(
+        'UPDATE document_counters SET next_seq=? WHERE kind=? AND next_seq=?'
+      ).bind(plan.rewindTo,'invoice',plan.expectedNextSeq),
+    ]);
+
+    const remaining=await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM bills WHERE id IN (${qs})`
+    ).bind(...plan.ids).first();
+    if(Number(remaining?.c)||0) throw new Error('bill_delete_concurrent_change');
+  }else{
+    await env.DB.prepare(`DELETE FROM bills WHERE id IN (${qs})`).bind(...plan.ids).run();
+  }
+
+  await appendLog(
+    env,user,'batchDeleteBills','bills',plan.ids,plan.ids.length,
+    'month '+plan.month+' invoices '+plan.invoiceNos.join(',')+' counter_rewound='+(plan.canRewind?'yes':'no'),
+    plan.propertyId
+  );
+  return {
+    ids:plan.ids,
+    count:plan.ids.length,
+    counterRewound:plan.canRewind,
+    reusableFrom:plan.canRewind ? plan.firstSeq : null,
+    invoiceNos:plan.invoiceNos,
+  };
 }
 
 
@@ -2158,6 +2325,16 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'batchUpdateBills') {
     try { return {success:true,bills:await batchUpdateBills(env,x.user,body.items)}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'previewBatchDeleteBills') {
+    try { return {success:true,preview:await previewBatchDeleteBills(env,x.user,body.ids)}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'batchDeleteBills') {
+    try { return {success:true,...await batchDeleteBillsRows(env,x.user,body.ids)}; }
     catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
