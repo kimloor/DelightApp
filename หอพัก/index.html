@@ -1012,6 +1012,49 @@
   .io-error{background:var(--rust-soft);color:var(--rust);}
   @media(max-width:900px){.io-grid{grid-template-columns:1fr;}.io-summary{grid-template-columns:repeat(2,minmax(0,1fr));}}
 
+
+  /* ---------- Safe Bill Regeneration ---------- */
+  .bill-delete-summary{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:9px;
+    margin:12px 0;
+  }
+  .bill-delete-summary>div{
+    padding:10px 12px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:var(--bg);
+    min-width:0;
+  }
+  .bill-delete-summary .wide{grid-column:1/-1;}
+  .bill-delete-summary span{
+    display:block;
+    margin-bottom:3px;
+    color:var(--ink-soft);
+    font-size:11.5px;
+  }
+  .bill-delete-summary strong{overflow-wrap:anywhere;}
+  .bill-delete-rewind{
+    padding:11px 12px;
+    border-radius:9px;
+    border:1px solid var(--line);
+    font-size:13px;
+    line-height:1.55;
+  }
+  .bill-delete-rewind.safe{
+    background:var(--teal-soft);
+    border-color:#b9d3c8;
+  }
+  .bill-delete-rewind.warning{
+    background:var(--gold-soft);
+    border-color:#dfc895;
+  }
+  @media(max-width:520px){
+    .bill-delete-summary{grid-template-columns:1fr;}
+    .bill-delete-summary .wide{grid-column:auto;}
+  }
+
 </style>
 </head>
 <body>
@@ -1929,7 +1972,12 @@ function shouldSuppressErrorPopup(err){
   const m=String((err && err.message) || err || '');
   return new Set([
     'invalid_credentials','wrong_old_password','password_too_short','too_many_attempts',
-    'username_exists','unauthorized','offline_read_only'
+    'username_exists','unauthorized','offline_read_only',
+    'no_bills_selected','bill_not_found','batch_delete_property_mismatch','batch_delete_month_mismatch',
+    'imported_bill_snapshot_locked','batch_delete_requires_unpaid','bill_has_tax_invoice',
+    'bill_has_receipt_history','bill_has_meter_history','bill_invoice_sequence_invalid',
+    'selected_invoice_range_not_contiguous','bill_delete_concurrent_change','bill_counter_rewind_failed',
+    'bill_month_already_has_data'
   ]).has(m);
 }
 
