@@ -1060,7 +1060,7 @@ async function batchDeleteBillsRows(env,user,ids) {
       AND (SELECT COUNT(*) FROM bills b2
            WHERE b2.id IN (${qs})
              AND b2.status='unpaid'
-             AND b2.COALESCE(calculation_mode,'standard')<>'source_snapshot'
+             AND COALESCE(b2.calculation_mode,'standard')<>'source_snapshot'
              AND COALESCE(b2.tax_invoice_no,'')=''
              AND COALESCE(b2.source_document_no,'')=''
              AND NOT EXISTS (SELECT 1 FROM receipts r2 WHERE r2.bill_id=b2.id)
