@@ -972,6 +972,125 @@ async function createBillsRows(env, user, items) {
   return out;
 }
 
+async function createBillsWithMetersRows(env, user, items, recordedAt) {
+  if (user.role !== 'admin') throw new Error('forbidden');
+  const drafts=Array.isArray(items)?items:[];
+  if (!drafts.length) return {bills:[],meterReadings:[]};
+
+  const recorded=s(recordedAt) || new Date().toISOString();
+  const prepared=[];
+  const seen=new Set();
+  let month='';
+
+  for (const raw of drafts) {
+    const roomId=s(raw?.roomId);
+    await requireRoomAdminAccess(env,user,roomId);
+    const itemMonth=s(raw?.month);
+    if (!/^\d{4}-\d{2}$/.test(itemMonth)) throw new Error('invalid_bill_month');
+    if (!month) month=itemMonth;
+    if (itemMonth!==month) throw new Error('batch_bill_month_mismatch');
+
+    const key=roomId+'|'+itemMonth;
+    if (seen.has(key)) throw new Error('duplicate_bill_draft');
+    seen.add(key);
+
+    const exists=await env.DB.prepare('SELECT id FROM bills WHERE room_id=? AND month=? LIMIT 1')
+      .bind(roomId,itemMonth).first();
+    if (exists) throw new Error('bill_month_already_has_data');
+
+    const waterPrev=n(raw?.waterPrev);
+    const waterCurr=n(raw?.waterCurr);
+    const electricPrev=n(raw?.electricPrev);
+    const electricCurr=n(raw?.electricCurr);
+    if (waterPrev<0 || electricPrev<0 || waterCurr<waterPrev || electricCurr<electricPrev) {
+      throw new Error('meter_current_less_than_previous');
+    }
+
+    const billId=await nextNumericId(env,'bills');
+    const waterMeterId=await nextNumericId(env,'meter_readings');
+    const electricMeterId=await nextNumericId(env,'meter_readings');
+    prepared.push({
+      raw,roomId,month:itemMonth,billId,waterMeterId,electricMeterId,
+      waterPrev,waterCurr,electricPrev,electricCurr
+    });
+  }
+
+  const reservation=await reserveInvoiceRange(env,prepared.length);
+  const ym=month.replace('-','');
+  const rows=prepared.map((p,index)=>({
+    ...(p.raw||{}),
+    id:p.billId,
+    roomId:p.roomId,
+    month:p.month,
+    invoiceNo:`INV-${ym}-${String(reservation.start+index).padStart(4,'0')}`
+  }));
+
+  const meterDrafts=[];
+  const stmts=[];
+  for (let i=0;i<rows.length;i++) {
+    const item=rows[i];
+    const p=prepared[i];
+    const billCfg=TABLES.bills;
+    const billValues=billCfg.fromClient(item);
+    stmts.push(
+      env.DB.prepare(
+        `INSERT INTO bills (${billCfg.columns.join(',')}) VALUES (${billCfg.columns.map(()=>'?').join(',')})`
+      ).bind(...billValues)
+    );
+
+    const waterUnits=Math.max(p.waterCurr-p.waterPrev,0);
+    const electricUnits=Math.max(p.electricCurr-p.electricPrev,0);
+    const waterMeter={
+      id:p.waterMeterId,roomId:p.roomId,billId:p.billId,month:p.month,type:'water',
+      prev:p.waterPrev,curr:p.waterCurr,units:waterUnits,
+      rate:n(p.raw?.waterRate),cost:n(p.raw?.water),recordedAt:recorded
+    };
+    const electricMeter={
+      id:p.electricMeterId,roomId:p.roomId,billId:p.billId,month:p.month,type:'electric',
+      prev:p.electricPrev,curr:p.electricCurr,units:electricUnits,
+      rate:n(p.raw?.electricRate),cost:n(p.raw?.electric),recordedAt:recorded
+    };
+    for (const meter of [waterMeter,electricMeter]) {
+      const cfg=TABLES.meterReadings;
+      const values=cfg.fromClient(meter);
+      stmts.push(
+        env.DB.prepare(
+          `INSERT INTO meter_readings (${cfg.columns.join(',')}) VALUES (${cfg.columns.map(()=>'?').join(',')})`
+        ).bind(...values)
+      );
+      meterDrafts.push(meter);
+    }
+  }
+
+  try{
+    await env.DB.batch(stmts);
+  }catch(e){
+    await rollbackInvoiceRangeIfLatest(env,reservation);
+    throw e;
+  }
+
+  const outBills=[];
+  const outMeters=[];
+  for (const item of rows) {
+    outBills.push(rowBill(await dbBill(env,item.id)));
+  }
+  for (const meter of meterDrafts) {
+    const saved=await env.DB.prepare('SELECT * FROM meter_readings WHERE id=?').bind(String(meter.id)).first();
+    if(saved) outMeters.push(rowMeter(saved));
+  }
+
+  if(outBills.length){
+    const room=await dbRoom(env,outBills[0].roomId);
+    await appendLog(
+      env,user,'batchCreateBillsWithMeters','bills',outBills.map(x=>x.id),outBills.length,
+      'month '+month+' invoices '+outBills[0].invoiceNo+'..'+outBills[outBills.length-1].invoiceNo+' meter_entries='+outMeters.length,
+      String(room?.property_id||'')
+    );
+  }
+  return {bills:outBills,meterReadings:outMeters};
+}
+
+
 async function buildBatchDeleteBillsPlan(env, user, ids) {
   if (!user || user.role!=='admin') throw new Error('forbidden');
   const billIds=[...new Set((Array.isArray(ids)?ids:[]).map(s).filter(Boolean))];
@@ -2341,6 +2460,11 @@ async function handlePost(request, env, body) {
 
   if (body.action === 'createBills') {
     try { return {success:true,bills:await createBillsRows(env,x.user,body.items)}; }
+    catch(e) { return {error:businessErrorMessage(e)}; }
+  }
+
+  if (body.action === 'createBillsWithMeters') {
+    try { return {success:true,...await createBillsWithMetersRows(env,x.user,body.items,body.recordedAt)}; }
     catch(e) { return {error:businessErrorMessage(e)}; }
   }
 
