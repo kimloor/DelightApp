@@ -89,7 +89,6 @@ User selected wrong bills
   -> validate all selected bills:
        unpaid
        no receipt history
-       no receipt history
        no tax invoice
        not imported snapshot
        same property/month
