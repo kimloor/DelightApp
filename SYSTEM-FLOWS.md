@@ -65,10 +65,21 @@ Move/Delete Tenant -> update relation -> room may become vacant
 ```text
 Billing -> สร้างบิล -> Select month -> Check existing bills
 if any bill exists -> warning -> stop
-if none -> occupied rooms -> create one bill per room
+
+if none
+  -> ask "กรอกมิเตอร์ก่อนหรือไม่?"
+       |
+       +-- No -> occupied rooms -> create bill batch
+       |
+       +-- Yes
+            -> load previous water/electric reading from prior bill
+            -> enter current readings
+            -> calculate units/cost/VAT
+            -> createBillsWithMeters
+            -> D1 batch inserts Bills + Meter Readings together
 ```
 
-bill room/month ต้อง unique
+bill room/month ต้อง unique และ flow “สร้างพร้อมมิเตอร์” ต้องไม่เกิด partial Bill/Meter History
 
 ### Bill Regeneration / Safe Delete
 
@@ -78,7 +89,7 @@ User selected wrong bills
   -> validate all selected bills:
        unpaid
        no receipt history
-       no meter history
+       no receipt history
        no tax invoice
        not imported snapshot
        same property/month
@@ -86,6 +97,7 @@ User selected wrong bills
   -> compare selected tail with invoice counter
 
 if selected range is latest tail
+  -> DELETE linked meter_readings for selected bills
   -> DELETE selected bills
   -> rewind invoice counter in same guarded batch
   -> next create reuses released sequence
