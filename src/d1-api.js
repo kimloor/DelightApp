@@ -1048,7 +1048,7 @@ async function batchDeleteBillsRows(env,user,ids) {
   const qs=plan.ids.map(()=>'?').join(',');
   const eligibility=`
     status='unpaid'
-    AND calculation_mode<>'source_snapshot'
+    AND COALESCE(calculation_mode,'standard')<>'source_snapshot'
     AND COALESCE(tax_invoice_no,'')=''
     AND COALESCE(source_document_no,'')=''
     AND NOT EXISTS (SELECT 1 FROM receipts r WHERE r.bill_id=bills.id)
@@ -1060,7 +1060,7 @@ async function batchDeleteBillsRows(env,user,ids) {
       AND (SELECT COUNT(*) FROM bills b2
            WHERE b2.id IN (${qs})
              AND b2.status='unpaid'
-             AND b2.calculation_mode<>'source_snapshot'
+             AND b2.COALESCE(calculation_mode,'standard')<>'source_snapshot'
              AND COALESCE(b2.tax_invoice_no,'')=''
              AND COALESCE(b2.source_document_no,'')=''
              AND NOT EXISTS (SELECT 1 FROM receipts r2 WHERE r2.bill_id=b2.id)
@@ -1068,9 +1068,10 @@ async function batchDeleteBillsRows(env,user,ids) {
           )=?
       AND ${eligibility}
   `;
-  const deleteStmt=env.DB.prepare(guardSql).bind(...plan.ids,...plan.ids,plan.ids.length);
-
   if(plan.canRewind){
+    const guardedDeleteSql=guardSql + " AND (SELECT next_seq FROM document_counters WHERE kind='invoice')=?";
+    const deleteStmt=env.DB.prepare(guardedDeleteSql)
+      .bind(...plan.ids,...plan.ids,plan.ids.length,plan.expectedNextSeq);
     const rewindSql=`
       UPDATE document_counters
       SET next_seq=?
@@ -1083,7 +1084,7 @@ async function batchDeleteBillsRows(env,user,ids) {
       env.DB.prepare(rewindSql).bind(plan.rewindTo,plan.expectedNextSeq,...plan.ids),
     ]);
   }else{
-    await deleteStmt.run();
+    await env.DB.prepare(guardSql).bind(...plan.ids,...plan.ids,plan.ids.length).run();
   }
 
   const remaining=await env.DB.prepare(
