@@ -2630,6 +2630,8 @@ function attachModalEvents(){
   if(saveReceiptBtn) saveReceiptBtn.onclick = ()=> onSaveReceipt(saveReceiptBtn.dataset.billId);
   const confirmBulkReceiveBtn = document.getElementById('confirmBulkReceiveBtn');
   if(confirmBulkReceiveBtn) confirmBulkReceiveBtn.onclick = onBulkReceiveSelected;
+  const confirmDeleteBillsBtn = document.getElementById('confirmDeleteBillsBtn');
+  if(confirmDeleteBillsBtn) confirmDeleteBillsBtn.onclick = confirmDeleteBills;
   document.querySelectorAll('.void-receipt').forEach(el=>{
     el.onclick = ()=> openModal(voidReceiptModalHtml(el.dataset.id));
   });
@@ -4178,25 +4180,94 @@ async function onSaveBillEdit(billId){
   }
 }
 
-async function onDeleteBill(billId){
-  const bill = bills.find(b=>b.id===billId);
-  if(!bill) return;
-  const ok = confirm(
-    `ลบบิลนี้ (เลขที่ ${bill.invoiceNo||'-'})?\n\n` +
-    `คำเตือน: เลขที่บิลนี้จะไม่ถูกนำกลับมาใช้ซ้ำ — ลำดับเลขที่บิลจะโดดข้ามเลขนี้ไปตลอด`
-  );
-  if(!ok) return;
+function deleteBillsErrorText(code){
+  const map={
+    no_bills_selected:'ยังไม่ได้เลือกบิล',
+    bill_not_found:'ไม่พบบิลที่ต้องการลบ',
+    batch_delete_property_mismatch:'ลบพร้อมกันได้เฉพาะบิลในอพาร์ตเมนต์เดียวกัน',
+    batch_delete_month_mismatch:'ลบพร้อมกันได้เฉพาะบิลในเดือนเดียวกัน',
+    imported_bill_snapshot_locked:'บิลนำเข้าย้อนหลังถูกล็อกและไม่สามารถลบด้วยวิธีนี้ได้',
+    batch_delete_requires_unpaid:'ลบได้เฉพาะบิลที่ยังค้างชำระ',
+    bill_has_tax_invoice:'มีบางบิลกำหนดเลขที่ใบกำกับภาษีแล้ว จึงไม่อนุญาตให้ลบ',
+    bill_has_receipt_history:'มีประวัติใบเสร็จผูกกับบิลแล้ว จึงไม่อนุญาตให้ลบ',
+    bill_has_meter_history:'มีประวัติการจดมิเตอร์ผูกกับบิลแล้ว จึงไม่อนุญาตให้ลบ',
+    bill_invoice_sequence_invalid:'รูปแบบเลขที่บิลไม่รองรับการคืนเลข',
+    selected_invoice_range_not_contiguous:'บิลที่เลือกไม่ใช่ช่วงเลขต่อเนื่อง กรุณาเลือกเป็นชุดต่อเนื่อง',
+    bill_delete_concurrent_change:'ข้อมูลเลขที่บิลมีการเปลี่ยนแปลงระหว่างลบ กรุณาโหลดใหม่แล้วลองอีกครั้ง'
+  };
+  return map[String(code||'')] || 'ตรวจสอบบิลก่อนลบไม่สำเร็จ';
+}
+
+function deleteBillsConfirmHtml(preview){
+  const range = preview.count===1
+    ? escapeAuthHtml(preview.firstInvoice||'-')
+    : `${escapeAuthHtml(preview.firstInvoice||'-')} → ${escapeAuthHtml(preview.lastInvoice||'-')}`;
+  const rewindHtml = preview.canRewind
+    ? `<div class="bill-delete-rewind safe"><strong>✓ คืนเลขที่บิลได้</strong><br>ชุดนี้เป็นเลขท้ายสุดของระบบ หลังลบแล้วเลขเริ่มต้นของชุดนี้จะนำกลับมาใช้ตอนสร้างบิลใหม่ได้</div>`
+    : `<div class="bill-delete-rewind warning"><strong>⚠ คืนเลขที่บิลไม่ได้</strong><br>มีเลขที่เอกสารถูกจอง/ใช้งานหลังชุดนี้แล้ว ลบได้แต่เลขที่ลบจะไม่ถูกนำกลับมาใช้</div>`;
+  return `
+    <h3>ลบบิลที่เลือก</h3>
+    <div class="bill-delete-summary">
+      <div><span>เดือน</span><strong>${escapeAuthHtml(monthLabel(preview.month||''))}</strong></div>
+      <div><span>จำนวน</span><strong>${Number(preview.count)||0} บิล</strong></div>
+      <div class="wide"><span>ช่วงเลขที่บิล</span><strong class="mono">${range}</strong></div>
+    </div>
+    ${rewindHtml}
+    <p class="sub" style="font-size:12px;line-height:1.55;margin-top:12px;">
+      ลบได้เฉพาะบิลที่ยังไม่เคยมีใบเสร็จ ประวัติมิเตอร์ ใบกำกับภาษี หรือข้อมูลนำเข้าผูกอยู่ การลบจะถูกบันทึกใน Audit Log
+    </p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+      <button class="btn danger" id="confirmDeleteBillsBtn">ยืนยันลบ ${Number(preview.count)||0} บิล</button>
+    </div>
+  `;
+}
+
+async function openDeleteBillsPreview(ids){
+  const list=[...new Set((ids||[]).map(String).filter(Boolean))];
+  if(!list.length){ showToast('ยังไม่ได้เลือกบิล'); return; }
   try{
-    await remoteAuthPost({action:'deleteBill',id:billId});
-    bills = bills.filter(b=>b.id!==billId);
+    const data=await remoteAuthPost({action:'previewBatchDeleteBills',ids:list});
+    confirmDeleteBills._ids=list;
+    openModal(deleteBillsConfirmHtml(data.preview||{}));
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast(deleteBillsErrorText(e.message||e),4200);
+  }
+}
+
+async function confirmDeleteBills(){
+  const ids=confirmDeleteBills._ids||[];
+  if(!ids.length) return;
+  const btn=document.getElementById('confirmDeleteBillsBtn');
+  if(btn){ btn.disabled=true; btn.textContent='กำลังลบ…'; }
+  try{
+    const data=await remoteAuthPost({action:'batchDeleteBills',ids});
+    const deleted=new Set((data.ids||[]).map(String));
+    bills=bills.filter(b=>!deleted.has(String(b.id)));
+    meterReadings=meterReadings.filter(m=>!deleted.has(String(m.billId)));
+    if(renderBills._selected){
+      deleted.forEach(id=>renderBills._selected.delete(id));
+    }
     cacheLocally();
     closeModal();
     render();
-    showToast('ลบบิลแล้ว');
+    showToast(
+      data.counterRewound
+        ? `ลบ ${data.count||deleted.size} บิลแล้ว · คืนเลขที่บิลเรียบร้อย สามารถแก้สถานะห้องแล้วสร้างใหม่ได้`
+        : `ลบ ${data.count||deleted.size} บิลแล้ว · ไม่ได้คืนเลขเพราะมีเลขใหม่กว่าถูกใช้งานแล้ว`,
+      4200
+    );
   }catch(e){
     if(handleUnauthorized(e)) return;
-    showToast(String(e.message||e)==='bill_locked_by_receipt' ? 'ลบบิลไม่ได้ เพราะมีใบเสร็จ active อยู่' : 'ลบบิลไม่สำเร็จ');
+    showToast(deleteBillsErrorText(e.message||e),4200);
+  }finally{
+    confirmDeleteBills._ids=[];
   }
+}
+
+async function onDeleteBill(billId){
+  await openDeleteBillsPreview([billId]);
 }
 
 function ratesFormHtml(){
@@ -4895,6 +4966,12 @@ function renderBills(){
   const canMoveSelected = selectedCount>0 && !selectedHasLocked;
   const canReceiveSelected = selectedCount>0 && selectedBills.every(b=>b.status==='unpaid' && !billLockedByReceipt(b.id));
   const canPrintSelected = selectedCount>0;
+  const canDeleteSelected = selectedCount>0 && selectedBills.every(b=>
+    b.status==='unpaid'
+    && !billLockedByReceipt(b.id)
+    && !billImportedSnapshot(b)
+    && !String(b.taxInvoiceNo||'').trim()
+  );
 
   return `
     <div class="page-head">
@@ -4934,6 +5011,7 @@ function renderBills(){
         <button class="btn ghost small" id="moveBillsBtn" ${canMoveSelected?'':'disabled'} title="${selectedHasLocked?'มีบิลที่ออกใบเสร็จแล้ว กรุณา Void ก่อนย้ายเดือน':''}">📅 ย้ายไปเดือนอื่น</button>
         <button class="btn soft small" id="bulkReceiveBtn" ${canReceiveSelected?'':'disabled'} title="${selectedCount===0?'เลือกบิลก่อน':!canReceiveSelected?'รับชำระพร้อมกันได้เฉพาะบิลค้างชำระที่ยังไม่มีใบเสร็จ':''}">💰 รับชำระ (${selectedCount})</button>
         <button class="btn ghost small" id="bulkPrintInvoicesBtn" ${canPrintSelected?'':'disabled'}>🖨 พิมพ์ใบแจ้งหนี้ (${selectedCount})</button>
+        <button class="btn ghost small danger" id="bulkDeleteBillsBtn" ${canDeleteSelected?'':'disabled'} title="${selectedCount===0?'เลือกบิลก่อน':!canDeleteSelected?'ลบได้เฉพาะบิลค้างชำระที่ไม่มีใบเสร็จ/ใบกำกับภาษี/ข้อมูลนำเข้า':''}">🗑 ลบบิลที่เลือก (${selectedCount})</button>
         ${prop.vatEnabled?`<button class="btn ghost small" id="taxInvoiceRangeBtn" ${selectedCount>0&&!selectedHasLocked?'':'disabled'}>📇 กำหนดเลขที่ใบกำกับภาษี</button>`:''}
       </div>
       ${monthBills.length===0 ? `<div class="empty"><div class="big">🧾</div>ยังไม่มีบิลของเดือนนี้ กด “สร้างบิล” แล้วเลือกเดือนที่ต้องการสร้าง</div>` : `
@@ -5590,6 +5668,13 @@ function attachPageEvents(){
   if(bulkPrintInvoicesBtn) bulkPrintInvoicesBtn.onclick = ()=>{
     const selected=currentBills().filter(b=>renderBills._selected && renderBills._selected.has(b.id));
     printInvoices(selected);
+  };
+  const bulkDeleteBillsBtn = document.getElementById('bulkDeleteBillsBtn');
+  if(bulkDeleteBillsBtn) bulkDeleteBillsBtn.onclick = ()=>{
+    const ids=currentBills()
+      .filter(b=>renderBills._selected && renderBills._selected.has(b.id))
+      .map(b=>b.id);
+    openDeleteBillsPreview(ids);
   };
   const taxInvoiceRangeBtn = document.getElementById('taxInvoiceRangeBtn');
   if(taxInvoiceRangeBtn) taxInvoiceRangeBtn.onclick = ()=> openModal(taxInvoiceRangeModalHtml(renderBills._selected.size));
