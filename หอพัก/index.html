@@ -6594,6 +6594,184 @@ function createBillsMonthModalHtml(){
   `;
 }
 
+function createBillMeterChoiceHtml(month){
+  return `
+    <h3>สร้างบิล — ${escapeAuthHtml(monthLabel(month))}</h3>
+    <p class="sub" style="font-size:13px;line-height:1.65;margin-top:-6px;">
+      ต้องการกรอกเลขมิเตอร์น้ำ-ไฟก่อนสร้างบิลหรือไม่?
+    </p>
+    <div class="create-bill-choice">
+      <button class="create-bill-choice-card" id="createBillsWithMeterBtn" type="button">
+        <strong>💧⚡ จดมิเตอร์ก่อน</strong>
+        <span>กรอกเลขมิเตอร์ทุกห้อง แล้วระบบจะสร้างบิลพร้อมค่าน้ำ-ไฟให้ทันที</span>
+      </button>
+      <button class="create-bill-choice-card" id="createBillsNoMeterBtn" type="button">
+        <strong>🧾 สร้างบิลก่อน</strong>
+        <span>สร้างบิลด้วยเลขมิเตอร์เดิม แล้วค่อยกลับมาจดมิเตอร์ภายหลัง</span>
+      </button>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" id="cancelBtn">ยกเลิก</button></div>
+  `;
+}
+
+function preCreateMeterFormHtml(month){
+  const prop=currentProperty() || {};
+  const waterRate=Number(prop.waterRate)||0;
+  const electricRate=Number(prop.electricRate)||0;
+  const occupied=currentRooms().filter(r=>r.status==='occupied').slice().sort((a,b)=>
+    String(a.number||'').localeCompare(String(b.number||''),'th',{numeric:true})
+  );
+  return `
+    <div class="bulk-meter-head">
+      <div>
+        <h3 style="margin-bottom:5px;">จดมิเตอร์ก่อนสร้างบิล — ${monthLabel(month)}</h3>
+        <p class="sub" style="font-size:13px;line-height:1.6;margin:0;">
+          กรอกเลขปัจจุบัน แล้วกด “บันทึกและสร้างบิล” ·
+          น้ำ ${THB(waterRate)} / ไฟ ${THB(electricRate)} บาทต่อหน่วย
+        </p>
+      </div>
+    </div>
+    <div class="precreate-meter-list">
+      ${occupied.map(room=>{
+        const prev=lastBillForRoom(room.id,month);
+        const waterPrev=prev?Number(prev.waterCurr||0):0;
+        const electricPrev=prev?Number(prev.electricCurr||0):0;
+        return `
+          <div class="precreate-meter-card" data-room="${room.id}">
+            <div class="precreate-meter-card-head">
+              <strong>ห้อง ${escapeAuthHtml(room.number)}</strong>
+              <span class="status-pill occupied">มีผู้เช่า</span>
+            </div>
+            <div class="precreate-meter-fields">
+              <div class="field">
+                <label>น้ำ (เดิม → ปัจจุบัน)</label>
+                <div class="meter-pair">
+                  <input class="toolbar-input pcm-water-prev" value="${waterPrev}" disabled>
+                  <span class="muted">→</span>
+                  <input type="number" class="toolbar-input pcm-water" min="0" value="${waterPrev}" onfocus="this.select()">
+                </div>
+              </div>
+              <div class="field">
+                <label>ไฟ (เดิม → ปัจจุบัน)</label>
+                <div class="meter-pair">
+                  <input class="toolbar-input pcm-electric-prev" value="${electricPrev}" disabled>
+                  <span class="muted">→</span>
+                  <input type="number" class="toolbar-input pcm-electric" min="0" value="${electricPrev}" onfocus="this.select()">
+                </div>
+              </div>
+              <div class="precreate-meter-cost mono">0 บ.</div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
+      <button class="btn" id="savePreCreateMetersBtn" data-month="${escapeAuthHtml(month)}">บันทึกและสร้างบิล</button>
+    </div>
+  `;
+}
+
+function wirePreCreateMeterCalc(){
+  const prop=currentProperty() || {};
+  const waterRate=Number(prop.waterRate)||0;
+  const electricRate=Number(prop.electricRate)||0;
+  document.querySelectorAll('.precreate-meter-card').forEach(card=>{
+    const wp=card.querySelector('.pcm-water-prev');
+    const wc=card.querySelector('.pcm-water');
+    const ep=card.querySelector('.pcm-electric-prev');
+    const ec=card.querySelector('.pcm-electric');
+    const cost=card.querySelector('.precreate-meter-cost');
+    if(!wp||!wc||!ep||!ec||!cost) return;
+    const calc=()=>{
+      const wPrev=Number(wp.value)||0, wCurr=Number(wc.value)||0;
+      const ePrev=Number(ep.value)||0, eCurr=Number(ec.value)||0;
+      card.classList.toggle('meter-invalid',wCurr<wPrev || eCurr<ePrev);
+      cost.textContent=THB(Math.max(wCurr-wPrev,0)*waterRate + Math.max(eCurr-ePrev,0)*electricRate)+' บ.';
+    };
+    wc.oninput=calc;
+    ec.oninput=calc;
+    calc();
+  });
+}
+
+async function onSavePreCreateMeters(month){
+  const targetMonth=month || '';
+  const prop=currentProperty() || {};
+  const waterRate=Number(prop.waterRate)||0;
+  const electricRate=Number(prop.electricRate)||0;
+  const rows=[...document.querySelectorAll('.precreate-meter-card')];
+  const drafts=[];
+  let invalid=0;
+
+  rows.forEach(card=>{
+    const room=currentRooms().find(r=>String(r.id)===String(card.dataset.room));
+    if(!room) return;
+    const waterPrev=Number(card.querySelector('.pcm-water-prev')?.value)||0;
+    const waterCurr=Number(card.querySelector('.pcm-water')?.value)||0;
+    const electricPrev=Number(card.querySelector('.pcm-electric-prev')?.value)||0;
+    const electricCurr=Number(card.querySelector('.pcm-electric')?.value)||0;
+    if(waterCurr<waterPrev || electricCurr<electricPrev){ invalid++; return; }
+
+    const draft={
+      roomId:room.id,month:targetMonth,rent:Number(room.rent)||0,
+      waterPrev,waterCurr,water:Math.max(waterCurr-waterPrev,0)*waterRate,waterRate,
+      electricPrev,electricCurr,electric:Math.max(electricCurr-electricPrev,0)*electricRate,electricRate,
+      total:0,vatSubtotal:0,vatAmount:0,taxInvoiceNo:'',status:'unpaid'
+    };
+    applyBillVat(draft);
+    drafts.push(draft);
+  });
+
+  if(invalid){
+    showToast(`มี ${invalid} ห้องที่เลขปัจจุบันน้อยกว่าเลขเดิม กรุณาตรวจสอบก่อนสร้างบิล`,4200);
+    return;
+  }
+  if(!drafts.length){ showToast('ไม่มีห้องสำหรับสร้างบิล'); return; }
+
+  const btn=document.getElementById('savePreCreateMetersBtn');
+  if(btn){ btn.disabled=true; btn.textContent='กำลังสร้างบิล…'; }
+  try{
+    const data=await remoteAuthPost({
+      action:'createBillsWithMeters',
+      items:drafts,
+      recordedAt:new Date().toISOString()
+    });
+    bills.push(...(data.bills||[]));
+    meterReadings.push(...(data.meterReadings||[]));
+    renderBills._month=targetMonth;
+    cacheLocally();
+    closeModal();
+    render();
+    showToast(`สร้างบิล ${monthLabel(targetMonth)} พร้อมมิเตอร์แล้ว ${data.bills?.length||0} ห้อง`,3600);
+  }catch(e){
+    if(handleUnauthorized(e)) return;
+    showToast('สร้างบิลพร้อมมิเตอร์ไม่สำเร็จ');
+  }finally{
+    const next=document.getElementById('savePreCreateMetersBtn');
+    if(next){ next.disabled=false; next.textContent='บันทึกและสร้างบิล'; }
+  }
+}
+
+async function beginBillCreation(month){
+  const targetMonth=month || renderBills._month || defaultBillingMonth();
+  if(!/^\d{4}-\d{2}$/.test(targetMonth)){
+    showToast('กรุณาเลือกเดือนที่จะสร้างบิล');
+    return;
+  }
+  const existing=currentBills().filter(b=>b.month===targetMonth);
+  if(existing.length){
+    openModal(existingBillsWarningHtml(targetMonth,existing.length));
+    return;
+  }
+  const occupied=currentRooms().filter(r=>r.status==='occupied');
+  if(!occupied.length){
+    showToast('ยังไม่มีห้องที่มีผู้เช่า');
+    return;
+  }
+  openModal(createBillMeterChoiceHtml(targetMonth));
+}
+
 function existingBillsWarningHtml(month, count){
   return `
     <h3>มีข้อมูลบิลอยู่แล้ว</h3>
