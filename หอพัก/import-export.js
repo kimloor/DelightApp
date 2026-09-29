@@ -109,18 +109,61 @@ function iePill(r){
   return `<span class="io-pill ${m[1]}" title="${escapeAuthHtml(r.validationMessage||'')}">${m[0]}</span>`;
 }
 function renderImportPane(){
-  ieReset(); const rows=importState.rows, ready=rows.filter(r=>r.validationStatus==='ready'), selected=ready.filter(r=>importState.selected.has(String(r.sourcePage)));
+  ieReset();
+  const rows=importState.rows;
+  const ready=rows.filter(r=>r.validationStatus==='ready');
+  const selected=ready.filter(r=>importState.selected.has(String(r.sourcePage)));
   const batches=renderImportExport._batchProperty===currentPropertyId?renderImportExport._batches:null;
-  return `<div class="io-grid"><div class="card"><div class="card-head"><h3>Import บิลย้อนหลังจาก PDF</h3></div>
-    <p class="sub">หอพัก: <strong>${escapeAuthHtml((currentProperty()||{}).name||'-')}</strong> · ระบบจะแปลง ค่าเช่าห้อง + ค่าเฟอร์นิเจอร์ + VAT เฟอร์นิเจอร์ เป็นค่าห้องก่อนบันทึก</p>
-    <input id="importPdfFile" type="file" accept=".pdf,application/pdf" ${importState.busy?'disabled':''}><p id="importProgress" class="sub">${escapeAuthHtml(importState.message||'เลือกไฟล์ PDF')}</p>
-    ${rows.length?`<div class="io-summary"><span>พร้อม <b>${ready.length}</b></span><span>ตรวจ <b>${rows.filter(r=>r.validationStatus==='review').length}</b></span><span>ซ้ำ <b>${rows.filter(r=>r.validationStatus==='duplicate').length}</b></span><span>ผิดพลาด <b>${rows.filter(r=>r.validationStatus==='error').length}</b></span></div>
-    <div class="io-table"><table><thead><tr><th><input id="importAll" type="checkbox" ${selected.length===ready.length&&ready.length?'checked':''}></th><th>หน้า</th><th>ห้อง</th><th>เลขที่เดิม</th><th>เดือน</th><th>ค่าห้อง</th><th>น้ำ</th><th>ไฟ</th><th>VAT</th><th>ยอด</th><th>ผล</th></tr></thead><tbody>
-    ${rows.map(r=>`<tr><td><input class="importSel" data-p="${r.sourcePage}" type="checkbox" ${importState.selected.has(String(r.sourcePage))?'checked':''} ${r.validationStatus==='ready'?'':'disabled'}></td><td>${r.sourcePage}</td><td><b>${escapeAuthHtml(r.roomNumber||'-')}</b></td><td>${escapeAuthHtml(r.sourceDocumentNo||'-')}</td><td>${r.billingMonth||'-'}</td><td>${ieMoney(r.transformedRent)}</td><td>${ieMoney(r.waterCharge)}</td><td>${ieMoney(r.electricCharge)}</td><td>${ieMoney(r.sourceVatAmount)}</td><td><b>${ieMoney(r.sourceTotal)}</b></td><td>${iePill(r)}</td></tr>`).join('')}
-    </tbody></table></div><div class="toolbar-actions" style="margin-top:12px;justify-content:flex-end"><button class="btn ghost" id="clearImport">ล้าง</button><button class="btn" id="confirmImport" ${selected.length?'':'disabled'}>ยืนยันนำเข้า (${selected.length})</button></div>`:''}
-    ${importState.result?`<p class="sub"><b>ผล:</b> สำเร็จ ${importState.result.imported} · ข้าม ${importState.result.skipped} · ผิดพลาด ${importState.result.errors}</p>`:''}</div>
-    <div class="card"><div class="card-head"><h3>ประวัตินำเข้าล่าสุด</h3></div>${batches===null?'<p class="sub">กำลังโหลด…</p>':(batches||[]).map(b=>`<p class="sub"><b>${escapeAuthHtml(b.sourceFilename||'-')}</b><br>${b.importedRows}/${b.totalRows} · ${escapeAuthHtml(b.status||'')}</p>`).join('')||'<p class="sub">ยังไม่มีประวัติ</p>'}</div></div>`;
+
+  const historyHtml=batches===null
+    ? '<div class="io-history-empty">กำลังโหลด…</div>'
+    : (batches||[]).length
+      ? `<div class="io-history-list">${batches.map(b=>`<div class="io-history-item"><div><strong>${escapeAuthHtml(b.sourceFilename||'-')}</strong><span>${escapeAuthHtml(b.status||'')}</span></div><b>${b.importedRows}/${b.totalRows}</b></div>`).join('')}</div>`
+      : '<div class="io-history-empty">ยังไม่มีประวัติการนำเข้า</div>';
+
+  return `<div class="io-grid">
+    <section class="card io-panel">
+      <div class="card-head io-panel-head"><div><h3>Import บิลย้อนหลังจาก PDF</h3><p class="sub">ตรวจข้อมูลก่อนยืนยันทุกครั้ง</p></div></div>
+      <div class="io-panel-body">
+        <div class="io-import-note">
+          <span>หอพัก</span>
+          <strong>${escapeAuthHtml((currentProperty()||{}).name||'-')}</strong>
+          <p>ระบบจะรวม ค่าเช่าห้อง + ค่าเฟอร์นิเจอร์ + VAT เฟอร์นิเจอร์ เป็นค่าห้อง ก่อนบันทึกลงฐานข้อมูล</p>
+        </div>
+        <label class="io-file-picker">
+          <span class="io-file-title">เลือกไฟล์ PDF</span>
+          <input id="importPdfFile" type="file" accept=".pdf,application/pdf" ${importState.busy?'disabled':''}>
+        </label>
+        <p id="importProgress" class="io-helper">${escapeAuthHtml(importState.message||'ยังไม่ได้เลือกไฟล์')}</p>
+
+        ${rows.length?`
+          <div class="io-summary">
+            <span>พร้อม <b>${ready.length}</b></span>
+            <span>ตรวจ <b>${rows.filter(r=>r.validationStatus==='review').length}</b></span>
+            <span>ซ้ำ <b>${rows.filter(r=>r.validationStatus==='duplicate').length}</b></span>
+            <span>ผิดพลาด <b>${rows.filter(r=>r.validationStatus==='error').length}</b></span>
+          </div>
+          <div class="io-table"><table>
+            <thead><tr><th><input id="importAll" type="checkbox" ${selected.length===ready.length&&ready.length?'checked':''}></th><th>หน้า</th><th>ห้อง</th><th>เลขที่เดิม</th><th>เดือน</th><th>ค่าห้อง</th><th>น้ำ</th><th>ไฟ</th><th>VAT</th><th>ยอด</th><th>ผล</th></tr></thead>
+            <tbody>${rows.map(r=>`<tr><td><input class="importSel" data-p="${r.sourcePage}" type="checkbox" ${importState.selected.has(String(r.sourcePage))?'checked':''} ${r.validationStatus==='ready'?'':'disabled'}></td><td>${r.sourcePage}</td><td><b>${escapeAuthHtml(r.roomNumber||'-')}</b></td><td>${escapeAuthHtml(r.sourceDocumentNo||'-')}</td><td>${r.billingMonth||'-'}</td><td>${ieMoney(r.transformedRent)}</td><td>${ieMoney(r.waterCharge)}</td><td>${ieMoney(r.electricCharge)}</td><td>${ieMoney(r.sourceVatAmount)}</td><td><b>${ieMoney(r.sourceTotal)}</b></td><td>${iePill(r)}</td></tr>`).join('')}</tbody>
+          </table></div>
+          <div class="io-inline-action io-import-actions">
+            <button class="btn ghost" id="clearImport">ล้าง</button>
+            <button class="btn" id="confirmImport" ${selected.length?'':'disabled'}>ยืนยันนำเข้า (${selected.length})</button>
+          </div>
+        `:''}
+
+        ${importState.result?`<div class="io-result"><b>ผลการนำเข้า</b><span>สำเร็จ ${importState.result.imported} · ข้าม ${importState.result.skipped} · ผิดพลาด ${importState.result.errors}</span></div>`:''}
+      </div>
+    </section>
+
+    <section class="card io-panel io-history-card">
+      <div class="card-head io-panel-head"><div><h3>ประวัตินำเข้าล่าสุด</h3><p class="sub">เฉพาะหอพักที่กำลังเลือก</p></div></div>
+      <div class="io-panel-body">${historyHtml}</div>
+    </section>
+  </div>`;
 }
+
 function ieExportBills(){
   const ms=[...availableMonths()].reverse(); if(!renderImportExport._month||!ms.includes(renderImportExport._month))renderImportExport._month=ms[0]||thisMonth();
   return currentBills().filter(b=>b.month===renderImportExport._month).sort((a,b)=>{const x=rooms.find(r=>r.id===a.roomId),y=rooms.find(r=>r.id===b.roomId);return (x?.number||'').localeCompare(y?.number||'','th',{numeric:true});});
