@@ -133,28 +133,77 @@ function renderExportPane(){
   if(!renderImportExport._reportType)renderImportExport._reportType='monthly';
   if(!renderImportExport._rangeFrom||!asc.includes(renderImportExport._rangeFrom))renderImportExport._rangeFrom=asc[0]||renderImportExport._month;
   if(!renderImportExport._rangeTo||!asc.includes(renderImportExport._rangeTo))renderImportExport._rangeTo=asc[asc.length-1]||renderImportExport._month;
-  const s=renderImportExport._selected, all=list.length&&list.every(b=>s.has(String(b.id)));
+
+  const s=renderImportExport._selected, all=list.length>0&&list.every(b=>s.has(String(b.id)));
   const roomIds=new Set(currentRooms().map(r=>String(r.id)));
   const rcs=receipts.filter(r=>roomIds.has(String(r.roomId))).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
   const deps=deposits.filter(d=>roomIds.has(String(d.roomId))).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  const hasBills=list.length>0;
+  const hasMoneyDocs=rcs.length>0||deps.length>0;
+  const hasAnyExport=hasBills||hasMoneyDocs;
   const roomLabel=id=>{const r=rooms.find(x=>String(x.id)===String(id));return r?r.number:'-';};
-  return `<div class="card"><div class="card-head"><div><h3>Export บิล</h3><p class="sub">เลือกเดือนและบิลที่ต้องการบันทึก PDF</p></div><select id="exportMonth" class="toolbar-select">${ms.map(m=>`<option value="${m}" ${m===renderImportExport._month?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div>
-  <div class="toolbar-actions"><button class="btn" id="exportBills" ${s.size?'':'disabled'}>📄 PDF บิลที่เลือก (${s.size})</button></div>
-  <div class="io-table"><table><thead><tr><th><input id="exportAll" type="checkbox" ${all?'checked':''}></th><th>ห้อง</th><th>เลขบิล</th><th>ค่าห้อง</th><th>น้ำ</th><th>ไฟ</th><th>รวม</th></tr></thead><tbody>${list.map(b=>{const r=rooms.find(x=>x.id===b.roomId);return `<tr><td><input class="exportSel" data-id="${b.id}" type="checkbox" ${s.has(String(b.id))?'checked':''}></td><td><b>${escapeAuthHtml(r?.number||'-')}</b></td><td>${escapeAuthHtml(b.invoiceNo||'-')}</td><td>${ieMoney(b.rent)}</td><td>${ieMoney(b.water)}</td><td>${ieMoney(b.electric)}</td><td><b>${ieMoney(b.total)}</b></td></tr>`}).join('')}</tbody></table></div></div>
-  <div class="card" style="margin-top:16px"><div class="card-head"><h3>Export รายงานสรุป</h3></div>
-    <div class="field-row"><div class="field"><label>ประเภทรายงาน</label><select id="exportReportType"><option value="monthly" ${renderImportExport._reportType==='monthly'?'selected':''}>สรุปยอดรายเดือน</option><option value="water" ${renderImportExport._reportType==='water'?'selected':''}>สรุปค่าน้ำ</option><option value="electric" ${renderImportExport._reportType==='electric'?'selected':''}>สรุปค่าไฟ</option></select></div>
-    <div class="field"><label>เดือน (รายงานรายเดือน)</label><select id="exportReportMonth">${ms.map(m=>`<option value="${m}" ${m===renderImportExport._month?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div></div>
-    <div class="field-row"><div class="field"><label>ช่วงเริ่มต้น (น้ำ/ไฟ)</label><select id="exportRangeFrom">${asc.map(m=>`<option value="${m}" ${m===renderImportExport._rangeFrom?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div><div class="field"><label>ถึงเดือน</label><select id="exportRangeTo">${asc.map(m=>`<option value="${m}" ${m===renderImportExport._rangeTo?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div></div>
-    <button class="btn ghost" id="exportReport">📊 PDF รายงาน</button>
-  </div>
-  <div class="card" style="margin-top:16px"><div class="card-head"><h3>Export เอกสารรับเงิน</h3></div>
-    <div class="field"><label>ใบเสร็จรับเงิน</label><div style="display:flex;gap:8px"><select id="exportReceiptSelect" style="flex:1"><option value="">${rcs.length?'เลือกใบเสร็จ…':'ยังไม่มีใบเสร็จ'}</option>${rcs.map(r=>`<option value="${r.id}">ห้อง ${escapeAuthHtml(roomLabel(r.roomId))} · ${escapeAuthHtml(r.receiptNo||'-')} · ${formatThaiDate(r.date)}</option>`).join('')}</select><button class="btn ghost" id="exportReceiptBtn" ${rcs.length?'':'disabled'}>📄 PDF</button></div></div>
-    <div class="field"><label>ใบรับเงินมัดจำ</label><div style="display:flex;gap:8px"><select id="exportDepositSelect" style="flex:1"><option value="">${deps.length?'เลือกใบรับมัดจำ…':'ยังไม่มีใบรับมัดจำ'}</option>${deps.map(d=>`<option value="${d.id}">ห้อง ${escapeAuthHtml(roomLabel(d.roomId))} · ${escapeAuthHtml(d.receiptNo||'-')} · ${formatThaiDate(d.date)}</option>`).join('')}</select><button class="btn ghost" id="exportDepositBtn" ${deps.length?'':'disabled'}>📄 PDF</button></div></div>
-  </div>`;
+
+  if(!hasAnyExport){
+    return `<div class="io-empty card">
+      <div class="io-empty-icon">⇩</div>
+      <div>
+        <h3>ยังไม่มีข้อมูลให้ Export</h3>
+        <p>เมื่อมีบิล ใบเสร็จ หรือใบรับเงินมัดจำ ระบบจะแสดงตัวเลือก Export ในหน้านี้อัตโนมัติ</p>
+      </div>
+    </div>`;
+  }
+
+  const billPanel=hasBills?`<section class="card io-panel">
+    <div class="card-head io-panel-head">
+      <div>
+        <h3>บิล</h3>
+        <p class="sub">เลือกเดือนและบิลที่ต้องการบันทึกเป็น PDF</p>
+      </div>
+      <select id="exportMonth" class="toolbar-select io-compact-select">${ms.map(m=>`<option value="${m}" ${m===renderImportExport._month?'selected':''}>${monthLabel(m)}</option>`).join('')}</select>
+    </div>
+    <div class="toolbar-actions io-panel-actions">
+      <button class="btn" id="exportBills" ${s.size?'':'disabled'}>📄 PDF บิลที่เลือก (${s.size})</button>
+    </div>
+    <div class="io-table io-export-table"><table>
+      <thead><tr><th><input id="exportAll" type="checkbox" ${all?'checked':''}></th><th>ห้อง</th><th>เลขบิล</th><th>ค่าห้อง</th><th>น้ำ</th><th>ไฟ</th><th>รวม</th></tr></thead>
+      <tbody>${list.map(b=>{const r=rooms.find(x=>x.id===b.roomId);return `<tr><td><input class="exportSel" data-id="${b.id}" type="checkbox" ${s.has(String(b.id))?'checked':''}></td><td><b>${escapeAuthHtml(r?.number||'-')}</b></td><td>${escapeAuthHtml(b.invoiceNo||'-')}</td><td>${ieMoney(b.rent)}</td><td>${ieMoney(b.water)}</td><td>${ieMoney(b.electric)}</td><td><b>${ieMoney(b.total)}</b></td></tr>`}).join('')}</tbody>
+    </table></div>
+  </section>`:'';
+
+  const reportPanel=hasBills?`<section class="card io-panel">
+    <div class="card-head io-panel-head"><div><h3>รายงานสรุป</h3><p class="sub">ส่งออกรายงานจากข้อมูลบิลที่มีอยู่</p></div></div>
+    <div class="io-panel-body">
+      <div class="io-form-grid">
+        <div class="field"><label>ประเภทรายงาน</label><select id="exportReportType"><option value="monthly" ${renderImportExport._reportType==='monthly'?'selected':''}>สรุปยอดรายเดือน</option><option value="water" ${renderImportExport._reportType==='water'?'selected':''}>สรุปค่าน้ำ</option><option value="electric" ${renderImportExport._reportType==='electric'?'selected':''}>สรุปค่าไฟ</option></select></div>
+        <div class="field"><label>เดือน (รายงานรายเดือน)</label><select id="exportReportMonth">${ms.map(m=>`<option value="${m}" ${m===renderImportExport._month?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div>
+        <div class="field"><label>ช่วงเริ่มต้น (น้ำ/ไฟ)</label><select id="exportRangeFrom">${asc.map(m=>`<option value="${m}" ${m===renderImportExport._rangeFrom?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div>
+        <div class="field"><label>ถึงเดือน</label><select id="exportRangeTo">${asc.map(m=>`<option value="${m}" ${m===renderImportExport._rangeTo?'selected':''}>${monthLabel(m)}</option>`).join('')}</select></div>
+      </div>
+      <div class="io-inline-action"><button class="btn ghost" id="exportReport">📊 PDF รายงาน</button></div>
+    </div>
+  </section>`:'';
+
+  const moneyPanel=hasMoneyDocs?`<section class="card io-panel">
+    <div class="card-head io-panel-head"><div><h3>เอกสารรับเงิน</h3><p class="sub">เลือกเอกสารที่ต้องการบันทึกเป็น PDF</p></div></div>
+    <div class="io-panel-body io-money-docs">
+      ${rcs.length?`<div class="field"><label>ใบเสร็จรับเงิน</label><div class="io-doc-row"><select id="exportReceiptSelect"><option value="">เลือกใบเสร็จ…</option>${rcs.map(r=>`<option value="${r.id}">ห้อง ${escapeAuthHtml(roomLabel(r.roomId))} · ${escapeAuthHtml(r.receiptNo||'-')} · ${formatThaiDate(r.date)}</option>`).join('')}</select><button class="btn ghost" id="exportReceiptBtn">📄 PDF</button></div></div>`:''}
+      ${deps.length?`<div class="field"><label>ใบรับเงินมัดจำ</label><div class="io-doc-row"><select id="exportDepositSelect"><option value="">เลือกใบรับมัดจำ…</option>${deps.map(d=>`<option value="${d.id}">ห้อง ${escapeAuthHtml(roomLabel(d.roomId))} · ${escapeAuthHtml(d.receiptNo||'-')} · ${formatThaiDate(d.date)}</option>`).join('')}</select><button class="btn ghost" id="exportDepositBtn">📄 PDF</button></div></div>`:''}
+    </div>
+  </section>`:'';
+
+  return `<div class="io-export-stack">${billPanel}${reportPanel}${moneyPanel}</div>`;
 }
+
 function renderImportExport(){
   ieReset(); renderImportExport._tab=renderImportExport._tab||'import';
-  return `<div class="page-head"><div><h2>Import / Export</h2><p class="sub">นำเข้าบิลย้อนหลัง และส่งออกเอกสาร</p></div></div><div class="io-tabs"><button class="btn ${renderImportExport._tab==='import'?'':'ghost'} small" data-io="import">⬆ Import</button><button class="btn ${renderImportExport._tab==='export'?'':'ghost'} small" data-io="export">⬇ Export</button></div>${renderImportExport._tab==='import'?renderImportPane():renderExportPane()}`;
+  return `<div class="io-page">
+    <div class="page-head io-page-head"><div><h2>Import / Export</h2><p class="sub">นำเข้าบิลย้อนหลัง และส่งออกเอกสาร</p></div></div>
+    <div class="io-tabs" role="tablist" aria-label="Import Export">
+      <button class="io-tab ${renderImportExport._tab==='import'?'active':''}" data-io="import" role="tab" aria-selected="${renderImportExport._tab==='import'?'true':'false'}">↑ Import</button>
+      <button class="io-tab ${renderImportExport._tab==='export'?'active':''}" data-io="export" role="tab" aria-selected="${renderImportExport._tab==='export'?'true':'false'}">↓ Export</button>
+    </div>
+    ${renderImportExport._tab==='import'?renderImportPane():renderExportPane()}
+  </div>`;
 }
 async function loadImportBatches(){
   if(renderImportExport._batchProperty===currentPropertyId)return;
