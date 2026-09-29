@@ -10,7 +10,9 @@ on:
       - "src/**"
       - "migrations/**"
       - "หอพัก/**"
+      - "USER-MANUAL.md"
       - "tests/import-**"
+      - "tests/help-**"
 
 permissions:
   contents: read
@@ -37,6 +39,9 @@ jobs:
 
       - name: Local parser smoke
         run: node tests/import-export-parser-smoke.cjs
+
+      - name: Context help docs smoke
+        run: node tests/help-context-smoke.cjs
 
       - name: Guard against production targets
         shell: bash
@@ -186,6 +191,12 @@ jobs:
           npx --yes wrangler@4 d1 execute DB --remote --config wrangler.staging.generated.json --file /tmp/staging-seed.sql
           echo "staging_seed=PASS"
 
+      - name: Prepare Context Help manual asset
+        run: |
+          mkdir -p "หอพัก/docs"
+          cp USER-MANUAL.md "หอพัก/docs/USER-MANUAL.md"
+          grep -q "help-id: dashboard" "หอพัก/docs/USER-MANUAL.md"
+
       - name: Deploy isolated staging Worker
         run: npx --yes wrangler@4 deploy --config wrangler.staging.generated.json
 
@@ -209,11 +220,16 @@ jobs:
           set -euo pipefail
           curl -fsS "$STAGING_URL/" -o /tmp/staging-index.html
           curl -fsS "$STAGING_URL/import-export.js" -o /tmp/import-export.js
+          curl -fsS "$STAGING_URL/help.js" -o /tmp/help.js
+          curl -fsS "$STAGING_URL/docs/USER-MANUAL.md" -o /tmp/user-manual.md
 
           grep -q "Import / Export" /tmp/staging-index.html
           grep -q "import-export.js" /tmp/staging-index.html
+          grep -q "help.js" /tmp/staging-index.html
           grep -q "commitBillImport" /tmp/import-export.js
           grep -q "source_snapshot" /tmp/staging-index.html
+          grep -q "DelightApp Context Help V1" /tmp/help.js
+          grep -q "help-id: dashboard" /tmp/user-manual.md
 
           echo "frontend_smoke=PASS"
 

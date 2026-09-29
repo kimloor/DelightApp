@@ -50,6 +50,12 @@ jobs:
           npx --yes wrangler@4 d1 execute delightapp-db --remote --command "SELECT COUNT(*) AS import_rows FROM bill_import_rows;"
           echo "import_export_schema=PASS"
 
+      - name: Prepare Context Help manual asset
+        run: |
+          mkdir -p "หอพัก/docs"
+          cp USER-MANUAL.md "หอพัก/docs/USER-MANUAL.md"
+          grep -q "help-id: dashboard" "หอพัก/docs/USER-MANUAL.md"
+
       - name: Upload production candidate
         id: upload
         shell: bash
@@ -81,7 +87,12 @@ jobs:
           curl -fsS "$PROD_URL/api?action=ping" | grep -q '"backend":"d1"'
           curl -fsS "$PROD_URL/" -o /tmp/index.html
           curl -fsS "$PROD_URL/import-export.js" -o /tmp/import-export.js
+          curl -fsS "$PROD_URL/help.js" -o /tmp/help.js
+          curl -fsS "$PROD_URL/docs/USER-MANUAL.md" -o /tmp/user-manual.md
           grep -q "Cloudflare D1" /tmp/index.html
           grep -q "Import / Export" /tmp/index.html
+          grep -q "help.js" /tmp/index.html
           grep -q "commitBillImport" /tmp/import-export.js
+          grep -q "DelightApp Context Help V1" /tmp/help.js
+          grep -q "help-id: dashboard" /tmp/user-manual.md
           echo "production_smoke=PASS"

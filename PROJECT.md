@@ -339,3 +339,20 @@ Use these documents as follows:
 - future roadmap document — planned features that are not yet production behavior
 
 Do not mix planned features into the "current production" sections of `PROJECT.md`.
+
+
+## 14. Documentation update rule
+
+User-facing documentation is part of the feature definition.
+
+For every new user-visible feature or meaningful change to an existing workflow:
+
+- update `USER-MANUAL.md` in the same branch/PR as the code change
+- add or revise the relevant `help-id` section when Context Help behavior is affected
+- update `ADMIN-GUIDE.md` when owner/admin/superadmin permissions or admin-only workflows change
+- update `SYSTEM-FLOWS.md` when system workflow, lifecycle, or cross-module flow changes
+- update feature-specific technical docs when implementation contracts or safeguards change
+
+Do not consider a user-visible feature complete until its usage documentation is current.
+
+The in-app `?` Context Help reads from the canonical `USER-MANUAL.md`. Deployment workflows copy that canonical file into the static assets at deploy time; do not maintain a second manual by hand.
