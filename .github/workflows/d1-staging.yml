@@ -11,6 +11,8 @@ on:
       - "migrations/**"
       - "wrangler.jsonc"
       - "หอพัก/**"
+      - "USER-MANUAL.md"
+      - "tests/help-**"
 
 permissions:
   contents: read
@@ -26,6 +28,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Context help docs smoke
+        run: node tests/help-context-smoke.cjs
 
       - name: Validate Cloudflare authentication
         run: npx --yes wrangler@4 whoami
@@ -43,6 +48,12 @@ jobs:
           do
             npx --yes wrangler@4 d1 execute delightapp-db --remote --command "$Q"
           done
+
+      - name: Prepare Context Help manual asset
+        run: |
+          mkdir -p "หอพัก/docs"
+          cp USER-MANUAL.md "หอพัก/docs/USER-MANUAL.md"
+          grep -q "help-id: dashboard" "หอพัก/docs/USER-MANUAL.md"
 
       - name: Upload preview Worker version
         run: npx --yes wrangler@4 versions upload --message "Pre-deploy validation" --tag "pre-deploy"
