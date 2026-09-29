@@ -5019,6 +5019,9 @@ function renderBills(){
     && !billLockedByReceipt(b.id)
     && !billImportedSnapshot(b)
     && !String(b.taxInvoiceNo||'').trim()
+    && !String(b.sourceDocumentNo||'').trim()
+    && !receipts.some(rc=>String(rc.billId)===String(b.id))
+    && !meterReadings.some(m=>String(m.billId)===String(b.id))
   );
 
   return `
@@ -5075,6 +5078,12 @@ function renderBills(){
             const receiptLocked = !!activeReceipt;
             const snapshotLocked = billImportedSnapshot(b);
             const locked = receiptLocked || snapshotLocked;
+            const canDeleteRow = b.status==='unpaid'
+              && !locked
+              && !String(b.taxInvoiceNo||'').trim()
+              && !String(b.sourceDocumentNo||'').trim()
+              && !billReceipts.length
+              && !meterReadings.some(m=>String(m.billId)===String(b.id));
             const receiptBtnHtml = activeReceipt
               ? `<button class="btn ghost small bill-primary-action receipt-details" data-id="${b.id}" title="ดูใบเสร็จ ${escapeAuthHtml(activeReceipt.receiptNo)}">🧾 ใบเสร็จ</button>`
               : b.status==='paid'
@@ -5087,7 +5096,7 @@ function renderBills(){
                   <button type="button" class="print-bill" data-id="${b.id}">🖨 พิมพ์ใบแจ้งหนี้</button>
                   ${locked?'':`
                     <button type="button" class="edit-bill" data-id="${b.id}">✎ แก้ไขบิล</button>
-                    <button type="button" class="delete-bill danger" data-id="${b.id}">🗑 ลบบิล</button>`}
+                    ${canDeleteRow?`<button type="button" class="delete-bill danger" data-id="${b.id}">🗑 ลบบิล</button>`:''}`}
                 </div>
               </details>`;
             return `<tr data-id="${b.id}" class="${isSel?'row-selected':''}">
