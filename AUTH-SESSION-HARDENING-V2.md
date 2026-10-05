@@ -106,6 +106,7 @@ Rules:
 - me rejects revoked/expired tokens
 - changePassword verifies old password, writes V2 hash, increments session_version, and should return a fresh token so the current device may continue
 - adminResetPassword writes V2 hash and increments target session_version
+- adminResetPassword on another admin/owner requires the caller to be an owner of a shared property (`owner_required`); tenants in scope can be reset by any admin of that property; superadmin accounts cannot be reset by others
 - logoutAll increments current user session_version and returns a fresh token only if product behavior explicitly keeps current device logged in; otherwise require re-login
 
 ## 5. Security guardrails

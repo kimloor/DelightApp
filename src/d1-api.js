@@ -1998,6 +1998,23 @@ async function adminCanManageUser(env, admin, targetUserId) {
   return scoped.users.some(u=>String(u.id)===String(targetUserId));
 }
 
+// Resetting another admin's password (owner or admin) is an owner-only action.
+// Tenants in the admin's scope may still be reset by any admin of that property.
+// Superadmin accounts can never be reset by someone else through this action.
+async function requireCanResetPassword(env, admin, target) {
+  if (String(admin.id)===String(target.id)) return;
+  if (target.platform_role==='superadmin') throw new Error('forbidden');
+  if (target.role!=='admin') return;
+  const row=await env.DB.prepare(
+    `SELECT 1 AS ok
+     FROM property_admins t
+     JOIN property_admins c ON c.property_id=t.property_id
+     WHERE t.user_id=? AND c.user_id=? AND c.access_role='owner'
+     LIMIT 1`
+  ).bind(String(target.id),String(admin.id)).first();
+  if (!row) throw new Error('owner_required');
+}
+
 async function createScopedAdminUser(env, admin, body) {
   if (!admin || admin.role!=='admin') throw new Error('forbidden');
   const propertyIds=[...new Set((Array.isArray(body.propertyIds)?body.propertyIds:[]).map(s).filter(Boolean))];
@@ -2620,6 +2637,7 @@ async function handlePost(request, env, body) {
       const target = await userById(env,s(body.userId));
       if (!target) throw new Error('user_not_found');
       if(!await adminCanManageUser(env,x.user,target.id)) throw new Error('forbidden');
+      await requireCanResetPassword(env,x.user,target);
       const p=s(body.newPassword);
       if (p.length<4) throw new Error('password_too_short');
       const pw=await makePasswordV2(p);
