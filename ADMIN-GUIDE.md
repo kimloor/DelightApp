@@ -41,7 +41,13 @@ Property business-data access ยังคงอิง property_admins
 
 ## 5. การจัดการบัญชีและสิทธิ์
 
-การสร้างบัญชี admin ไม่ได้ grant property access โดยอัตโนมัติ ต้องกำหนด mapping ใน property_admins
+การสร้างบัญชี admin (`adminCreateUser`) ทำได้เฉพาะ Owner ของ property ที่เลือก และระบบ grant สิทธิ์ `admin` ให้ใน property เหล่านั้นทันที ส่วนสิทธิ์ Owner ต้องกำหนดผ่าน Superadmin
+
+การรีเซ็ตรหัสผ่าน (`adminResetPassword`):
+- รีเซ็ตรหัสผ่านของ admin/owner คนอื่น ทำได้เฉพาะ Owner ของ property ที่บัญชีนั้นมีสิทธิ์อยู่ (Admin ธรรมดารีเซ็ตรหัสของ admin หรือ owner ไม่ได้)
+- รีเซ็ตรหัสผ่านผู้เช่าใน property ของตน ทำได้ทั้ง Owner และ Admin
+- รหัสผ่านของ Superadmin รีเซ็ตโดยผู้อื่นผ่าน action นี้ไม่ได้
+- ทุกครั้งที่รีเซ็ต session เก่าของเป้าหมายถูกยกเลิกและบันทึก audit log
 
 ก่อนถอด Owner ต้องตรวจว่ามี Owner คนอื่นแล้ว หากไม่มีต้องโอนหรือเพิ่ม Owner ใหม่ก่อน
 
