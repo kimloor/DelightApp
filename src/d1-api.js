@@ -693,8 +693,8 @@ async function updatePropertyRow(env, user, item) {
   const dup = await env.DB.prepare('SELECT id FROM properties WHERE name=? AND id<>? LIMIT 1').bind(name,id).first();
   if (dup) throw new Error('property_name_exists');
 
-  const next={...(item||{}),id,name,ownerId:existing.owner_id||''};
-  if(item && Object.prototype.hasOwnProperty.call(item,'receiptTemplate')) receiptTemplateJson(item.receiptTemplate);
+  const next={...(item||{}),id,name,ownerId:existing.owner_id||'',receiptTemplate:item && Object.prototype.hasOwnProperty.call(item,'receiptTemplate')?item.receiptTemplate:parseReceiptTemplate(existing.receipt_template)};
+  receiptTemplateJson(next.receiptTemplate);
   await updateLogicalRow(env,'properties',next);
   await appendLog(env,user,'update','properties',[id],1,'');
   return rowProperty(await env.DB.prepare('SELECT * FROM properties WHERE id=?').bind(id).first());
