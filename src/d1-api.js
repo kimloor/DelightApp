@@ -1,9 +1,9 @@
 const TABLES = {
   properties: {
-    columns: ['id','name','water_rate','electric_rate','address','bill_notes','qr_image','owner_id','vat_enabled','vat_rate','vat_type_rent','vat_type_water','vat_type_electric','tax_id','legal_name'],
+    columns: ['id','name','water_rate','electric_rate','address','bill_notes','qr_image','owner_id','vat_enabled','vat_rate','vat_type_rent','vat_type_water','vat_type_electric','tax_id','legal_name','receipt_template'],
     fromClient: p => [
       s(p.id), s(p.name), n(p.waterRate), n(p.electricRate), s(p.address), s(p.notes), s(p.qrImage), s(p.ownerId),
-      p.vatEnabled ? 1 : 0, n(p.vatRate), vat(p.vatTypeRent), vat(p.vatTypeWater), vat(p.vatTypeElectric), s(p.taxId), s(p.legalName)
+      p.vatEnabled ? 1 : 0, n(p.vatRate), vat(p.vatTypeRent), vat(p.vatTypeWater), vat(p.vatTypeElectric), s(p.taxId), s(p.legalName), receiptTemplateJson(p.receiptTemplate)
     ],
   },
   rooms: {
@@ -45,6 +45,16 @@ const TABLES = {
 const s = v => v == null ? '' : String(v);
 const n = v => Number(v) || 0;
 const vat = v => ['exclusive','inclusive'].includes(v) ? v : 'none';
+function parseReceiptTemplate(value){
+  try{const parsed=JSON.parse(value||'{}');return parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{};}catch(e){return {};}
+}
+function receiptTemplateJson(value){
+  if(value==null) return '{}';
+  if(typeof value!=='object'||Array.isArray(value)) throw new Error('invalid_receipt_template');
+  const json=JSON.stringify(value);
+  if(json.length>20000) throw new Error('receipt_template_too_large');
+  return json;
+}
 const statusRoom = v => v === 'occupied' ? 'occupied' : 'vacant';
 const statusBill = v => v === 'paid' ? 'paid' : 'unpaid';
 
@@ -379,7 +389,7 @@ function rowProperty(r) {
     address:r.address || '', notes:r.bill_notes || '', qrImage:r.qr_image || '', ownerId:r.owner_id || '',
     vatEnabled:!!r.vat_enabled, vatRate:n(r.vat_rate), vatTypeRent:r.vat_type_rent || 'none',
     vatTypeWater:r.vat_type_water || 'none', vatTypeElectric:r.vat_type_electric || 'none',
-    taxId:r.tax_id || '', legalName:r.legal_name || ''
+    taxId:r.tax_id || '', legalName:r.legal_name || '', receiptTemplate:parseReceiptTemplate(r.receipt_template)
   };
 }
 function rowRoom(r) { return {id:String(r.id),propertyId:String(r.property_id),number:r.room_number||'',floor:r.floor||'',rent:n(r.rent),status:r.status==='occupied'?'occupied':'vacant',roomType:r.room_type||'',deposit:n(r.deposit)}; }
@@ -683,7 +693,8 @@ async function updatePropertyRow(env, user, item) {
   const dup = await env.DB.prepare('SELECT id FROM properties WHERE name=? AND id<>? LIMIT 1').bind(name,id).first();
   if (dup) throw new Error('property_name_exists');
 
-  const next={...(item||{}),id,name,ownerId:existing.owner_id||''};
+  const next={...(item||{}),id,name,ownerId:existing.owner_id||'',receiptTemplate:item && Object.prototype.hasOwnProperty.call(item,'receiptTemplate')?item.receiptTemplate:parseReceiptTemplate(existing.receipt_template)};
+  receiptTemplateJson(next.receiptTemplate);
   await updateLogicalRow(env,'properties',next);
   await appendLog(env,user,'update','properties',[id],1,'');
   return rowProperty(await env.DB.prepare('SELECT * FROM properties WHERE id=?').bind(id).first());

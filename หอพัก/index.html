@@ -1434,6 +1434,8 @@
     .tenant-actions .tenant-context-help-btn{flex:0 0 32px;width:32px;}
   }
 
+
+.receipt-designer{display:grid;grid-template-columns:minmax(150px,1fr) minmax(300px,2fr) minmax(190px,1fr);gap:12px;min-height:65vh}.receipt-designer-panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0}.receipt-designer-stage{background:#e9e7e3;border-radius:10px;padding:14px;overflow:auto;display:flex;justify-content:center;align-items:flex-start;min-height:520px}.receipt-designer-stage .invoice{width:100%;max-width:680px;min-width:470px;box-shadow:0 3px 14px #0002}.receipt-designer-item{padding:9px 10px;border:1px solid var(--line);border-radius:8px;margin:7px 0;background:var(--bg);cursor:grab;font-size:12px}.receipt-designer-stage [data-receipt-part]{outline:1px dashed transparent;cursor:pointer}.receipt-designer-stage [data-receipt-part].designer-selected{outline:2px solid #2e8fe0;outline-offset:2px}.receipt-designer-prop label{display:block;font-size:12px;margin:10px 0 4px}.receipt-designer-prop input,.receipt-designer-prop select{width:100%;min-width:0}@media(max-width:850px){.receipt-designer{grid-template-columns:1fr}.receipt-designer-stage{min-height:420px;order:1}.receipt-designer-panel{order:0}.receipt-designer-prop{order:2}}
 </style>
 </head>
 <body>
@@ -3021,6 +3023,8 @@ function attachModalEvents(){
   if(deleteBillBtn) deleteBillBtn.onclick = ()=> onDeleteBill(deleteBillBtn.dataset.id);
   const confirmMoveBillsBtn = document.getElementById('confirmMoveBillsBtn');
   if(confirmMoveBillsBtn) confirmMoveBillsBtn.onclick = onConfirmMoveBills;
+  const openReceiptDesignerBtn=document.getElementById('openReceiptDesignerBtn');
+  if(openReceiptDesignerBtn) openReceiptDesignerBtn.onclick=openReceiptDesigner;
   const saveRatesBtn = document.getElementById('saveRatesBtn');
   if(saveRatesBtn) saveRatesBtn.onclick = onSaveRates;
   const deletePropertyBtn = document.getElementById('deletePropertyBtn');
@@ -4626,6 +4630,54 @@ async function onDeleteBill(billId){
   await openDeleteBillsPreview([billId]);
 }
 
+
+// Receipt Designer V1: layout settings only; receipt transaction data is read-only.
+const RECEIPT_DESIGN_PARTS=[{key:'brand',label:'ชื่อและข้อมูลอพาร์ทเมนท์'},{key:'doc',label:'หัวใบเสร็จและเลขที่'},{key:'meta',label:'ข้อมูลผู้เช่า ห้อง และวันที่'},{key:'items',label:'ตารางรายการและยอดเงิน'},{key:'sign',label:'ส่วนลงชื่อ'}];
+function receiptTemplateDefaults(){
+ const saved=currentProperty()?.receiptTemplate||{},elements={};
+ RECEIPT_DESIGN_PARTS.forEach((p,i)=>{const v=saved.elements?.[p.key]||{};elements[p.key]={visible:v.visible!==false,fontSize:Math.min(28,Math.max(9,Number(v.fontSize)||[14,14,12,12,12][i])),color:/^#[0-9a-f]{6}$/i.test(v.color||'')?v.color:'#292929',align:['left','center','right'].includes(v.align)?v.align:'left',offsetX:Math.max(-40,Math.min(40,Number(v.offsetX)||0)),offsetY:Math.max(-40,Math.min(40,Number(v.offsetY)||0))};});
+ return {version:1,elements};
+}
+function decorateReceiptHtml(html,template){
+ const map={brand:'.inv-brand',doc:'.inv-docno-wrap',meta:'.inv-meta',items:'.inv-items',sign:'.inv-sign'};let rules='';
+ Object.entries(map).forEach(([key,selector])=>{const v=template.elements?.[key]||{};html=html.replace(selector,selector+' data-receipt-part="'+key+'"');rules+='[data-receipt-part="'+key+'"]{display:'+(v.visible===false?'none':'')+';font-size:'+Math.min(28,Math.max(9,Number(v.fontSize)||12))+'px;color:' + (/^#[0-9a-f]{6}$/i.test(v.color||'')?v.color:'#292929')+';text-align:'+(['left','center','right'].includes(v.align)?v.align:'left')+';transform:translate('+Math.max(-40,Math.min(40,Number(v.offsetX)||0))+'px,'+Math.max(-40,Math.min(40,Number(v.offsetY)||0))+'px);}';});
+ return html.replace('<div class="invoice dep-receipt"','<style>'+rules+'</style><div class="invoice dep-receipt"');
+}
+function receiptHtmlWithTemplate(receipt){
+ const property=properties.find(p=>p.id===(rooms.find(r=>r.id===receipt.roomId)?.propertyId||currentPropertyId))||{};
+ return decorateReceiptHtml(receiptHtml(receipt),property.receiptTemplate?.version===1?property.receiptTemplate:receiptTemplateDefaults());
+}
+function openReceiptDesigner(){
+ const prop=currentProperty();if(!prop)return;
+ const room=rooms.find(r=>r.propertyId===prop.id);
+ const sample=receipts.find(r=>r.status!=='void'&&rooms.some(x=>x.id===r.roomId&&x.propertyId===prop.id))||{id:'preview',roomId:room?.id||'',billId:'',receiptNo:'ตัวอย่าง 0001',amount:1250,date:new Date().toISOString().slice(0,10),note:'ตัวอย่าง'};
+ openModal(receiptDesignerHtml(sample),{wide:true});wireReceiptDesigner(sample);
+}
+function receiptDesignerHtml(sample){
+ const items=RECEIPT_DESIGN_PARTS.map(p=>'<div class="receipt-designer-item" draggable="true" data-designer-item="'+p.key+'">'+p.label+'</div>').join('');
+ return '<h3>ออกแบบใบเสร็จ — '+escapeAuthHtml(currentProperty()?.name||'')+'</h3><p class="sub" style="font-size:12px;">ลากรายการเพื่อเลือกส่วนบนตัวอย่าง แล้วปรับคุณสมบัติด้านขวา การซ่อนมีผลเฉพาะหน้าตาเอกสาร ไม่ลบข้อมูลจริง</p><div class="receipt-designer"><section class="receipt-designer-panel"><b>องค์ประกอบ</b><div>'+items+'</div></section><section class="receipt-designer-stage" id="receiptDesignerStage">'+receiptHtmlWithTemplate(sample)+'</section><section class="receipt-designer-panel receipt-designer-prop"><b>คุณสมบัติ</b><div id="receiptDesignerProperties" class="sub">เลือกส่วนบนตัวอย่าง</div></section></div><div class="modal-actions"><button class="btn ghost" id="cancelBtn">ยกเลิก</button><button class="btn" id="saveReceiptTemplateBtn">บันทึกแม่แบบ</button></div>';
+}
+function wireReceiptDesigner(sample){
+ let template=receiptTemplateDefaults(),selected='brand';const stage=document.getElementById('receiptDesignerStage'),props=document.getElementById('receiptDesignerProperties');
+ function renderStage(){stage.innerHTML=decorateReceiptHtml(receiptHtml(sample),template);stage.querySelectorAll('[data-receipt-part]').forEach(el=>{if(el.dataset.receiptPart===selected)el.classList.add('designer-selected');el.onclick=()=>{selected=el.dataset.receiptPart;renderProperties();renderStage();};});}
+ function renderProperties(){
+  const v=template.elements[selected],p=RECEIPT_DESIGN_PARTS.find(x=>x.key===selected);
+  props.innerHTML='<b>'+p.label+'</b><label><input id="rd-visible" type="checkbox" '+(v.visible?'checked':'')+'> แสดงส่วนนี้</label><label>ขนาดตัวอักษร (9–28 px)</label><input id="rd-font" type="number" min="9" max="28" value="'+v.fontSize+'"><label>สีตัวอักษร</label><input id="rd-color" type="color" value="'+v.color+'"><label>จัดแนว</label><select id="rd-align"><option value="left">ซ้าย</option><option value="center">กลาง</option><option value="right">ขวา</option></select><label>เลื่อนแนวนอน</label><input id="rd-x" type="range" min="-40" max="40" value="'+v.offsetX+'"><label>เลื่อนแนวตั้ง</label><input id="rd-y" type="range" min="-40" max="40" value="'+v.offsetY+'">';
+  document.getElementById('rd-align').value=v.align;
+  const bind=(id,key,fn)=>{document.getElementById(id).oninput=e=>{v[key]=fn(e.target);renderStage();};};
+  document.getElementById('rd-visible').onchange=e=>{v.visible=e.target.checked;renderStage();};
+  bind('rd-font','fontSize',e=>Math.min(28,Math.max(9,Number(e.value)||12)));bind('rd-color','color',e=>e.value);bind('rd-align','align',e=>e.value);bind('rd-x','offsetX',e=>Number(e.value));bind('rd-y','offsetY',e=>Number(e.value));
+ }
+ document.querySelectorAll('[data-designer-item]').forEach(el=>{el.onclick=()=>{selected=el.dataset.designerItem;renderProperties();renderStage();};el.ondragstart=e=>e.dataTransfer.setData('text/plain',el.dataset.designerItem);});
+ stage.ondragover=e=>e.preventDefault();stage.ondrop=e=>{e.preventDefault();const key=e.dataTransfer.getData('text/plain');if(template.elements[key]){selected=key;template.elements[key].visible=true;renderProperties();renderStage();}};
+ document.getElementById('saveReceiptTemplateBtn').onclick=async()=>{
+  const prop=currentProperty(),btn=document.getElementById('saveReceiptTemplateBtn');if(!prop)return;btn.disabled=true;btn.textContent='กำลังบันทึก…';
+  try{const data=await remoteAuthPost({action:'updateProperty',item:{...prop,receiptTemplate:template}});const saved=data.property,idx=properties.findIndex(p=>p.id===saved.id);if(idx>=0)properties[idx]=saved;cacheLocally();closeModal();showToast('บันทึกแม่แบบใบเสร็จแล้ว');}
+  catch(err){if(handleUnauthorized(err))return;showToast('บันทึกแม่แบบไม่สำเร็จ: '+String(err.message||err));btn.disabled=false;btn.textContent='บันทึกแม่แบบ';}
+ };
+ renderProperties();renderStage();
+}
+
 function ratesFormHtml(){
   const prop = currentProperty() || {};
   const managers = propertyAdmins.filter(a=>String(a.propertyId)===String(prop.id));
@@ -4698,6 +4750,7 @@ function ratesFormHtml(){
         </div>
       </div>
     </div>
+    <div class="field" style="margin-top:12px;"><button class="btn secondary" type="button" id="openReceiptDesignerBtn">ออกแบบใบเสร็จ</button><p class="sub" style="font-size:12px;margin:6px 0 0;">ปรับการจัดวางได้ โดยไม่เปลี่ยนข้อมูลธุรกรรม</p></div>
     <div class="modal-actions">
       ${prop.id?`<button class="btn danger" id="deletePropertyBtn">ลบอพาร์ทเมนท์นี้</button>`:''}
       <button class="btn ghost" id="cancelBtn">ยกเลิก</button>
@@ -5818,13 +5871,13 @@ function receiptHtml(receipt){
 
 async function printReceipt(receipt){
   const area = document.getElementById('printArea');
-  area.innerHTML = receiptHtml(receipt);
+  area.innerHTML = receiptHtmlWithTemplate(receipt);
   await waitForImages(area);
   window.print();
 }
 
 function exportReceiptPdf(receipt){
-  return exportDocsAsPdf([receipt], receiptHtml, receipt.receiptNo || ('ใบเสร็จ-'+receipt.id));
+  return exportDocsAsPdf([receipt], receiptHtmlWithTemplate, receipt.receiptNo || ('ใบเสร็จ-'+receipt.id));
 }
 
 /* Export รายงานสรุป เป็น PDF — โคลนเนื้อหารายงานที่กำลังแสดงอยู่ ไปวาดในกล่องนอกจอ
